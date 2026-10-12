@@ -23,6 +23,17 @@ Future<bool> showConfirm(
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
+      // Scrolls instead of overflowing for a long message under whole-screen
+      // zoom; a danger confirm (delete/void) carries a warning icon so it
+      // does not look like an everyday "OK".
+      scrollable: true,
+      icon: danger
+          ? const Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.error,
+              size: 32,
+            )
+          : null,
       title: Text(title),
       content: Text(message),
       actions: [

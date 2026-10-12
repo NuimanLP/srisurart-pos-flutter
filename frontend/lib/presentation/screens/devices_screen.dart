@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/devices_repository.dart';
 import '../../domain/models/device_model.dart';
@@ -127,6 +128,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final side = AppBreakpoints.isPhone(MediaQuery.sizeOf(context).width) ? 16.0 : 24.0;
     final authState = context.watch<AuthCubit>().state;
     final currentDeviceToken = authState is Authenticated ? authState.deviceToken : null;
     final currentDeviceRole = authState is Authenticated ? authState.deviceRole : null;
@@ -144,58 +146,50 @@ class _DevicesScreenState extends State<DevicesScreen> {
             // ── Header & Action Banner ──
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                padding: EdgeInsets.fromLTRB(side, 20, side, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    // Title on top, actions wrap under it: in one Row the
+                    // three buttons overflowed any phone and a 2x zoom.
+                    Text(
+                      'จัดการเครื่อง (Device Management)',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'จัดการเครื่องขายหน้าร้าน (POS) และเครื่องจัดการทั่วไป (Backoffice) ตามกติกา ADR-0004',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'จัดการเครื่อง (Device Management)',
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.navy,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'จัดการเครื่องขายหน้าร้าน (POS) และเครื่องจัดการทั่วไป (Backoffice) ตามกติกา ADR-0004',
-                                style: TextStyle(
-                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                        if (!_notEnrolled)
+                          AppButton(
+                            label: 'ออกรหัสผูกเครื่องใหม่',
+                            icon: Icons.add_to_queue,
+                            onPressed: _openCreateDeviceDialog,
                           ),
+                        AppButton.secondary(
+                          label: 'ผูกเครื่องนี้',
+                          icon: Icons.qr_code_scanner,
+                          // #558: a successful enrol signs this session out
+                          // (AuthCubit.enrolDevice) — nothing to reload here.
+                          onPressed: () => DeviceEnrolmentDialog.show(context),
                         ),
-                        Row(
-                          children: [
-                            IconButton.outlined(
-                              icon: const Icon(Icons.refresh),
-                              tooltip: 'รีเฟรชรายการ',
-                              onPressed: _loading ? null : _loadDevices,
-                            ),
-                            const SizedBox(width: 8),
-                            AppButton.secondary(
-                              label: 'ผูกเครื่องนี้',
-                              icon: Icons.qr_code_scanner,
-                              // #558: a successful enrol signs this session out
-                              // (AuthCubit.enrolDevice) — nothing to reload here.
-                              onPressed: () => DeviceEnrolmentDialog.show(context),
-                            ),
-                            if (!_notEnrolled) ...[
-                              const SizedBox(width: 8),
-                              AppButton(
-                                label: 'ออกรหัสผูกเครื่องใหม่',
-                                icon: Icons.add_to_queue,
-                                onPressed: _openCreateDeviceDialog,
-                              ),
-                            ],
-                          ],
+                        IconButton.outlined(
+                          icon: const Icon(Icons.refresh),
+                          tooltip: 'รีเฟรชรายการ',
+                          onPressed: _loading ? null : _loadDevices,
                         ),
                       ],
                     ),
@@ -362,7 +356,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                padding: EdgeInsets.symmetric(horizontal: side, vertical: 8),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
                     // 1. Active POS Terminal
@@ -402,9 +396,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          Flexible(
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
           ),
           const SizedBox(width: 8),
           Container(
@@ -447,9 +443,10 @@ class _DevicesScreenState extends State<DevicesScreen> {
     final isRetired = device.isRetired;
     final hasUnsyncedOps = device.unsyncedOps > 0;
 
-    return AppCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    // AppCard already pads 16 — no second Padding; a gap between cards.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -501,22 +498,23 @@ class _DevicesScreenState extends State<DevicesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      // Wrap: on a phone the chips drop under the label
+                      // instead of overflowing the row.
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Flexible(
-                            child: Text(
-                              device.label,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                decoration: isRetired ? TextDecoration.lineThrough : null,
-                                color: isRetired ? Colors.grey[600] : null,
-                              ),
+                          Text(
+                            device.label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              decoration: isRetired ? TextDecoration.lineThrough : null,
+                              color: isRetired ? Colors.grey[600] : null,
                             ),
                           ),
-                          const SizedBox(width: 8),
                           _buildRoleChip(device),
-                          const SizedBox(width: 6),
                           _buildStatusChip(device),
                         ],
                       ),
@@ -559,14 +557,6 @@ class _DevicesScreenState extends State<DevicesScreen> {
                     ],
                   ),
                 ),
-
-                // ── Action Button ──
-                if (!isRetired)
-                  AppButton.danger(
-                    label: 'ปลดเครื่อง',
-                    icon: Icons.delete_outline,
-                    onPressed: () => _openRetireDialog(device),
-                  ),
               ],
             ),
 
@@ -596,6 +586,21 @@ class _DevicesScreenState extends State<DevicesScreen> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ],
+
+            // ── Action Button ── its own line under the details (and under
+            // any unsent-sales warning, read before retiring), so it never
+            // squeezes the label and dates on a phone.
+            if (!isRetired) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: AppButton.danger(
+                  label: 'ปลดเครื่อง',
+                  icon: Icons.delete_outline,
+                  onPressed: () => _openRetireDialog(device),
                 ),
               ),
             ],
@@ -804,7 +809,9 @@ class _CreateDeviceDialogState extends State<_CreateDeviceDialog> {
         children: [
           Icon(Icons.add_to_queue, color: AppColors.navy),
           SizedBox(width: 10),
-          Text('ออกรหัสผูกเครื่องใหม่', style: TextStyle(fontWeight: FontWeight.bold)),
+          Flexible(
+            child: Text('ออกรหัสผูกเครื่องใหม่', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
       content: SizedBox(
@@ -908,7 +915,9 @@ class _EnrolCodeDisplayDialog extends StatelessWidget {
         children: [
           Icon(Icons.vpn_key, color: AppColors.success),
           SizedBox(width: 10),
-          Text('รหัสผูกเครื่องของคุณ', style: TextStyle(fontWeight: FontWeight.bold)),
+          Flexible(
+            child: Text('รหัสผูกเครื่องของคุณ', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
       content: SizedBox(
@@ -941,22 +950,21 @@ class _EnrolCodeDisplayDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton.outlined(
-                  icon: const Icon(Icons.copy),
-                  tooltip: 'คัดลอกรหัส',
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: enrolCode));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('คัดลอกรหัสผูกเครื่องเรียบร้อยแล้ว')),
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
-                const Text('คัดลอกรหัสผูกเครื่อง', style: TextStyle(fontSize: 13)),
-              ],
+            // One labelled button — the caption used to sit beside a bare
+            // icon and was the part people tapped.
+            Tooltip(
+              message: 'คัดลอกรหัส',
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                icon: const Icon(Icons.copy),
+                label: const Text('คัดลอกรหัสผูกเครื่อง'),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: enrolCode));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('คัดลอกรหัสผูกเครื่องเรียบร้อยแล้ว')),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 12),
             Container(
@@ -1083,8 +1091,10 @@ class _RetireDeviceDialogState extends State<_RetireDeviceDialog> {
         children: [
           const Icon(Icons.warning_amber_rounded, color: AppColors.error),
           const SizedBox(width: 10),
-          Text('ปลดระวางเครื่อง #${device.deviceNo.toString().padLeft(2, '0')}',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
+          Flexible(
+            child: Text('ปลดระวางเครื่อง #${device.deviceNo.toString().padLeft(2, '0')}',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
       content: SizedBox(

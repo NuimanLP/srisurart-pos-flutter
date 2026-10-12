@@ -29,6 +29,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/network/server_error_resolver.dart';
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/backup_file.dart';
 import '../../core/utils/backup_pick_options.dart';
@@ -148,18 +149,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: theme.dividerColor)),
               ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
+              // Phone: all six tabs stay visible as chips on two lines — a
+              // sideways strip showed ~2½ and hid backup/export.
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final phone = AppBreakpoints.isPhone(constraints.maxWidth);
+                  final buttons = [
                     for (final t in _tabs)
                       _TabButton(
                         label: t[1],
                         active: _subTab == t[0],
+                        chip: phone,
                         onTap: () => setState(() => _subTab = t[0]),
                       ),
-                  ],
-                ),
+                  ];
+                  if (phone) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: Wrap(spacing: 8, runSpacing: 8, children: buttons),
+                    );
+                  }
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: buttons),
+                  );
+                },
               ),
             ),
           ),
@@ -170,6 +184,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'account' => const _AccountTab(),
               'qr' => const _ContentPane(
                 title: 'บัญชีรับเงิน QR', // เจ้าของรับรอง 2026-10-10
+                subtitle: 'บัญชีที่ลูกค้าสแกนจ่ายเงินตอนคิดเงิน', // agent ร่าง
                 children: [PaymentAccountsSection()],
               ),
               'theme' => const _ThemeTab(),
@@ -188,15 +203,56 @@ class _TabButton extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
+
+  /// Phone: a bordered chip (in a Wrap) instead of an underlined tab.
+  final bool chip;
   const _TabButton({
     required this.label,
     required this.active,
     required this.onTap,
+    this.chip = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (chip) {
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(
+          color: active ? AppColors.orange : theme.dividerColor,
+          width: active ? 2 : 1,
+        ),
+      );
+      return Material(
+        color: active
+            ? AppColors.orange.withValues(alpha: 0.12)
+            : theme.colorScheme.surface,
+        shape: shape,
+        child: InkWell(
+          customBorder: shape,
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            // widthFactor 1: hug the label inside the Wrap, not fill the row.
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Text(
+                label,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: active
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.secondary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -227,33 +283,137 @@ class _TabButton extends StatelessWidget {
 // Shared content scroll wrapper (maxWidth 820, padding) — matches stS.content.
 class _ContentPane extends StatelessWidget {
   final String title;
+
+  /// One plain line under the title saying what this tab is for.
+  final String? subtitle;
   final List<Widget> children;
-  const _ContentPane({required this.title, required this.children});
+  const _ContentPane({
+    required this.title,
+    this.subtitle,
+    required this.children,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 820),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(bottom: 20),
-                child: Text(
-                  title,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = AppBreakpoints.isPhone(constraints.maxWidth) ? 16.0 : 28.0;
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(side, 24, side, 28),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 820),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.secondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
+                  ...children,
+                ],
               ),
-              ...children,
-            ],
+            ),
           ),
-        ),
+        );
+      },
+    );
+  }
+}
+
+/// Text with a trailing button: side by side when there is room, the button
+/// on its own right-aligned line when narrow (a phone, or a zoomed screen) so
+/// the text is never squeezed to a sliver.
+class _ActionRow extends StatelessWidget {
+  final Widget? leading;
+  final Widget body;
+  final Widget action;
+  const _ActionRow({this.leading, required this.body, required this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final head = [
+          if (leading != null) ...[leading!, const SizedBox(width: 12)],
+        ];
+        if (constraints.maxWidth >= 480) {
+          return Row(
+            children: [
+              ...head,
+              Expanded(child: body),
+              const SizedBox(width: 12),
+              action,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ...head,
+                Expanded(child: body),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Align(alignment: Alignment.centerRight, child: action),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Why a control above is greyed out while the link is down — the same
+/// refusal sentence the action itself shows.
+class _OfflineNote extends StatelessWidget {
+  final String text;
+  const _OfflineNote(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.cloud_off, size: 18, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              // The amber icon carries the warning; the sentence itself uses
+              // the theme's text colour so it reads in light and dark mode
+              // (amber text on the off-white/navy surfaces is too faint).
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -310,6 +470,9 @@ class _AccountTab extends StatelessWidget {
 
     return _ContentPane(
       title: '🔐 บัญชีผู้ใช้และการผูกเครื่อง (Auth & Device)',
+      // agent ร่าง
+      subtitle:
+          'ผู้ที่เข้าสู่ระบบ บทบาทของเครื่องนี้ และ PIN สำหรับขายตอนออฟไลน์',
       children: [
         // ── 1. User Account ──
         const _SectionTitle('ข้อมูลผู้ใช้งาน (User Account)'),
@@ -317,88 +480,85 @@ class _AccountTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: isAuthed
-                        ? AppColors.orange.withValues(alpha: 0.15)
-                        : Colors.grey.withValues(alpha: 0.15),
-                    child: Icon(
-                      isAuthed ? Icons.person : Icons.person_outline,
-                      color: isAuthed ? AppColors.orange : Colors.grey,
-                      size: 28,
-                    ),
+              _ActionRow(
+                leading: CircleAvatar(
+                  radius: 24,
+                  backgroundColor: isAuthed
+                      ? AppColors.orange.withValues(alpha: 0.15)
+                      : Colors.grey.withValues(alpha: 0.15),
+                  child: Icon(
+                    isAuthed ? Icons.person : Icons.person_outline,
+                    color: isAuthed ? AppColors.orange : Colors.grey,
+                    size: 28,
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+                body: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              isAuthed
-                                  ? (user.displayName ?? user.username)
-                                  : 'ยังไม่ได้เข้าสู่ระบบ',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isAuthed
-                                    ? AppColors.success.withValues(alpha: 0.1)
-                                    : Colors.grey.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                isAuthed
-                                    ? 'บทบาท: ${user.role}'
-                                    : 'โหมดออฟไลน์ / แขก',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: isAuthed
-                                      ? AppColors.success
-                                      : Colors.grey[700],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
                         Text(
                           isAuthed
-                              ? 'Username: @${user.username}'
-                              : 'ระบบทำงานในโหมด Offline-first ด้วยฐานข้อมูลภายในเครื่อง',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                              ? (user.displayName ?? user.username)
+                              : 'ยังไม่ได้เข้าสู่ระบบ',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isAuthed
+                                ? AppColors.success.withValues(alpha: 0.1)
+                                : Colors.grey.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            isAuthed
+                                ? 'บทบาท: ${user.role}'
+                                : 'โหมดออฟไลน์ / แขก',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isAuthed
+                                  ? AppColors.success
+                                  : Colors.grey[700],
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  if (isAuthed)
-                    AppButton.secondary(
-                      label: 'ออกจากระบบ',
-                      icon: Icons.logout,
-                      onPressed: () => cubit.logout(),
-                    )
-                  else
-                    AppButton(
-                      label: 'เข้าสู่ระบบ',
-                      icon: Icons.login,
-                      onPressed: () => LoginDialog.show(context),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAuthed
+                          ? 'Username: @${user.username}'
+                          : 'ระบบทำงานในโหมด Offline-first ด้วยฐานข้อมูลภายในเครื่อง',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
                     ),
-                ],
+                  ],
+                ),
+                action: isAuthed
+                    ? AppButton.secondary(
+                        label: 'ออกจากระบบ',
+                        icon: Icons.logout,
+                        onPressed: () => cubit.logout(),
+                      )
+                    : AppButton(
+                        label: 'เข้าสู่ระบบ',
+                        icon: Icons.login,
+                        onPressed: () => LoginDialog.show(context),
+                      ),
               ),
             ],
           ),
@@ -426,145 +586,142 @@ class _AccountTab extends StatelessWidget {
                   color: isPos
                       ? AppColors.success.withValues(alpha: 0.08)
                       : (deviceToken != null
-                          ? AppColors.navy.withValues(alpha: 0.08)
-                          : Colors.grey.withValues(alpha: 0.08)),
+                            ? AppColors.navy.withValues(alpha: 0.08)
+                            : Colors.grey.withValues(alpha: 0.08)),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isPos
                         ? AppColors.success.withValues(alpha: 0.3)
                         : (deviceToken != null
-                            ? AppColors.navy.withValues(alpha: 0.3)
-                            : Colors.grey.withValues(alpha: 0.3)),
+                              ? AppColors.navy.withValues(alpha: 0.3)
+                              : Colors.grey.withValues(alpha: 0.3)),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isPos
-                          ? Icons.check_circle
-                          : (deviceToken != null
+                child: _ActionRow(
+                  leading: Icon(
+                    isPos
+                        ? Icons.check_circle
+                        : (deviceToken != null
                               ? Icons.computer
                               : Icons.warning_amber_rounded),
-                      color: isPos
-                          ? AppColors.success
-                          : (deviceToken != null
+                    color: isPos
+                        ? AppColors.success
+                        : (deviceToken != null
                               ? AppColors.navy
                               : Colors.orange[800]),
-                      size: 24,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isPos
-                                ? 'เครื่องนี้คือเครื่อง POS หน้าร้าน (POS Terminal)'
-                                : (deviceToken != null
-                                    ? 'เครื่องนี้คือ Backoffice Terminal'
-                                    : 'เครื่องนี้ยังไม่ได้ผูกกับระบบ (โหมดทั่วไป)'),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            deviceToken != null
-                                ? 'Device Token: ${deviceToken.substring(0, deviceToken.length > 16 ? 16 : deviceToken.length)}...'
-                                : 'ยังไม่มี Device Token ในเบราว์เซอร์นี้',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ],
+                    size: 24,
+                  ),
+                  body: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isPos
+                            ? 'เครื่องนี้คือเครื่อง POS หน้าร้าน (POS Terminal)'
+                            : (deviceToken != null
+                                  ? 'เครื่องนี้คือ Backoffice Terminal'
+                                  : 'เครื่องนี้ยังไม่ได้ผูกกับระบบ (โหมดทั่วไป)'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (deviceToken != null)
-                      AppButton.danger(
-                        label: 'ยกเลิกการผูกเครื่อง',
-                        icon: Icons.link_off,
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('ยืนยันยกเลิกการผูกเครื่อง'),
-                              content: const Text(
-                                'หากยกเลิกการผูกเครื่องนี้ สิทธิ์ของเครื่อง POS จะถูกถอนออก และต้องให้เจ้าของร้านออกรหัสผูกเครื่องใหม่หากต้องการเชื่อมต่ออีกครั้ง',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(ctx).pop(false),
-                                  child: const Text('ยกเลิก'),
+                      const SizedBox(height: 2),
+                      Text(
+                        deviceToken != null
+                            ? 'Device Token: ${deviceToken.substring(0, deviceToken.length > 16 ? 16 : deviceToken.length)}...'
+                            : 'ยังไม่มี Device Token ในเบราว์เซอร์นี้',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.6,
+                          ),
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  action: deviceToken != null
+                      ? AppButton.danger(
+                          label: 'ยกเลิกการผูกเครื่อง',
+                          icon: Icons.link_off,
+                          onPressed: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('ยืนยันยกเลิกการผูกเครื่อง'),
+                                content: const Text(
+                                  'หากยกเลิกการผูกเครื่องนี้ สิทธิ์ของเครื่อง POS จะถูกถอนออก และต้องให้เจ้าของร้านออกรหัสผูกเครื่องใหม่หากต้องการเชื่อมต่ออีกครั้ง',
                                 ),
-                                FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppColors.error,
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(ctx).pop(false),
+                                    child: const Text('ยกเลิก'),
                                   ),
-                                  onPressed: () => Navigator.of(ctx).pop(true),
-                                  child: const Text('ยืนยันถอนการผูกเครื่อง'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirm == true) {
-                            try {
-                              await cubit.clearDeviceEnrolment();
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      ServerErrorResolver.resolveCounterError(e),
+                                  FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppColors.error,
                                     ),
+                                    onPressed: () =>
+                                        Navigator.of(ctx).pop(true),
+                                    child: const Text('ยืนยันถอนการผูกเครื่อง'),
                                   ),
-                                );
+                                ],
+                              ),
+                            );
+                            if (confirm == true) {
+                              try {
+                                await cubit.clearDeviceEnrolment();
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ServerErrorResolver.resolveCounterError(
+                                          e,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
                               }
                             }
-                          }
-                        },
-                      )
-                    else
-                      AppButton(
-                        label: 'ผูกเครื่องขาย (POS)',
-                        icon: Icons.qr_code_scanner,
-                        onPressed: () => DeviceEnrolmentDialog.show(context),
-                      ),
-                  ],
+                          },
+                        )
+                      : AppButton(
+                          label: 'ผูกเครื่องขาย (POS)',
+                          icon: Icons.qr_code_scanner,
+                          onPressed: () => DeviceEnrolmentDialog.show(context),
+                        ),
                 ),
               ),
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.devices, color: AppColors.navy),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'จัดการเครื่องทั้งหมดในร้าน (Device Management)',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'ดูรายการเครื่อง, ออกรหัสผูกเครื่องใหม่ (POS/Backoffice), และปลดระวางเครื่อง',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
+              _ActionRow(
+                leading: const Icon(Icons.devices, color: AppColors.navy),
+                body: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'จัดการเครื่องทั้งหมดในร้าน (Device Management)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
-                  ),
-                  AppButton(
-                    label: 'เปิดหน้าจัดการเครื่อง',
-                    icon: Icons.arrow_forward,
-                    onPressed: () => context.go(AppRoutes.devices),
-                  ),
-                ],
+                    SizedBox(height: 2),
+                    Text(
+                      'ดูรายการเครื่อง, ออกรหัสผูกเครื่องใหม่ (POS/Backoffice), และปลดระวางเครื่อง',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                action: AppButton(
+                  label: 'เปิดหน้าจัดการเครื่อง',
+                  icon: Icons.arrow_forward,
+                  onPressed: () => context.go(AppRoutes.devices),
+                ),
               ),
             ],
           ),
@@ -659,82 +816,77 @@ class _OfflinePinSectionState extends State<_OfflinePinSection> {
                         color: status?.isLocked == true
                             ? AppColors.error.withValues(alpha: 0.08)
                             : (status?.isConfigured == true
-                                ? AppColors.success.withValues(alpha: 0.08)
-                                : Colors.grey.withValues(alpha: 0.08)),
+                                  ? AppColors.success.withValues(alpha: 0.08)
+                                  : Colors.grey.withValues(alpha: 0.08)),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: status?.isLocked == true
                               ? AppColors.error.withValues(alpha: 0.3)
                               : (status?.isConfigured == true
-                                  ? AppColors.success.withValues(alpha: 0.3)
-                                  : Colors.grey.withValues(alpha: 0.3)),
+                                    ? AppColors.success.withValues(alpha: 0.3)
+                                    : Colors.grey.withValues(alpha: 0.3)),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            status?.isLocked == true
-                                ? Icons.lock
-                                : (status?.isConfigured == true
+                      child: _ActionRow(
+                        leading: Icon(
+                          status?.isLocked == true
+                              ? Icons.lock
+                              : (status?.isConfigured == true
                                     ? Icons.pin
                                     : Icons.pin_outlined),
-                            color: status?.isLocked == true
-                                ? AppColors.error
-                                : (status?.isConfigured == true
+                          color: status?.isLocked == true
+                              ? AppColors.error
+                              : (status?.isConfigured == true
                                     ? AppColors.success
                                     : Colors.grey[700]),
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  loading
-                                      ? 'กำลังตรวจสอบสถานะ PIN...'
-                                      : (status?.isLocked == true
-                                          ? 'รหัส PIN ถูกล็อก (ใส่ผิดครบ 5 ครั้ง)'
-                                          : (status?.isConfigured == true
+                          size: 24,
+                        ),
+                        body: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              loading
+                                  ? 'กำลังตรวจสอบสถานะ PIN...'
+                                  : (status?.isLocked == true
+                                        ? 'รหัส PIN ถูกล็อก (ใส่ผิดครบ 5 ครั้ง)'
+                                        : (status?.isConfigured == true
                                               ? 'ตั้งค่า PIN แล้ว (พร้อมใช้งานออฟไลน์)'
                                               : 'ยังไม่ได้ตั้งค่า PIN ออฟไลน์')),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  isDegraded
-                                      ? 'ขณะนี้อยู่ในโหมดออฟไลน์ (ตั้งค่าได้เมื่อออนไลน์เท่านั้น)'
-                                      : (status?.isLocked == true
-                                          ? 'กรุณากดตั้งค่าใหม่เพื่อปลดล็อก'
-                                          : (status?.isConfigured == true
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isDegraded
+                                  ? 'ขณะนี้อยู่ในโหมดออฟไลน์ (ตั้งค่าได้เมื่อออนไลน์เท่านั้น)'
+                                  : (status?.isLocked == true
+                                        ? 'กรุณากดตั้งค่าใหม่เพื่อปลดล็อก'
+                                        : (status?.isConfigured == true
                                               ? 'สามารถเข้าสู่ระบบด้วย PIN ได้เมื่อไม่มีอินเทอร์เน็ต'
                                               : 'กดปุ่มเพื่อตั้งค่า PIN 4-6 หลัก')),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.6),
-                                  ),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.6,
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          AppButton(
-                            label: status?.isConfigured == true
-                                ? 'เปลี่ยน PIN'
-                                : 'ตั้งค่า PIN',
-                            icon: Icons.edit,
-                            onPressed: isDegraded
-                                ? null
-                                : () => OfflinePinSetupDialog.show(
-                                      context,
-                                      onSuccess: _reload,
-                                    ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        action: AppButton(
+                          label: status?.isConfigured == true
+                              ? 'เปลี่ยน PIN'
+                              : 'ตั้งค่า PIN',
+                          icon: Icons.edit,
+                          onPressed: isDegraded
+                              ? null
+                              : () => OfflinePinSetupDialog.show(
+                                  context,
+                                  onSuccess: _reload,
+                                ),
+                        ),
                       ),
                     );
                   },
@@ -828,9 +980,9 @@ class _GeneralTabState extends State<_GeneralTab> {
 
   Future<void> _save() async {
     if (context.isDegraded) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(settingsOfflineRefusal)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(settingsOfflineRefusal)));
       return;
     }
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
@@ -874,99 +1026,102 @@ class _GeneralTabState extends State<_GeneralTab> {
       builder: (context, status, isDegraded) {
         return _ContentPane(
           title: 'ข้อมูลร้านค้า · Shop Information',
+          // agent ร่าง
+          subtitle: 'ชื่อร้าน ที่อยู่ และค่าที่ใช้พิมพ์บนใบเสร็จและใบเสนอราคา',
           children: [
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const _SectionTitle('ชื่อและที่อยู่'),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final twoCol = constraints.maxWidth > 480;
-                  final fieldW = twoCol
-                      ? (constraints.maxWidth - 14) / 2
-                      : constraints.maxWidth;
-                  return Wrap(
-                    spacing: 14,
-                    runSpacing: 14,
-                    children: [
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField(
-                          label: 'ชื่อร้าน (TH)',
-                          controller: _shopName,
-                        ),
-                      ),
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField(
-                          label: 'ชื่อร้าน (EN)',
-                          controller: _shopNameEN,
-                        ),
-                      ),
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField(
-                          label: 'เบอร์โทร',
-                          controller: _phone,
-                        ),
-                      ),
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField(
-                          label: 'ชื่อแคชเชียร์ (default)',
-                          controller: _cashierName,
-                        ),
-                      ),
-                      SizedBox(
-                        width: constraints.maxWidth,
-                        child: AppTextField(
-                          label: 'ที่อยู่',
-                          controller: _address,
-                        ),
-                      ),
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField.numeric(
-                          label: 'VAT (%)',
-                          controller: _taxRate,
-                        ),
-                      ),
-                      SizedBox(
-                        width: fieldW,
-                        child: AppTextField.numeric(
-                          label: 'ใบเสนอราคา · มีอายุ (วัน)',
-                          controller: _quoteValidDays,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  AppButton(
-                    label: 'บันทึกการตั้งค่า',
-                    onPressed: isDegraded ? null : _save,
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final twoCol = constraints.maxWidth > 480;
+                      final fieldW = twoCol
+                          ? (constraints.maxWidth - 14) / 2
+                          : constraints.maxWidth;
+                      return Wrap(
+                        spacing: 14,
+                        runSpacing: 14,
+                        children: [
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'ชื่อร้าน (TH)',
+                              controller: _shopName,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'ชื่อร้าน (EN)',
+                              controller: _shopNameEN,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'เบอร์โทร',
+                              controller: _phone,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'ชื่อแคชเชียร์ (default)',
+                              controller: _cashierName,
+                            ),
+                          ),
+                          SizedBox(
+                            width: constraints.maxWidth,
+                            child: AppTextField(
+                              label: 'ที่อยู่',
+                              controller: _address,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField.numeric(
+                              label: 'VAT (%)',
+                              controller: _taxRate,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField.numeric(
+                              label: 'ใบเสนอราคา · มีอายุ (วัน)',
+                              controller: _quoteValidDays,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
-                  const SizedBox(width: 12),
-                  if (_saved)
-                    Text(
-                      '✓ บันทึกแล้ว',
-                      style: TextStyle(
-                        color: AppColors.successLight,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      AppButton(
+                        label: 'บันทึกการตั้งค่า',
+                        onPressed: isDegraded ? null : _save,
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      if (_saved)
+                        Text(
+                          '✓ บันทึกแล้ว',
+                          style: TextStyle(
+                            color: AppColors.successLight,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (isDegraded) const _OfflineNote(settingsOfflineRefusal),
                 ],
               ),
-            ],
-          ),
-        ),
-      ],
-    );
+            ),
+          ],
+        );
       },
     );
   }
@@ -1003,6 +1158,7 @@ class _ThemeTab extends StatelessWidget {
     ];
     return _ContentPane(
       title: 'ธีมการแสดงผล · Display Theme',
+      subtitle: 'สีพื้นหลัง ขนาดตัวอักษร และการขยายหน้าจอ', // agent ร่าง
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 500),
@@ -1370,13 +1526,17 @@ class _FontScaleSection extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Text(
-                      'น้ำมันเครื่อง 10W-40',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    // Expanded, not Spacer: at the largest font the name
+                    // wraps instead of pushing the price off a phone.
+                    Expanded(
+                      child: Text(
+                        'น้ำมันเครื่อง 10W-40',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     Text(
                       '฿1,250.00',
                       style: TextStyle(
@@ -1460,16 +1620,18 @@ class _FontScalePresetCard extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             if (valueText != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              valueText!,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 11,
-                color: active ? AppColors.orange : theme.colorScheme.secondary,
-                letterSpacing: 0.5,
+              const SizedBox(height: 2),
+              Text(
+                valueText!,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  color: active
+                      ? AppColors.orange
+                      : theme.colorScheme.secondary,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
             ],
             if (active) ...[
               const SizedBox(height: 4),
@@ -1528,8 +1690,7 @@ class _BackupTabState extends State<_BackupTab> {
       'ต้องเป็นไฟล์ที่ส่งออกจากระบบนี้เท่านั้น';
   static String _serverRestoreConfirm(String shopName) =>
       '⚠ ยืนยันการแทนที่ข้อมูลทั้งร้าน? พิมพ์ชื่อร้าน "$shopName" เพื่อยืนยัน';
-  static const _serverRestoreRunning =
-      'กำลังนำเข้าข้อมูล… กรุณาอย่าปิดหน้านี้';
+  static const _serverRestoreRunning = 'กำลังนำเข้าข้อมูล… กรุณาอย่าปิดหน้านี้';
   // Other devices keep the old rows: a pull brings new and changed rows, but
   // never removes the ones the replace deleted on the server.
   static const _serverRestoreDone =
@@ -1544,7 +1705,11 @@ class _BackupTabState extends State<_BackupTab> {
 
   /// A `.zip` starts with the local-file-header signature `PK\x03\x04`.
   static bool _isZip(Uint8List b) =>
-      b.length >= 4 && b[0] == 0x50 && b[1] == 0x4B && b[2] == 0x03 && b[3] == 0x04;
+      b.length >= 4 &&
+      b[0] == 0x50 &&
+      b[1] == 0x4B &&
+      b[2] == 0x03 &&
+      b[3] == 0x04;
 
   static const _serverRestoreDoneReload =
       'นำเข้าข้อมูลสำเร็จ — กรุณารีเฟรชหน้านี้และเครื่องอื่นของร้านเพื่อโหลดข้อมูลใหม่';
@@ -1633,11 +1798,13 @@ class _BackupTabState extends State<_BackupTab> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          'เกิดข้อผิดพลาด: ${ServerErrorResolver.resolveCounterError(e)}',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'เกิดข้อผิดพลาด: ${ServerErrorResolver.resolveCounterError(e)}',
+          ),
         ),
-      ));
+      );
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -1785,26 +1952,32 @@ class _BackupTabState extends State<_BackupTab> {
     }
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
-        final meta = (_snapshot?['__meta'] as Map?)?.cast<String, dynamic>() ?? {};
+        final meta =
+            (_snapshot?['__meta'] as Map?)?.cast<String, dynamic>() ?? {};
         final counts =
             (meta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? {};
         return _ContentPane(
           title: 'สำรอง / กู้คืนข้อมูล · Backup & Restore',
+          // agent ร่าง
+          subtitle: 'เก็บสำเนาข้อมูลร้านไว้เป็นไฟล์ หรือนำไฟล์สำรองกลับมาใช้',
           children: [
-            // sub-tab bar
+            // sub-tab bar — restore replaces the shop's data, so it reads as
+            // the dangerous choice before it is even opened.
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: Row(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   _SubTabBtn(
                     label: '💾 สำรองข้อมูล',
                     active: _mode == 'backup',
                     onTap: () => setState(() => _mode = 'backup'),
                   ),
-                  const SizedBox(width: 4),
                   _SubTabBtn(
                     label: '📥 กู้คืนข้อมูล',
                     active: _mode == 'restore',
+                    danger: true,
                     onTap: () => setState(() => _mode = 'restore'),
                   ),
                 ],
@@ -1840,6 +2013,10 @@ class _BackupTabState extends State<_BackupTab> {
                 onPressed: isDegraded || _exporting ? null : _handleExport,
               ),
             ),
+            if (isDegraded)
+              const _OfflineNote(
+                'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถส่งออกไฟล์สำรองได้',
+              ),
             if (_exporting) ...[
               const SizedBox(height: 12),
               const Row(
@@ -1865,6 +2042,9 @@ class _BackupTabState extends State<_BackupTab> {
     // API build: the server replaces the shop's data with the file's, never
     // the local cache directly; the pull after it brings the rows here.
     final toServer = context.read<SnapshotRepository>().restoresViaServer;
+    // The offline note only where offline is the actual reason: the restore
+    // goes to the server. (The disabled condition below is unchanged.)
+    final offline = isDegraded && toServer;
     isDegraded = isDegraded || _importing;
     final pmeta =
         (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -1877,13 +2057,24 @@ class _BackupTabState extends State<_BackupTab> {
             ? _serverRestoreNote
             : '⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"',
       ),
+      if (offline) ...[
+        const _OfflineNote('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถกู้คืนข้อมูลได้'),
+        const SizedBox(height: 12),
+      ],
       InkWell(
         onTap: isDegraded ? null : _pickFile,
+        borderRadius: BorderRadius.circular(6),
         child: AppCard(
           child: Column(
             children: [
               const SizedBox(height: 8),
-              const Text('📁', style: TextStyle(fontSize: 36)),
+              // An icon, not the 📁 emoji: on the web an emoji pulls the
+              // fallback font from fonts.gstatic.com.
+              Icon(
+                Icons.upload_file_rounded,
+                size: 44,
+                color: isDegraded ? AppColors.gray300 : AppColors.orange,
+              ),
               const SizedBox(height: 8),
               Text(
                 'คลิกเพื่อเลือกไฟล์ backup',
@@ -1970,8 +2161,8 @@ class _BackupTabState extends State<_BackupTab> {
                           Expanded(
                             child: AppButton.danger(
                               label: '✓ ยืนยัน',
-                              onPressed: isDegraded ||
-                                      (toServer && !_nameConfirmed)
+                              onPressed:
+                                  isDegraded || (toServer && !_nameConfirmed)
                                   ? null
                                   : _handleRestore,
                             ),
@@ -2003,7 +2194,7 @@ class _BackupTabState extends State<_BackupTab> {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             SizedBox(width: 8),
-            Text(_serverRestoreRunning),
+            Flexible(child: Text(_serverRestoreRunning)),
           ],
         ),
       ],
@@ -2032,35 +2223,54 @@ class _SubTabBtn extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
+
+  /// Marks the choice that replaces data (restore) in the error colour.
+  final bool danger;
   const _SubTabBtn({
     required this.label,
     required this.active,
     required this.onTap,
+    this.danger = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final accent = danger ? AppColors.error : AppColors.orange;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(6),
       child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: active
-              ? theme.colorScheme.surfaceContainerHighest
+              ? accent.withValues(alpha: 0.1)
               : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: theme.dividerColor),
-        ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
+          border: Border.all(
             color: active
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.secondary,
+                ? accent
+                : (danger
+                      ? AppColors.error.withValues(alpha: 0.4)
+                      : theme.dividerColor),
+            width: active ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: danger
+                  ? AppColors.error
+                  : (active
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.secondary),
+            ),
           ),
         ),
       ),
@@ -2132,7 +2342,8 @@ class _RecordGrid extends StatelessWidget {
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        const cols = 3;
+        // Two columns on a narrow card so labels like "🏭 ซัพพลายเออร์" fit.
+        final cols = constraints.maxWidth < 360 ? 2 : 3;
         const gap = 10.0;
         final w = (constraints.maxWidth - gap * (cols - 1)) / cols;
         return Wrap(
@@ -2522,6 +2733,8 @@ class _ExportTabState extends State<_ExportTab> {
 
     return _ContentPane(
       title: 'ส่งออกข้อมูล · Export to CSV',
+      subtitle:
+          'ดาวน์โหลดยอดขายและสต็อกเป็นไฟล์ CSV เปิดใน Excel ได้', // agent ร่าง
       children: [
         AppCard(
           child: Column(
@@ -2542,26 +2755,37 @@ class _ExportTabState extends State<_ExportTab> {
               ),
               if (_range == 'custom') ...[
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: AppTextField(
-                        label: 'ตั้งแต่ (YYYY-MM-DD)',
-                        controller: _customStart,
-                        hint: 'YYYY-MM-DD',
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: AppTextField(
-                        label: 'ถึงวันที่ (YYYY-MM-DD)',
-                        controller: _customEnd,
-                        hint: 'YYYY-MM-DD',
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                  ],
+                // Phone: one field per line so each date is readable.
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final start = AppTextField(
+                      label: 'ตั้งแต่ (YYYY-MM-DD)',
+                      controller: _customStart,
+                      hint: 'YYYY-MM-DD',
+                      onChanged: (_) => setState(() {}),
+                      suffix: _pickDateButton(_customStart),
+                    );
+                    final end = AppTextField(
+                      label: 'ถึงวันที่ (YYYY-MM-DD)',
+                      controller: _customEnd,
+                      hint: 'YYYY-MM-DD',
+                      onChanged: (_) => setState(() {}),
+                      suffix: _pickDateButton(_customEnd),
+                    );
+                    if (constraints.maxWidth < 420) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [start, const SizedBox(height: 12), end],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: start),
+                        const SizedBox(width: 12),
+                        Expanded(child: end),
+                      ],
+                    );
+                  },
                 ),
               ],
               const SizedBox(height: 16),
@@ -2623,6 +2847,36 @@ class _ExportTabState extends State<_ExportTab> {
 
   Widget _divider(ThemeData theme) =>
       Container(width: 1, height: 44, color: theme.dividerColor);
+
+  /// Calendar button for a custom-range field: writes the picked day into the
+  /// field as the same `yyyy-MM-dd` text the owner could type, so
+  /// [_filteredSales] reads it exactly as before. Typing still works.
+  Widget _pickDateButton(TextEditingController controller) {
+    return IconButton(
+      icon: const Icon(Icons.calendar_month_rounded),
+      tooltip: 'เลือกจากปฏิทิน', // agent ร่าง
+      onPressed: () async {
+        final now = DateTime.now();
+        final first = DateTime(2000);
+        final last = DateTime(now.year + 1, 12, 31);
+        final typed = DateTime.tryParse(controller.text.trim());
+        final initial =
+            typed != null && !typed.isBefore(first) && !typed.isAfter(last)
+            ? typed
+            : now;
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: first,
+          lastDate: last,
+        );
+        if (picked == null || !mounted) return;
+        setState(() {
+          controller.text = dateKey(picked);
+        });
+      },
+    );
+  }
 }
 
 class _RangeBtn extends StatelessWidget {
@@ -2732,48 +2986,44 @@ class _ExportRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  desc,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.secondary,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  meta,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                  ),
-                ),
-              ],
+      child: _ActionRow(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton(
-            onPressed: onTap,
-            style: FilledButton.styleFrom(
-              backgroundColor: color,
-              foregroundColor: AppColors.white,
+            const SizedBox(height: 3),
+            Text(
+              desc,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.secondary,
+                height: 1.5,
+              ),
             ),
-            child: const Text('⬇ ดาวน์โหลด'),
+            const SizedBox(height: 4),
+            Text(
+              meta,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        action: FilledButton(
+          onPressed: onTap,
+          style: FilledButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: AppColors.white,
+            minimumSize: const Size(0, 44),
           ),
-        ],
+          child: const Text('⬇ ดาวน์โหลด'),
+        ),
       ),
     );
   }

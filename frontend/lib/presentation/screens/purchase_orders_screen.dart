@@ -345,6 +345,9 @@ class _PoListView extends StatelessWidget {
                       itemCount: pos.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, i) => _PoCard(
+                        // The item list's open state follows the PO, not
+                        // its position in the list.
+                        key: ValueKey(pos[i].po.id),
                         data: pos[i],
                         onReceive: () => onReceive(pos[i].po),
                         onCancel: () => onCancel(pos[i].po),
@@ -386,11 +389,7 @@ class _Stat extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 13,
-            letterSpacing: 0.8,
-            color: AppColors.steelBlue,
-          ),
+          style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
         ),
       ],
     );
@@ -405,6 +404,7 @@ class _PoCard extends StatelessWidget {
   final bool isDegraded;
 
   const _PoCard({
+    super.key,
     required this.data,
     required this.onReceive,
     required this.onCancel,
@@ -419,111 +419,197 @@ class _PoCard extends StatelessWidget {
     final border = theme.brightness == Brightness.dark
         ? Colors.white.withValues(alpha: 0.08)
         : AppColors.gray200;
+    // Status at a glance: a coloured left edge — waiting to receive stands out
+    // in a long list, a cancelled PO recedes.
+    final edge = switch (po.status) {
+      'open' => AppColors.warning,
+      'received' => AppColors.successLight,
+      _ => AppColors.gray300,
+    };
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: edge,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: border),
       ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      padding: const EdgeInsets.only(left: 5),
+      // Material, not a decorated Container: the item list's ExpansionTile
+      // paints its ink on the nearest Material.
+      child: Material(
+        color: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.horizontal(
+            right: Radius.circular(8),
+          ),
+          side: BorderSide(color: border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      po.poNo,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.orange,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          po.poNo,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.orange,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          po.supplier,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${data.items.length} รายการ · ${thaiDate(po.createdAt)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.steelBlue,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      po.supplier,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      MoneyText(_poTotal(data), emphasis: true),
+                      const SizedBox(height: 6),
+                      _poStatusChip(po.status),
+                    ],
+                  ),
+                ],
+              ),
+              if (data.items.isNotEmpty) _PoItemsList(items: data.items),
+              const SizedBox(height: 12),
+              // Actions row (mirrors the JS per-status button set).
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (po.status == 'open') ...[
+                    AppButton(
+                      label: 'รับสินค้า',
+                      icon: Icons.check,
+                      onPressed: isDegraded ? null : onReceive,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${data.items.length} รายการ · ${thaiDate(po.createdAt)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.steelBlue,
-                      ),
+                    AppButton.secondary(
+                      label: 'ยกเลิก',
+                      onPressed: isDegraded ? null : onCancel,
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  MoneyText(_poTotal(data), emphasis: true),
-                  const SizedBox(height: 6),
-                  _poStatusChip(po.status),
+                  if (po.status == 'received')
+                    Text(
+                      'รับแล้ว ${po.receivedAt != null ? thaiDate(po.receivedAt!) : ''}',
+                      style: const TextStyle(
+                        color: AppColors.successLight,
+                        fontSize: 12,
+                      ),
+                    ),
+                  if (po.status == 'cancelled')
+                    Text(
+                      'ยกเลิก ${po.cancelledAt != null ? thaiDate(po.cancelledAt!) : ''}',
+                      style: const TextStyle(
+                        color: AppColors.steelBlue,
+                        fontSize: 12,
+                      ),
+                    ),
+                  // The server refuses deleting a received PO (the receive
+                  // movements point at it); open and cancelled may be deleted.
+                  if (po.status != 'received')
+                    IconButton(
+                      tooltip: 'ลบถาวร',
+                      onPressed: isDegraded ? null : onDelete,
+                      icon: const Icon(Icons.delete_outline),
+                      color: AppColors.error,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 48,
+                        minHeight: 48,
+                      ),
+                    ),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          // Actions row (mirrors the JS per-status button set).
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              if (po.status == 'open') ...[
-                AppButton(
-                  label: 'รับสินค้า',
-                  icon: Icons.check,
-                  onPressed: isDegraded ? null : onReceive,
-                ),
-                AppButton.secondary(
-                  label: 'ยกเลิก',
-                  onPressed: isDegraded ? null : onCancel,
-                ),
-              ],
-              if (po.status == 'received')
-                Text(
-                  'รับแล้ว ${po.receivedAt != null ? thaiDate(po.receivedAt!) : ''}',
-                  style: const TextStyle(
-                    color: AppColors.successLight,
-                    fontSize: 12,
-                  ),
-                ),
-              if (po.status == 'cancelled')
-                Text(
-                  'ยกเลิก ${po.cancelledAt != null ? thaiDate(po.cancelledAt!) : ''}',
-                  style: const TextStyle(
-                    color: AppColors.steelBlue,
-                    fontSize: 12,
-                  ),
-                ),
-              // The server refuses deleting a received PO (the receive
-              // movements point at it); open and cancelled may be deleted.
-              if (po.status != 'received')
-                IconButton(
-                  tooltip: 'ลบถาวร',
-                  onPressed: isDegraded ? null : onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  color: AppColors.error,
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(
-                    minWidth: 48,
-                    minHeight: 48,
-                  ),
-                ),
-            ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What is on the PO, so whoever unpacks the delivery can check it against the
+/// boxes before pressing รับสินค้า (which receives the whole PO). Collapsed by
+/// default; the heading is agent ร่าง.
+class _PoItemsList extends StatelessWidget {
+  final List<PoItemRow> items;
+  const _PoItemsList({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Theme(
+      // No divider lines above/below the tile when it opens.
+      data: theme.copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 4),
+        dense: true,
+        title: Text(
+          'ดูรายการสินค้า',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.steelBlue,
           ),
+        ),
+        children: [
+          for (final i in items)
+            Container(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: theme.dividerColor)),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(i.name, style: theme.textTheme.bodyMedium),
+                        Text(
+                          i.partNo,
+                          style: const TextStyle(
+                            color: AppColors.orange,
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${i.qty} × ${baht(i.cost)}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -1075,6 +1161,7 @@ class _DraftItemRow extends StatelessWidget {
       ),
     );
     final removeBtn = IconButton(
+      tooltip: 'นำออกจากใบสั่งซื้อ', // agent ร่าง
       onPressed: onRemove,
       icon: const Icon(Icons.close, size: 18),
       color: AppColors.steelBlue,

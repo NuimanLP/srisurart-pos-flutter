@@ -47,6 +47,9 @@ class AppButton extends StatelessWidget {
     this.fullWidth = false,
   }) : variant = AppButtonVariant.danger;
 
+  /// A comfortable touch target (≥ 48 dp tall) whatever the label length.
+  static const Size _minSize = Size(64, 48);
+
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null && !busy;
@@ -59,11 +62,21 @@ class AppButton extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       textAlign: TextAlign.center,
     );
+    // Busy spinner takes the button's own label colour: the default (orange
+    // primary) all but vanished on the gray disabled fill.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final spinnerColor =
+        variant == AppButtonVariant.secondary && !isDark
+            ? AppColors.navy
+            : AppColors.white;
     final child = busy
-        ? const SizedBox(
+        ? SizedBox(
             width: 18,
             height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: spinnerColor,
+            ),
           )
         : (icon != null
               ? Row(
@@ -86,6 +99,7 @@ class AppButton extends StatelessWidget {
             foregroundColor: AppColors.white,
             disabledBackgroundColor: AppColors.gray500,
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+            minimumSize: _minSize,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
             ),
@@ -97,7 +111,7 @@ class AppButton extends StatelessWidget {
         // Brightness-aware label: navy reads on the light surface, but on the
         // dark theme's navy surface navy-on-navy is invisible — use a light
         // foreground there. The steel-blue outline reads in both themes.
-        final secondaryFg = Theme.of(context).brightness == Brightness.dark
+        final secondaryFg = isDark
             ? AppColors.white
             : AppColors.navy;
         button = OutlinedButton(
@@ -106,6 +120,7 @@ class AppButton extends StatelessWidget {
             foregroundColor: secondaryFg,
             side: const BorderSide(color: AppColors.steelBlue),
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+            minimumSize: _minSize,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
             ),
@@ -121,6 +136,7 @@ class AppButton extends StatelessWidget {
             foregroundColor: AppColors.white,
             disabledBackgroundColor: AppColors.gray500,
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+            minimumSize: _minSize,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
             ),
