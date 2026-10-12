@@ -30,14 +30,24 @@ import 'thai_format.dart';
 /// The checkout screen flips this so the banner appears at most once per session.
 bool lowStockShownThisSession = false;
 
-/// Splits products into out-of-stock and low-stock buckets (db.js logic).
+enum StockLevel { out, low, ok }
+
+/// THE stock-level rule (owner 2026-10-12): out = nothing (or less) left,
+/// low = at or under its minimum, else ok. Every "what needs reordering" view
+/// uses it — the low-stock banner, the Stock tab, the Suppliers tab and the
+/// create-PO dialog — so their counts always agree.
+StockLevel stockLevel(ProductRow p) => p.stock <= 0
+    ? StockLevel.out
+    : p.stock <= p.minStock
+    ? StockLevel.low
+    : StockLevel.ok;
+
+/// Splits products into out-of-stock and low-stock buckets ([stockLevel]).
 ({List<ProductRow> out, List<ProductRow> low}) lowStockBuckets(
   List<ProductRow> products,
 ) {
-  final out = products.where((p) => p.stock == 0).toList();
-  final low = products
-      .where((p) => p.stock > 0 && p.stock <= p.minStock)
-      .toList();
+  final out = products.where((p) => stockLevel(p) == StockLevel.out).toList();
+  final low = products.where((p) => stockLevel(p) == StockLevel.low).toList();
   return (out: out, low: low);
 }
 
