@@ -454,8 +454,8 @@ develops against a demo tenant.
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
   #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
-- **Postgres has 30 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
-  + `payment_accounts` (#676); recounted 2026-10-10 — product images add the column `products.image_key`
+- **Postgres has 31 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
+  + `payment_accounts` (#676) + `sale_photos` (migration `1788652805200`, 2026-10-12); recounted 2026-10-10 — product images add the column `products.image_key`
   (migration `1788652805100`), not a table; `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.

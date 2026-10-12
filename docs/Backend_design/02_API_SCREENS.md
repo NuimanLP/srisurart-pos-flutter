@@ -168,6 +168,7 @@ sequenceDiagram
 | **ยิงบาร์โค้ด** | **`GET /products?partNo=<exact>`** | ⭐ ต้องแยกจาก `?search=` — บาร์โค้ดคือ exact match ถ้าใช้ full-text จะได้หลายผลลัพธ์/ผิดตัว |
 | เลือกลูกค้า / ช่าง | (จาก cache ในเครื่อง) | `mechanics` ต้องมี `creditBalance`, `creditLimit` ติดมาด้วย |
 | **รับเงิน** | `POST /sales` | ⭐ ดูสเปคด้านล่าง |
+| ใบเสร็จ → ปุ่ม `ถ่ายรูปหลักฐานสินค้า` 🆕 *(2026-10-12, ไม่บังคับ หลังจ่ายเงินแล้ว)* | `PUT /sales/:saleId/photos/:photoId?takenAt=&sortOrder=` ทีละรูป (1–5 รูป) | API build + ออนไลน์เท่านั้น · บิลต้องถึง server แล้ว (ยังมี `sale.create` ใน outbox = ปุ่ม disabled) · body รูปดิบ ≤ 3 MB จากเครื่อง `pos` · ตอบ `200` เสมอ (ครั้งแรกและ replay) · ล้ม 5xx/429/หลุด = ลองใหม่ด้วย photoId + `Idempotency-Key` เดิม · สัญญาเต็มที่ [`10_SALE_PHOTO_EVIDENCE.md §4.3`](10_SALE_PHOTO_EVIDENCE.md) — การจ่ายเงินไม่รอขั้นนี้ |
 | บันทึกเป็นใบเสนอราคา | `POST /quotes` | ไม่ตัดสต็อก |
 | พักบิล | `POST /parked-sales` / `DELETE /parked-sales/:id` | ไม่ตัดสต็อก |
 
@@ -365,6 +366,7 @@ sequenceDiagram
 |---|---|
 | `GET /sales?search=<receiptNo>&page=` | ค้นบิลที่จะคืน |
 | **`GET /sales/:id/refunded-qty`** | ตรงกับ `getRefundedQty()` เดิม — คืน map `productId → qty ที่**คืนไปแล้ว**` |
+| `GET /sales/:saleId/photos` · `GET /sales/:saleId/photos/:photoId/{t\|p}` 🆕 *(2026-10-12)* | รูปหลักฐานตอนขายของบิลที่เลือก (แถบ thumbnail ใน `_RefundDetail`; preview โหลดเมื่อเปิดเต็มจอเท่านั้น) · ทุก role/ทุก device · `Cache-Control: no-store` · บิลไม่มีรูป/ไม่มีบิล/ร้านอื่น = `200 []` · ไบต์เป็น `image/webp` ล้วน ไม่ห่อ envelope · v1 เข้าถึงได้เฉพาะบิลใน Drift ของเครื่องนี้ · [`10 §4.4/§4.5`](10_SALE_PHOTO_EVIDENCE.md) |
 | `POST /returns` | ⭐ transaction + idempotent · 🔴 **#100 (ข้อตัดสินเจ้าของร้าน 2026-09-13): คืนเป็น `'เงินสด'` ต้องมีกะเปิดอยู่** — ไม่มี = `409 NO_OPEN_SHIFT` ไม่มีอะไรถูกเขียน (ไม่คืนสต็อก ไม่กินเลข CN ไม่ auto-void) · `'โอน'`/`'หักจากเครดิต'` ไม่แตะเงินในลิ้นชัก จึงรับได้แม้ไม่มีกะ (`shift_id` null) |
 | `GET /returns?saleId=&from=&to=&page=` | ประวัติการคืน · `saleId` เป็นตัวกรองเพิ่ม (#22) สำหรับดูใบลดหนี้ของบิลเดียว |
 
@@ -456,6 +458,9 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | `GET /reports/stock-value` | มูลค่าสต็อกรวม = `SUM(stock × cost)` | |
 | `GET /reports/low-stock` | รายการของใกล้หมด | ใช้ partial index · *(2026-09-23: รับ `?page=&limit=`)* |
 | `GET /reports/closing?shiftId=` · `GET /reports/product-sales?productId=&from=&to=` | *(2026-09-23: สองตัวนี้มีใน `reports.controller.ts` ด้วย — รายละเอียดที่ §3.11 และ §3.2)* | |
+
+**แผ่นบิลขั้นต่ำ 🆕 *(2026-10-12, รูปหลักฐานตอนขาย)*:** แตะแถวบิลล่าสุด (`_RecentRow`) → แผ่นที่มีหัวบิล (จาก `SaleWithItems` ที่แถวถืออยู่แล้ว — ไม่ยิง API เพิ่ม)
++ แถบรูปเดียวกับหน้ารับคืน: `GET /sales/:saleId/photos` และ `GET /sales/:saleId/photos/:photoId/{t|p}` (§3.7, [`10 §2.4`](10_SALE_PHOTO_EVIDENCE.md)) · ครอบเฉพาะแถวที่รายงานแสดงอยู่บนเครื่องนี้ ไม่มีการค้นบิลจาก server
 
 > รายงานพวกนี้ **cache ได้ยาว** (TTL 5–15 นาที) เพราะไม่มีใครดูยอดขายแบบวินาทีต่อวินาที
 > ถ้าข้อมูลโตมาก ค่อยทำเป็น **materialized view** refresh ทุก 15 นาทีด้วย BullMQ repeatable job
