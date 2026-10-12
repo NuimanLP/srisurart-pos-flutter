@@ -30,6 +30,7 @@ import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/money_text.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/sync_status_builder.dart';
@@ -770,7 +771,8 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   List<ProductRow> get _lowStock => _supplierProducts
       .where(
         (p) =>
-            p.stock <= p.minStock && !_items.any((i) => i.partNo == p.partNo),
+            stockLevel(p) != StockLevel.ok &&
+            !_items.any((i) => i.partNo == p.partNo),
       )
       .toList();
 

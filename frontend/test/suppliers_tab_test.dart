@@ -115,7 +115,40 @@ void main() {
       expect(ngk.quotes.single.cheapest, isTrue);
       expect(spark.quotes.single.cheapest, isFalse);
       expect(spark.quotes.single.overBaht, 1);
-      expect(spark.quotes.single.bestName, 'NGK Thailand');
+      expect(spark.quotes.single.bestOtherName, 'NGK Thailand');
+      expect(spark.quotes.single.dearer, isTrue);
+    });
+
+    test('two quotes of ONE supplier: never cheapest vs itself', () {
+      // X quotes p twice (50, 60); Y quotes 55.
+      final groups = groupSuppliers(
+        [_p('a')],
+        [
+          _s('1', 'a', 'X', 50, 0),
+          _s('2', 'a', ' x ', 60, 0),
+          _s('3', 'a', 'Y', 55, 0),
+        ],
+      );
+      final x = groups.firstWhere((g) => g.key == 'x');
+      final y = groups.firstWhere((g) => g.key == 'y');
+      final x50 = x.quotes.firstWhere((q) => q.row.id == '1');
+      final x60 = x.quotes.firstWhere((q) => q.row.id == '2');
+      expect(x50.cheapest, isTrue);
+      expect(x60.cheapest, isFalse);
+      expect(x60.dearer, isTrue);
+      expect(x60.overBaht, 5);
+      expect(x60.bestOtherName, 'Y'); // never "X" itself
+      expect(x.cheapestCount, 1);
+      expect(y.quotes.single.dearer, isTrue);
+      expect(y.quotes.single.bestOtherName, 'X');
+
+      // Only one supplier, two quotes: no cheapest, no dearer.
+      final solo = groupSuppliers(
+        [_p('a')],
+        [_s('1', 'a', 'X', 50, 0), _s('2', 'a', 'X', 60, 0)],
+      ).single;
+      expect(solo.quotes.any((q) => q.cheapest || q.dearer), isFalse);
+      expect(solo.productCount, 1);
     });
 
     test('a single quote is not "cheapest"', () {
@@ -148,6 +181,28 @@ void main() {
         StockLevel.low,
         StockLevel.ok,
       ]);
+    });
+
+    test('stockLevel: -2 and 0 are out, <= min is low, > min is ok', () {
+      expect(stockLevel(_p('a', stock: -2, min: 5)), StockLevel.out);
+      expect(stockLevel(_p('a', stock: 0, min: 5)), StockLevel.out);
+      expect(stockLevel(_p('a', stock: 5, min: 5)), StockLevel.low);
+      expect(stockLevel(_p('a', stock: 1, min: 5)), StockLevel.low);
+      expect(stockLevel(_p('a', stock: 6, min: 5)), StockLevel.ok);
+      expect(stockLevel(_p('a', stock: 0, min: 0)), StockLevel.out);
+      expect(stockLevel(_p('a', stock: 1, min: 0)), StockLevel.ok);
+    });
+
+    test('lowStockBuckets is built on stockLevel (negative now counts as out)',
+        () {
+      final b = lowStockBuckets([
+        _p('neg', stock: -2, min: 5),
+        _p('zero', stock: 0, min: 5),
+        _p('low', stock: 3, min: 5),
+        _p('ok', stock: 9, min: 5),
+      ]);
+      expect(b.out.map((p) => p.id), ['neg', 'zero']);
+      expect(b.low.map((p) => p.id), ['low']);
     });
 
     test('search matches a product part no, not only the supplier name', () {
@@ -326,8 +381,16 @@ void main() {
       expect(row, findsOne);
       final deletes = find.byTooltip('ลบ');
       expect(deletes, findsNWidgets(2));
-      // Rows: Oil Filter first by name ("Oil…" < "Spark…").
+      // Rows: Oil Filter first by name ("Oil…" < "Spark…"). It asks first.
       await tester.tap(deletes.first);
+      await settle(tester);
+      expect(find.textContaining('จะหายจากรายการ'), findsNothing);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'ลบ'),
+        ),
+      );
       await settle(tester);
       expect(
         (await repo.getSuppliersForProduct('p1'))
@@ -335,6 +398,18 @@ void main() {
         isEmpty,
       );
       expect(find.text('Oil Filter'), findsNothing);
+
+      // The supplier's last product: the confirm says it leaves the list;
+      // cancelling keeps it.
+      await tester.tap(find.byTooltip('ลบ'));
+      await settle(tester);
+      expect(
+        find.textContaining('"NGK Thailand" จะหายจากรายการซัพพลายเออร์'),
+        findsOne,
+      );
+      await tester.tap(find.widgetWithText(TextButton, 'ยกเลิก').last);
+      await settle(tester);
+      expect(await repo.getSuppliersForProduct('p2'), hasLength(2));
       await db.close();
     });
   });
@@ -366,6 +441,79 @@ void main() {
         ),
         findsOne,
       );
+      await db.close();
+    });
+  });
+
+  testWidgets('new supplier typed as an existing name joins that supplier',
+      (tester) async {
+    setSize(tester, const Size(1280, 900));
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await openTab(tester, db);
+      await tester.tap(find.byKey(const Key('supplier-new')));
+      await settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('add-quote-name')),
+        ' ngk THAILAND ',
+      );
+      await tester.pump();
+      expect(
+        find.text('มีซัพฯ นี้แล้ว — จะเพิ่มสินค้าให้ "NGK Thailand"'),
+        findsOne,
+      );
+      // NGK already quotes p2: its part no is not offered.
+      await tester.enterText(
+        find.byKey(const Key('add-quote-find')),
+        'NGK-BR8ES',
+      );
+      await tester.pump();
+      expect(find.text('ไม่พบสินค้า'), findsOne);
+      await tester.enterText(find.byKey(const Key('add-quote-find')), 'chain');
+      await tester.pump();
+      await tester.tap(find.text('Drive Chain #520').last);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('add-quote-save')));
+      await settle(tester);
+      final rows = await SuppliersRepository(db).getSuppliersForProduct('p3');
+      expect(rows.single.name, 'NGK Thailand'); // the shown spelling
+      await db.close();
+    });
+  });
+
+  testWidgets('"ตามสินค้า" adds through the same dialog: trimmed name, '
+      'an unreadable price cannot be saved', (tester) async {
+    setSize(tester, const Size(1280, 900));
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await openTab(tester, db);
+      await tester.tap(find.text('ตามสินค้า'));
+      await tester.pumpAndSettle();
+      // The first product (p1, Oil Filter) is selected.
+      await tester.tap(find.text('เพิ่มซัพฯ'));
+      await settle(tester);
+      expect(find.text('เพิ่มซัพพลายเออร์ใหม่'), findsOne);
+      expect(find.byTooltip('เปลี่ยนสินค้า'), findsNothing); // product fixed
+      await tester.enterText(
+        find.byKey(const Key('add-quote-name')),
+        '  ร้านทดสอบ  ',
+      );
+      await tester.enterText(find.byKey(const Key('add-quote-cost')), 'abc');
+      await tester.pump();
+      FilledButton save() => tester.widget<FilledButton>(
+        find.byKey(const Key('add-quote-save')),
+      );
+      expect(save().onPressed, isNull);
+      await tester.enterText(find.byKey(const Key('add-quote-cost')), '12.5');
+      await tester.pump();
+      expect(save().onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('add-quote-save')));
+      await settle(tester);
+      final added = (await SuppliersRepository(db).getSuppliersForProduct('p1'))
+          .firstWhere((s) => s.name == 'ร้านทดสอบ');
+      expect(added.unitCost, 12.5);
+      expect(added.freight, 0);
+      expect(find.text('ร้านทดสอบ'), findsOne); // in the per-product table
       await db.close();
     });
   });
@@ -463,6 +611,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('supplier-ngk thailand')));
       await tester.pumpAndSettle();
       final po = find.byKey(const Key('supplier-create-po'));
+      // Same rule as the dialog's low-stock lines: one (p2) here.
+      expect(find.text('สร้างใบสั่งซื้อ (1)'), findsOne);
       await tester.ensureVisible(po);
       await tester.pumpAndSettle();
       await tester.tap(po);
@@ -482,6 +632,20 @@ void main() {
         find.descendant(of: dialog, matching: find.text('Spark Plug NGK')),
         findsWidgets,
       );
+
+      // Closed, the prefill is spent: going back to the PO screen by the
+      // router opens no dialog.
+      await tester.tap(
+        find.descendant(of: dialog, matching: find.text('ยกเลิก')).last,
+      );
+      await settle(tester);
+      expect(find.byType(Dialog), findsNothing);
+      router.go(AppRoutes.products);
+      await settle(tester);
+      router.go(AppRoutes.purchaseOrders);
+      await settle(tester);
+      await settle(tester);
+      expect(find.byType(Dialog), findsNothing);
       await tester.pumpWidget(const SizedBox());
       await settle(tester);
       await db.close();

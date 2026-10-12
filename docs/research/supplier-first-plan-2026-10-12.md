@@ -214,15 +214,22 @@ Narrow, detail (after a tap; back returns to the list):
 
 ### Thai strings
 
-New strings are **`agent ร่าง`** and wait for the owner's ratification, as `02 §8.1.1` requires:
-`ตามซัพฯ`, `ตามสินค้า`, `ค้นหาซัพฯ หรือสินค้า`, `ซัพพลายเออร์ใหม่`, `{n} สินค้า`, `ต้องสั่ง {m}`,
-`สั่งล่าสุด {date}`, `ถูกสุด {k} รายการ`, `({q} ราคา)`, `เพิ่มสินค้า`, `ใกล้หมด`, `✓ ถูกสุด`, the cheapest legend,
-`แพงกว่า ฿x`, `ถูกสุด: {name} {baht}`, `แก้ราคา`, `แก้ไขราคา`, `ยังไม่มีซัพพลายเออร์`, `เพิ่มซัพพลายเออร์แรก`,
-`ไม่พบซัพฯ หรือสินค้าที่ตรงกับ "{q}"`, `ล้างคำค้น`, `เลือกซัพพลายเออร์ทางซ้ายเพื่อดูสินค้าและราคา`, `กลับ`, and the
-new-supplier helper text `ซัพพลายเออร์ต้องมีสินค้าอย่างน้อย 1 รายการ`.
+*As shipped (updated after `/code-review`, 2026-10-12).* New strings are **`agent ร่าง`** and wait for the owner's
+ratification, as `02 §8.1.1` requires:
+`ตามซัพฯ`, `ตามสินค้า`, `ค้นหาซัพฯ หรือสินค้า`, `ซัพพลายเออร์ใหม่`, `{n} สินค้า`, `({q} ราคา)`, `ต้องสั่ง {m}`,
+`ถูกสุด {k} รายการ` (hidden at 0), `สร้างใบสั่งซื้อ ({n})`, `เพิ่มสินค้า`, `เพิ่มสินค้า — {name}`, `ใกล้หมด`,
+the legend `= ราคารวม (ทุน + ค่าส่ง) ต่ำที่สุดในบรรดาซัพฯ ของสินค้านั้น`, `แพงกว่า ฿x · ถูกสุด {name}`,
+`ดูทุกซัพฯ ของสินค้านี้`, `แก้ราคา`, `แก้ไขราคา`, `เปลี่ยนสินค้า`,
+`ซัพฯ นี้มีราคาสินค้านี้แล้ว — แก้ราคาในรายการแทน`, `ซัพพลายเออร์ต้องมีสินค้าอย่างน้อย 1 รายการ`,
+`มีซัพฯ นี้แล้ว — จะเพิ่มสินค้าให้ "{name}"`, the delete confirm `ลบราคาซัพฯ` /
+`ลบราคา "{product}" ของ "{supplier}"?` plus, for the supplier's last product,
+`เป็นสินค้าสุดท้ายของซัพฯ นี้ — "{supplier}" จะหายจากรายการซัพพลายเออร์`, `ยังไม่มีซัพพลายเออร์`,
+`เพิ่มซัพพลายเออร์แรก`, `ไม่พบซัพฯ หรือสินค้าที่ตรงกับ "{q}"`, `ล้างคำค้น`,
+`เลือกซัพพลายเออร์ทางซ้ายเพื่อดูสินค้าและราคา`, `กลับ`. (`สั่งล่าสุด` was cut with the last-PO date.)
 
-These existing strings are reused unchanged: `สร้างใบสั่งซื้อ`, `หมด`, `ทุน/ชิ้น`, `ค่าส่ง`, `รวม`, `จัดการ`,
-`ราคาต่อชิ้น ฿`, `ค่าส่ง ฿`, `บันทึก`, `ยกเลิก`, `ลบ`, `เลือกสินค้า`, and the Degraded snackbar.
+These existing strings are reused unchanged: `✓ ราคาถูกสุด`, `สร้างใบสั่งซื้อ`, `หมด`, `สินค้า`, `สต็อก`, `ทุน/ชิ้น`,
+`ค่าส่ง`, `รวม`, `จัดการ`, `ชื่อซัพพลายเออร์`, `ราคาต่อชิ้น ฿`, `ค่าส่ง ฿`, `บันทึก`, `ยกเลิก`, `ลบ`, `เลือกสินค้า`,
+`เพิ่มซัพฯ`, `เพิ่มซัพพลายเออร์ใหม่`, `ค้นหาด้วยชื่อหรือรหัสสินค้า…`, `ไม่พบสินค้า`, and the Degraded snackbar.
 Each new string gets a `// agent ร่าง` comment in code and a row in the PR body.
 
 ## 7. Implementation outline (the next step, not this commit)
@@ -303,9 +310,18 @@ Changes from the plan above, decided by the review:
 - **Breakpoint:** master/detail only when the tab is ≥ **840** logical px wide (`_splitMin`); below that, list → detail
   push with `PopScope(canPop: _openKey == null)`. 3x zoom on 1920 = 640 px gets the push layout. The product table
   turns into cards from the detail's own `LayoutBuilder` width (< 640).
-- **Stock level:** one public `stockLevel(ProductRow)` → `StockLevel.out/low/ok` next to `lowStockBuckets()` in
-  `widgets/low_stock_alert.dart` (out = `stock == 0`, low = `0 < stock <= minStock`). The Stock tab's
-  `_stockStatus` delegates to it; the other inline call sites are untouched.
+- **Stock level:** one public `stockLevel(ProductRow)` → `StockLevel.out/low/ok` in `widgets/low_stock_alert.dart`
+  (out = `stock <= 0`, low = `stock <= minStock`, else ok). It is THE rule: `lowStockBuckets()` (the checkout
+  banner), the Stock tab's `_stockStatus`, the Suppliers tab's reorder count and the create-PO dialog's `_lowStock`
+  all use it, so `สร้างใบสั่งซื้อ (n)` always equals the lines the dialog adds. Negative stock (never expected) now
+  counts as out everywhere. Other inline `stock <= minStock` call sites are untouched.
+- **Code review fixes (2026-10-12):** delete asks first (`showConfirm`, a `_busy` guard; the supplier's last product
+  says the supplier leaves the list) in both views; a new-supplier name that matches an existing one (case or spaces)
+  says so and writes with the existing spelling; cheapest is judged against OTHER suppliers only (a supplier's
+  second quote for a product is never "cheaper than itself"); totals = `satang(cost) + satang(freight)`; a refresh
+  re-reads products too and surfaces its error; the "ตามสินค้า" add uses the same `_AddQuoteDialog` (trimmed name,
+  an unreadable price cannot be saved) instead of the old inline form; the tab and its dialogs live in
+  `screens/products_suppliers_tab.part.dart` (a `part` of `products_screen.dart`).
 - **Name key:** `supplierKey()` in `core/utils/supplier_name.dart` (`trim().toLowerCase()`, no NFC) replaces the PO
   dialog's private `_norm`; the tab groups by the same function. Display name = the most used trimmed spelling,
   ties to the first. Blank names are skipped. New writes send `name.trim()`.

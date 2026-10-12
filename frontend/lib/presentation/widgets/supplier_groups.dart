@@ -4,9 +4,10 @@
 // There is no supplier record: each `suppliers` row is one product's quote
 // with a free-text name. [groupSuppliers] folds those rows into one entry per
 // supplier ([supplierKey]: trimmed, case-insensitive), joined to the live
-// products, with each quote compared against the cheapest quote any supplier
-// gives for the same product. Totals are compared in whole satang so 0.1+0.2
-// style float noise can never break a tie.
+// products, with each quote compared against the best quote any OTHER
+// supplier gives for the same product (a supplier with two quotes for one
+// product is never "cheaper than itself"). Money is compared in whole satang
+// (cost and freight rounded separately) so float noise can never break a tie.
 
 import '../../core/utils/supplier_name.dart';
 import '../../data/db/database.dart';
@@ -14,15 +15,17 @@ import 'low_stock_alert.dart' show StockLevel, stockLevel;
 
 int _satang(double baht) => (baht * 100).round();
 
+int _totalSatang(SupplierRow r) => _satang(r.unitCost) + _satang(r.freight);
+
 /// One supplier's quote for one product.
 class SupplierQuote {
   SupplierQuote._(
     this.row,
     this.product,
     this.totalSatang,
-    this.bestSatang,
-    this.quotesForProduct,
-    this.bestName,
+    this.ownBestSatang,
+    this.bestOtherSatang,
+    this.bestOtherName,
   );
 
   final SupplierRow row;
@@ -31,20 +34,28 @@ class SupplierQuote {
   /// unitCost + freight, in satang.
   final int totalSatang;
 
-  /// The lowest total any supplier quotes for this product, in satang.
-  final int bestSatang;
+  /// This supplier's own lowest total for the product (it may hold several).
+  final int ownBestSatang;
 
-  /// How many quotes this product has across all suppliers.
-  final int quotesForProduct;
+  /// The lowest total any OTHER supplier quotes for this product, or null
+  /// when no other supplier quotes it.
+  final int? bestOtherSatang;
 
-  /// A supplier quoting [bestSatang] for this product (trimmed name).
-  final String bestName;
+  /// The other supplier quoting [bestOtherSatang] (trimmed name).
+  final String? bestOtherName;
 
-  /// The lowest total among two or more quotes ("cheapest of one" says nothing).
-  bool get cheapest => quotesForProduct > 1 && totalSatang == bestSatang;
+  /// This supplier's best quote and no other supplier is cheaper (ties count).
+  /// A product only this supplier quotes has no "cheapest".
+  bool get cheapest =>
+      bestOtherSatang != null &&
+      totalSatang == ownBestSatang &&
+      totalSatang <= bestOtherSatang!;
 
-  /// How much dearer than the cheapest quote, in baht (0 when cheapest).
-  double get overBaht => (totalSatang - bestSatang) / 100;
+  /// Another supplier quotes this product for less.
+  bool get dearer => bestOtherSatang != null && totalSatang > bestOtherSatang!;
+
+  /// How much dearer than [bestOtherName], in baht (0 unless [dearer]).
+  double get overBaht => dearer ? (totalSatang - bestOtherSatang!) / 100 : 0;
 
   double get total => totalSatang / 100;
 
@@ -57,7 +68,7 @@ class SupplierGroup {
     required this.key,
     required this.name,
     required this.quotes,
-    required this.productCount,
+    required this.productIds,
     required this.reorderCount,
     required this.cheapestCount,
     required this.searchText,
@@ -71,9 +82,12 @@ class SupplierGroup {
   /// Most urgent first: out of stock, then low, then the rest; by product name.
   final List<SupplierQuote> quotes;
 
-  final int productCount;
+  /// The products this supplier quotes.
+  final Set<String> productIds;
 
-  /// Products of this supplier that are out of stock or low.
+  int get productCount => productIds.length;
+
+  /// Products of this supplier that are out of stock or low ([stockLevel]).
   final int reorderCount;
 
   /// Products for which this supplier gives the cheapest total.
@@ -81,8 +95,6 @@ class SupplierGroup {
 
   /// Lower-cased supplier name + its products' names and part numbers.
   final String searchText;
-
-  Set<String> get productIds => {for (final q in quotes) q.product.id};
 
   bool matches(String query) {
     final q = query.trim().toLowerCase();
@@ -103,17 +115,14 @@ List<SupplierGroup> groupSuppliers(
       if (r.name.trim().isNotEmpty && byId.containsKey(r.productId)) r,
   ];
 
-  final best = <String, int>{};
-  final bestName = <String, String>{};
-  final count = <String, int>{};
+  // product → supplier key → that supplier's best (satang, trimmed name).
+  final bestBy = <String, Map<String, (int, String)>>{};
   for (final r in live) {
-    final t = _satang(r.unitCost + r.freight);
-    count[r.productId] = (count[r.productId] ?? 0) + 1;
-    final b = best[r.productId];
-    if (b == null || t < b) {
-      best[r.productId] = t;
-      bestName[r.productId] = r.name.trim();
-    }
+    final t = _totalSatang(r);
+    final perKey = bestBy.putIfAbsent(r.productId, () => {});
+    final k = supplierKey(r.name);
+    final cur = perKey[k];
+    if (cur == null || t < cur.$1) perKey[k] = (t, r.name.trim());
   }
 
   final byKey = <String, List<SupplierRow>>{};
@@ -134,17 +143,24 @@ List<SupplierGroup> groupSuppliers(
       if (c > uses[name]!) name = n;
     });
 
-    final quotes = [
-      for (final r in groupRows)
-        SupplierQuote._(
-          r,
-          byId[r.productId]!,
-          _satang(r.unitCost + r.freight),
-          best[r.productId]!,
-          count[r.productId]!,
-          bestName[r.productId]!,
-        ),
-    ]..sort((a, b) {
+    SupplierQuote quoteOf(SupplierRow r) {
+      final perKey = bestBy[r.productId]!;
+      (int, String)? other;
+      perKey.forEach((k, v) {
+        if (k != key && (other == null || v.$1 < other!.$1)) other = v;
+      });
+      return SupplierQuote._(
+        r,
+        byId[r.productId]!,
+        _totalSatang(r),
+        perKey[key]!.$1,
+        other?.$1,
+        other?.$2,
+      );
+    }
+
+    final quotes = [for (final r in groupRows) quoteOf(r)]
+      ..sort((a, b) {
         final byLevel = a.level.index.compareTo(b.level.index);
         if (byLevel != 0) return byLevel;
         return a.product.name.toLowerCase().compareTo(
@@ -176,7 +192,7 @@ List<SupplierGroup> groupSuppliers(
         key: key,
         name: name,
         quotes: quotes,
-        productCount: productIds.length,
+        productIds: productIds,
         reorderCount: reorder.length,
         cheapestCount: cheapest.length,
         searchText: search.toString(),

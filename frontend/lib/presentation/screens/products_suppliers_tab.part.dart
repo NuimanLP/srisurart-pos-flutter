@@ -19,7 +19,8 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   List<SupplierRow> _suppliers = [];
   String _selectedId = '';
   bool _loading = true;
-  bool _adding = false;
+  // One supplier write at a time from this tab (delete; dialogs guard their own).
+  bool _busy = false;
 
   // Supplier-first view (owner 2026-10-12, the default). [_groups] is rebuilt
   // only when the data changes (_load / _refreshSuppliers), never in build.
@@ -32,10 +33,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   String? _selKey;
   String? _openKey;
 
-  final _name = TextEditingController();
-  final _unitCost = TextEditingController();
-  final _freight = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -44,9 +41,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
 
   @override
   void dispose() {
-    _name.dispose();
-    _unitCost.dispose();
-    _freight.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -72,50 +66,79 @@ class _SuppliersTabState extends State<_SuppliersTab> {
     });
   }
 
+  /// Re-reads products and suppliers after a write (stock or a product may
+  /// have changed meanwhile) and regroups. Any failure is shown, never thrown.
   Future<void> _refreshSuppliers() async {
-    final suppliers = await context.read<SuppliersRepository>().getSuppliers();
-    if (!mounted) return;
-    setState(() {
-      _suppliers = suppliers;
-      _groups = groupSuppliers(_products, suppliers);
-    });
+    try {
+      final productsF = context.read<ProductsRepository>().getAll();
+      final suppliersF = context.read<SuppliersRepository>().getSuppliers();
+      final products = await productsF;
+      final suppliers = await suppliersF;
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _suppliers = suppliers;
+        _groups = groupSuppliers(products, suppliers);
+      });
+    } catch (e) {
+      _showSupplierError(e);
+    }
   }
 
-  Future<void> _add() async {
+  /// Delete one quote, after a confirm. When it is the supplier's last
+  /// product the confirm says the supplier leaves the list.
+  Future<void> _delete(SupplierRow row) async {
+    if (_busy) return;
     if (context.isDegraded) {
       _showSupplierDegradedWarning();
       return;
     }
-    if (_name.text.isEmpty) return;
+    final group = _groups
+        .where((g) => g.key == supplierKey(row.name))
+        .firstOrNull;
+    final product = _products.where((p) => p.id == row.productId).firstOrNull;
+    final supplierName = group?.name ?? row.name.trim();
+    final last = group != null && group.quotes.length == 1;
+    final ok = await showConfirm(
+      context,
+      'ลบราคาซัพฯ', // agent ร่าง
+      // agent ร่าง
+      'ลบราคา "${product?.name ?? row.productId}" ของ "$supplierName"?'
+      '${last ? '\nเป็นสินค้าสุดท้ายของซัพฯ นี้ — "$supplierName" จะหายจากรายการซัพพลายเออร์' : ''}',
+      danger: true,
+      confirmLabel: 'ลบ',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
     try {
-      await context.read<SuppliersRepository>().addSupplier(
-        productId: _selectedId,
-        name: _name.text,
-        unitCost: double.tryParse(_unitCost.text) ?? 0,
-        freight: double.tryParse(_freight.text) ?? 0,
-      );
+      await context.read<SuppliersRepository>().deleteSupplier(row.id);
     } catch (e) {
       _showSupplierError(e);
+      if (mounted) setState(() => _busy = false);
       return;
     }
-    _name.clear();
-    _unitCost.clear();
-    _freight.clear();
-    setState(() => _adding = false);
     await _refreshSuppliers();
+    if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _delete(String id) async {
+  /// "ตามสินค้า": add a supplier quote for [product] (same dialog and rules
+  /// as the supplier-first view: trimmed name, validated prices).
+  Future<void> _openAddForProduct(ProductRow product) async {
     if (context.isDegraded) {
       _showSupplierDegradedWarning();
       return;
     }
-    try {
-      await context.read<SuppliersRepository>().deleteSupplier(id);
-    } catch (e) {
-      _showSupplierError(e);
-      return;
-    }
+    final key = await showDialog<String>(
+      context: context,
+      builder: (_) => _AddQuoteDialog(
+        products: _products,
+        supplierName: null,
+        product: product,
+        quoted: {for (final x in _groups) x.key: x.productIds},
+        names: {for (final x in _groups) x.key: x.name},
+      ),
+    );
+    if (key == null || !mounted) return;
     await _refreshSuppliers();
   }
 
@@ -128,9 +151,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
 
   void _showSupplierDegradedWarning() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับซัพพลายเออร์ได้'),
-      ),
+      const SnackBar(content: Text(_supplierOfflineText)),
     );
   }
 
@@ -209,7 +230,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                     return InkWell(
                       onTap: () => setState(() {
                         _selectedId = p.id;
-                        _adding = false;
                       }),
                       child: Container(
                         decoration: BoxDecoration(
@@ -313,7 +333,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                             ),
                             onPressed: isDegraded
                                 ? null
-                                : () => setState(() => _adding = true),
+                                : () => _openAddForProduct(selected),
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('เพิ่มซัพฯ'),
                           ),
@@ -334,10 +354,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                         )
                       else
                         _supplierTable(theme, prodSuppliers, minTotal, isDegraded),
-                      if (_adding) ...[
-                        const SizedBox(height: 20),
-                        _addForm(theme, isDegraded),
-                      ],
                     ],
                   ),
                 ),
@@ -386,7 +402,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   void _compare(ProductRow p) => setState(() {
     _bySupplier = false;
     _selectedId = p.id;
-    _adding = false;
   });
 
   void _createPo(SupplierGroup g) {
@@ -408,6 +423,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
         products: _products,
         supplierName: g?.name,
         quoted: {for (final x in _groups) x.key: x.productIds},
+        names: {for (final x in _groups) x.key: x.name},
       ),
     );
     if (key == null || !mounted) return;
@@ -866,10 +882,10 @@ class _SuppliersTabState extends State<_SuppliersTab> {
             padding: EdgeInsets.only(top: 4),
             child: _CheapestPill(),
           )
-        else if (q.quotesForProduct > 1)
+        else if (q.dearer)
           Text(
             // agent ร่าง
-            'แพงกว่า ${baht(q.overBaht)} · ถูกสุด ${q.bestName}',
+            'แพงกว่า ${baht(q.overBaht)} · ถูกสุด ${q.bestOtherName}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -895,7 +911,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
           tooltip: 'ลบ',
           icon: const Icon(Icons.delete_outline, size: 20),
           color: AppColors.error,
-          onPressed: isDegraded ? null : () => _delete(q.row.id),
+          onPressed: isDegraded || _busy ? null : () => _delete(q.row),
         ),
       ],
     );
@@ -1189,7 +1205,9 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            onPressed: isDegraded ? null : () => _delete(s.id),
+                            onPressed: isDegraded || _busy
+                                ? null
+                                : () => _delete(s),
                           ),
                         ),
                       ),
@@ -1204,128 +1222,6 @@ class _SuppliersTabState extends State<_SuppliersTab> {
     );
   }
 
-  Widget _addForm(ThemeData theme, bool isDegraded) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border.all(color: AppColors.orange.withValues(alpha: 0.5)),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.orange.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.add_business, color: AppColors.orange),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'เพิ่มซัพพลายเออร์ใหม่',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.orange,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              Container(
-                constraints: const BoxConstraints(minWidth: 200, maxWidth: 300),
-                child: _formField('ชื่อซัพพลายเออร์', _name),
-              ),
-              Container(
-                constraints: const BoxConstraints(minWidth: 120, maxWidth: 160),
-                child: _formField('ราคาต่อชิ้น ฿', _unitCost, numeric: true),
-              ),
-              Container(
-                constraints: const BoxConstraints(minWidth: 120, maxWidth: 160),
-                child: _formField('ค่าส่ง ฿', _freight, numeric: true),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () => setState(() => _adding = false),
-                child: const Text(
-                  'ยกเลิก',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                ),
-                onPressed: isDegraded ? null : _add,
-                child: const Text(
-                  'บันทึก',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _formField(
-    String label,
-    TextEditingController ctrl, {
-    bool numeric = false,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: ctrl,
-          keyboardType: numeric
-              ? const TextInputType.numberWithOptions(decimal: true)
-              : null,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
-            hintText: numeric ? '0' : '',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: AppColors.orange, width: 2),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 /// The green "cheapest total for this product" pill (same words as the
@@ -1354,8 +1250,10 @@ class _CheapestPill extends StatelessWidget {
 }
 
 /// "12" for a whole baht amount, "12.5" otherwise — a prefilled money field.
-String _moneyText(double v) =>
-    v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+String _moneyText(double v) {
+  final r = round2(v);
+  return r == r.roundToDouble() ? r.toInt().toString() : r.toString();
+}
 
 /// A money field: empty = 0 when [emptyIsZero]; null = not a valid amount.
 double? _parseMoney(String text, {bool emptyIsZero = false}) {
@@ -1559,10 +1457,19 @@ class _AddQuoteDialog extends StatefulWidget {
     required this.products,
     required this.supplierName,
     required this.quoted,
+    required this.names,
+    this.product,
   });
 
   final List<ProductRow> products;
   final String? supplierName;
+
+  /// Set from the "ตามสินค้า" view: the product is fixed, not picked.
+  final ProductRow? product;
+
+  /// supplierKey → the supplier's shown name (a typed name that matches one
+  /// joins that supplier, written with its shown spelling).
+  final Map<String, String> names;
 
   /// supplierKey → products that supplier already quotes (left out of the pick).
   final Map<String, Set<String>> quoted;
@@ -1583,7 +1490,22 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
 
   bool get _isNew => widget.supplierName == null;
 
-  String get _supplier => (_isNew ? _name.text : widget.supplierName!).trim();
+  /// A typed new-supplier name that is an existing supplier (case or spaces).
+  String? get _existing =>
+      _isNew ? widget.names[supplierKey(_name.text)] : null;
+
+  String get _supplier =>
+      (_isNew ? (_existing ?? _name.text) : widget.supplierName!).trim();
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.product;
+    if (p != null) {
+      _picked = p;
+      _cost.text = _moneyText(p.cost);
+    }
+  }
 
   Set<String> get _already => widget.quoted[supplierKey(_supplier)] ?? const {};
 
@@ -1662,7 +1584,9 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) => AlertDialog(
         title: Text(
-          _isNew
+          widget.product != null
+              ? 'เพิ่มซัพพลายเออร์ใหม่'
+              : _isNew
               ? 'ซัพพลายเออร์ใหม่' // agent ร่าง
               : 'เพิ่มสินค้า — ${widget.supplierName}', // agent ร่าง
         ),
@@ -1679,8 +1603,11 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
                     'ชื่อซัพพลายเออร์',
                     _name,
                     key: const Key('add-quote-name'),
-                    // agent ร่าง
-                    helper: 'ซัพพลายเออร์ต้องมีสินค้าอย่างน้อย 1 รายการ',
+                    helper: _existing != null
+                        // agent ร่าง
+                        ? 'มีซัพฯ นี้แล้ว — จะเพิ่มสินค้าให้ "${_existing!}"'
+                        // agent ร่าง
+                        : 'ซัพพลายเออร์ต้องมีสินค้าอย่างน้อย 1 รายการ',
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
@@ -1753,7 +1680,8 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
                             ],
                           ),
                         ),
-                        IconButton(
+                        if (widget.product == null)
+                          IconButton(
                           tooltip: 'เปลี่ยนสินค้า', // agent ร่าง
                           icon: const Icon(Icons.close, size: 18),
                           onPressed: _busy
