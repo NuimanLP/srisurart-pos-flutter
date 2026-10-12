@@ -22,7 +22,8 @@ export function productImagesDir(env: NodeJS.ProcessEnv = process.env): string {
  * The `sale-photos` volume (10_SALE_PHOTO_EVIDENCE.md §5.3): the same `<tenantId>/<key>_{t,p}.webp`
  * layout, mounted by api and worker only at `SALE_PHOTOS_DIR` (`/app/sale-photos`). 🔴 nginx
  * never mounts it — a sale photo is never public; it is read through
- * `GET /sales/:saleId/photos/:photoId/:variant`, with a login.
+ * `GET /sales/:saleId/photos/:photoId/:variant`, with a login. The 0755/0644 modes above are
+ * shared code, not a need here: inside the container only the `node` user reads this volume.
  */
 export function salePhotosDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.SALE_PHOTOS_DIR || join(tmpdir(), 'pos-sale-photos');
@@ -53,7 +54,8 @@ export interface ImageStore {
 export function imageStore(root: () => string): ImageStore {
   /**
    * Both parts are validated, so no value can climb out of `root()`. `isUuid` takes a
-   * lowercase UUID only, so every directory matches nginx's lowercase `/img/` regex.
+   * lowercase UUID only — for the product-images store that keeps every directory inside
+   * nginx's lowercase `/img/` regex (nginx serves no other store).
    */
   function imageFilePath(tenantId: string, key: string, variant: ImageVariant): string {
     if (!isUuid(tenantId) || !IMAGE_KEY.test(key)) {
@@ -64,7 +66,8 @@ export function imageStore(root: () => string): ImageStore {
 
   /**
    * Writes both variants, each to a unique temp name in the same directory and then renamed
-   * over the final name (atomic): nginx never serves a half-written file. Content-addressed, so
+   * over the final name (atomic): no reader (nginx for product images, the API for sale photos)
+   * ever sees a half-written file. Content-addressed, so
    * rewriting an existing key writes the same bytes and is harmless — and it always rewrites,
    * never skips an existing file, so the mtime is fresh and `removeImageFilesIfStale` spares it.
    * Resolves `true` when this call created the key (no preview existed before it).

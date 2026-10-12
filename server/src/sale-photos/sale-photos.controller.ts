@@ -44,15 +44,16 @@ interface AuthenticatedRequest extends Request {
 
 /**
  * §4.3 row 0: the raw image body (≤ 3 MB) is parsed only for a verified tenant access token
- * that carries a device (`did`) — nobody else makes the API buffer 3 MB before the guard.
- * Any other request falls through unparsed, and `TenantGuard` + `@RequireDeviceRole('pos')`
- * answer it (401 / 403) before the handler ever looks at the body.
+ * of the `pos` device (`did` + `drole === 'pos'`, the only device the route accepts) — nobody
+ * else makes the API buffer 3 MB before the guard. Any other request, a `backoffice` device
+ * included, falls through unparsed, and `TenantGuard` + `@RequireDeviceRole('pos')` answer it
+ * (401 / 403) before the handler ever looks at the body.
  */
-export function deviceTokenFromHeader(header: unknown, verifier: JwtVerifier): boolean {
+export function posDeviceTokenFromHeader(header: unknown, verifier: JwtVerifier): boolean {
   if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
   try {
     const p = verifier.verify(header.substring(7), 'access');
-    return p.aud === 'tenant' && !!p.tid && !!p.did;
+    return p.aud === 'tenant' && !!p.tid && !!p.did && p.drole === 'pos';
   } catch {
     return false;
   }
@@ -150,14 +151,14 @@ export class SalePhotosController {
     req: AuthenticatedRequest,
     takenAt: unknown,
     sortOrder: unknown,
-  ): Promise<PreparedSalePhoto & { created: boolean }> {
+  ): Promise<PreparedSalePhoto & { created: boolean; saleId: string; photoId: string }> {
     const userId = req.user?.userId;
     const deviceId = req.user?.deviceId;
     // A `pos` token always carries both — the guard refuses this route otherwise — but the
     // row records them, so they are checked rather than asserted.
     if (!userId || !deviceId) throw new DeviceRoleForbiddenException();
     const query = { takenAt: parseTakenAt(takenAt), sortOrder: parseSortOrder(sortOrder) };
-    // A Buffer only when the raw parser ran (a verified device token AND an accepted
+    // A Buffer only when the raw parser ran (a verified `pos` device token AND an accepted
     // Content-Type); JSON, a form, or no body at all is not an image.
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw productImageInvalid();
     const sourceSha256 = createHash('sha256').update(req.body).digest('hex');
@@ -172,6 +173,10 @@ export class SalePhotosController {
       userId,
       deviceId,
       created,
+      // Only for the cleanup log line (§4.3: log saleId/photoId, never the body or its key);
+      // `ParseUuidPipe` has already validated both.
+      saleId: req.params.saleId as string,
+      photoId: req.params.photoId as string,
     };
   }
 
@@ -183,7 +188,7 @@ export class SalePhotosController {
    * once; files that were already there are kept while fresh (`ORPHAN_GRACE_MS`).
    */
   private async settlePhoto<T>(
-    photo: { key: string; created: boolean },
+    photo: { key: string; created: boolean; saleId: string; photoId: string },
     write: () => Promise<T>,
   ): Promise<T> {
     let inFlight = false;
@@ -193,15 +198,20 @@ export class SalePhotosController {
       inFlight = err instanceof ServiceUnavailableException;
       throw err;
     } finally {
-      if (!inFlight) await this.dropIfUnreferenced(photo.key, photo.created);
+      if (!inFlight) await this.dropIfUnreferenced(photo);
     }
   }
 
-  private async dropIfUnreferenced(key: string, evenIfFresh: boolean): Promise<void> {
+  private async dropIfUnreferenced(photo: {
+    key: string;
+    created: boolean;
+    saleId: string;
+    photoId: string;
+  }): Promise<void> {
     try {
-      await this.photos.removeIfUnreferenced(key, { evenIfFresh });
+      await this.photos.removeIfUnreferenced(photo.key, { evenIfFresh: photo.created });
     } catch (err) {
-      this.logger.warn({ err, imageKey: key }, 'sale photo cleanup failed');
+      this.logger.warn({ err, saleId: photo.saleId, photoId: photo.photoId }, 'sale photo cleanup failed');
     }
   }
 }
