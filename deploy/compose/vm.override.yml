@@ -49,6 +49,9 @@ services:
   # `$$` is Compose's escape for a literal `$`.
   web-sync:
     image: ghcr.io/nuimanlp/srisurart-pos-web:${IMAGE_TAG:?IMAGE_TAG is required}
+    # Root, explicitly: the image's default user is nobody (web.Dockerfile, Trivy DS-0002), but this
+    # one-shot writes into the `web` volume, whose files are root-owned. Same user it always ran as.
+    user: "0:0"
     restart: "no"
     command:
       - sh

@@ -731,6 +731,16 @@ on void/return paths. Keep this order in any new write touching more than one of
   migration is never edited — add a new one. 🔴 Two PRs green alone can be red
   together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
   `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
+- **IaC lint + web image scans (2026-10-13, branch `devops-improvements` only — not on `main`):** `ci-guards` runs
+  **ansible-lint** (`deploy/ansible/.ansible-lint`: profile `production`, offline; hash-pinned
+  `deploy/ansible/lint-requirements.txt` + sha256-checked `ansible.posix`) over every playbook in `deploy/ansible/` —
+  fix the playbook, or `# noqa: <rule> <reason>` on that line; never a `skip_list`. `audit` Trivy-config-scans
+  `deploy/web.Dockerfile`; `build-web` Trivy-scans the web image on PRs too (build-only, no push). DS-0002 is met by
+  `USER 65534` in the image while `web-sync` runs `user: "0:0"` on purpose (root-owned `web` volume) — never call the
+  deploy rootless. 🔴 The lint edits to `deploy.yml` (explicit `changed_when`, folded long lines) are proven **only by a
+  real deploy + `.current_sha`** — none happens until the owner releases this branch. `ansible.cfg` no longer sets
+  `host_key_checking = False`: pin the host key first (ssh-keyscan vs the console fingerprint, 07 §7 "SSH host key");
+  CD is unaffected (`ansible_connection=local`).
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.

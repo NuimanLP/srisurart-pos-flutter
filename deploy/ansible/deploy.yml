@@ -85,7 +85,10 @@
     - name: Decide whether .env changed since the last deploy
       ansible.builtin.set_fact:
         env_checksum: "{{ env_stat.stat.checksum | default('') }}"
-        env_changed: "{{ env_stat.stat.exists and (env_stat.stat.checksum | default('')) != ((env_applied_file.content | b64decode | trim) if (env_applied_file is succeeded and env_applied_file.content is defined) else '') }}"
+        env_changed: >-
+          {{ env_stat.stat.exists and (env_stat.stat.checksum | default('')) !=
+          ((env_applied_file.content | b64decode | trim)
+          if (env_applied_file is succeeded and env_applied_file.content is defined) else '') }}
 
     # `-e force_redeploy=true` redeploys the SHA .current_sha already names (#67): the automatic
     # rollback needs it, because .current_sha is written only after readiness passes and so still
@@ -98,7 +101,9 @@
 
     - name: Notify that .env changed under the active release
       ansible.builtin.debug:
-        msg: "Release '{{ image_tag }}' is already active, but {{ app_dir }}/.env changed since the last deploy. Rolling it out again to apply the new configuration."
+        msg: >-
+          Release '{{ image_tag }}' is already active, but {{ app_dir }}/.env changed since the last
+          deploy. Rolling it out again to apply the new configuration.
       when: current_sha == image_tag and not (force_redeploy | default(false) | bool) and (env_changed | bool)
 
     - name: Early exit on duplicate release deployment
@@ -261,6 +266,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # Backup before migration (WP3). The migrations have no `down` path in production, so this dump
     # is the only undo for a schema change. `status` runs the NEW image's migrate.js (rc 0 = up to
@@ -301,6 +307,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # certgen (TLS CA + server cert, docker/certgen/certgen.sh) is `run`, not part of the `up -d`
     # below: `run` waits for the one-shot and returns its exit code, so a failed certificate
@@ -325,6 +332,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # etcd-init (#64/#67) enables auth, asserts it, and seeds /pos/config/log_level if missing.
     # `run` waits for etcd to be healthy (depends_on) and returns the job's exit code, so a
@@ -364,6 +372,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-1 health check to pass
       ansible.builtin.shell: >
@@ -386,6 +395,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-2 health check to pass
       ansible.builtin.shell: >
@@ -408,6 +418,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-3 health check to pass
       ansible.builtin.shell: >
@@ -430,6 +441,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # Web last, after every API instance runs the new release: a new web against an old API can
     # call an endpoint or field that does not exist yet, while an old web against a new API is the
@@ -440,6 +452,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # nginx.conf is a single-file bind mount (docker-compose.yml). ansible.builtin.copy above wrote
     # a temp file and renamed it into place -- new inode, same path -- and a container's bind mount
@@ -587,6 +600,7 @@
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
+          changed_when: true
 
         - name: Bring up node-exporter
           ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d node-exporter"
@@ -594,6 +608,7 @@
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
+          changed_when: true
 
         # Always recreate, never "only when this run changed the config" (#148). A single-file bind
         # mount keeps the old inode after copy's atomic rename and the compose config hash does not

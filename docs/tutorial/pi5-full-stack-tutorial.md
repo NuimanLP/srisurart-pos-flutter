@@ -130,10 +130,19 @@ Host pi5-deploy
   IdentitiesOnly yes
 ```
 
-(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` ปิด host key checking →
-ssh มือครั้งแรกเพื่อตรึง host key (ข้อ 6 — ตอบ `yes` เมื่อแน่ใจว่าเป็น Pi ของคุณ)
+(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` **ตรวจ host key**
+(2026-10-13) → ต้องตรึง host key ของ Pi ก่อนรัน Ansible (ข้อ 6)
 
-**6. ssh ครั้งแรก + ตรวจ:**
+**6. ตรึง host key + ssh ครั้งแรก + ตรวจ:**
+
+บน **จอที่ต่อกับ Pi เอง** (console — ไม่ใช่ผ่าน SSH) อ่าน fingerprint: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` · แล้วบน notebook:
+
+```bash
+ssh-keyscan -t ed25519 "$PI_IP" > /tmp/pi5.keyscan && ssh-keygen -lf /tmp/pi5.keyscan
+```
+
+✅ `SHA256:…` ตรงกับค่าบน console ทุกตัวอักษร → `cat /tmp/pi5.keyscan >> ~/.ssh/known_hosts` · ❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม
+(คู่มือ VM §1.4, 07 §7 แถว "SSH host key") · ssh ข้างล่างไม่ควรถามเรื่อง fingerprint อีก
 
 ```bash
 ssh pi5 'grep -E "^(ID|VERSION_ID)=" /etc/os-release; dpkg --print-architecture; getconf PAGESIZE; sudo -n true 2>/dev/null && echo "sudo nopasswd" || echo "sudo asks password"'
@@ -547,7 +556,7 @@ pi_guard && [[ "$SECRETS_FILE" == */pi5-demo.env ]] && test -s "$SECRETS_FILE" &
 (อนุญาตแค่ 22/80/443) → user `deploy` (group `docker`) + authorized key → `/opt/pos/...` → copy สคริปต์ ops 4 ตัวจาก worktree ลง `/opt/pos/scripts` →
 ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที
 
-✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (ตรึง host key) + ตรวจ:
+✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (host key ตรึงไว้แล้วใน §2 ข้อ 6 — key ของเครื่องเดียวกัน ไม่ขึ้นกับ user) + ตรวจ:
 
 ```bash
 ssh pi5-deploy 'id; ls -ld /opt/pos; stat -c "%A %U:%G %n" /opt/pos/.env'

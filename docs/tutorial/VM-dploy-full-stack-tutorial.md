@@ -105,7 +105,7 @@ ans() {
     -e DEMO_SSH_HOST -e DEMO_SSH_USER -e DEMO_SSH_KEY_PATH=/tmp/k -e KEYFILE -e TAG \
     "${extra[@]}" \
     'alpine/ansible@sha256:22227b578da3371267201879f44de86569e9b531db536e1d9d2b83aed35b6cfc' \
-    sh -c '[ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
+    sh -c '[ ! -f /hostssh/known_hosts ] || { mkdir -p "$HOME/.ssh" && cp /hostssh/known_hosts "$HOME/.ssh/known_hosts"; } || exit 1; [ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
 }
 ```
 
@@ -114,7 +114,7 @@ export SSHDIR="$USERPROFILE\.ssh"
 ```
 
 เหตุผลของแต่ละชิ้น (วัดจริงใน `ticket-343` §2): bind mount ของ Windows เป็น world-writable → Ansible **เมิน `ansible.cfg` เงียบ ๆ** ถ้าไม่บังคับ
-`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
+`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `known_hosts` ถูกคัดเข้า container ด้วย เพราะ `ansible.cfg` ตรวจ host key แล้ว (2026-10-13, §1.4) · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
 ตัวแปรที่ใส่นำหน้าคำสั่ง (`DEMO_SSH_USER=deploy ans ...`) มีผลแค่คำสั่งนั้น ไม่ค้างใน shell
 
 `REPO` ตั้งจริงใน §3 ข้อ 4 (ชี้ไปที่ worktree สะอาด) · ทดสอบฟังก์ชันตอนนี้ด้วย repo หลัก (Git Bash ที่ root ของ repo · ไม่ใส่ `KEYFILE` = ไม่ copy key):
@@ -216,13 +216,22 @@ export DEPLOY_KEY=~/.ssh/deploy_ed25519
 test -s "$DEPLOY_KEY" && test -s "$DEPLOY_KEY.pub" && echo "key ok" || echo "STOP: ไม่มี $DEPLOY_KEY หรือ .pub"
 ```
 
-`ansible.cfg` ตั้ง `host_key_checking = False` → **Ansible จะไม่ตรวจว่าคุยกับเครื่องจริง** · ssh ด้วยมือหนึ่งครั้งเพื่อให้ `known_hosts` จำ key ของ VM:
+`ansible.cfg` **ตรวจ host key** (เอา `host_key_checking = False` ออกแล้ว 2026-10-13) → host ที่ยังไม่อยู่ใน `~/.ssh/known_hosts` =
+Ansible หยุดด้วย `Host key verification failed` · ตรึง key ของ VM ก่อน — fingerprint ต้องตรงกับที่ **owner อ่านจาก console ของ VM**
+(`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` บน console ไม่ใช่ผ่าน SSH) และประกาศให้ทีม (07 §7 แถว "SSH host key"):
+
+```bash
+ssh-keygen -F 172.30.58.20 >/dev/null && echo "มี entry แล้ว — เทียบ fingerprint ด้านล่างอยู่ดี" ; ssh-keyscan -t ed25519 172.30.58.20 > /tmp/mob04.keyscan && ssh-keygen -lf /tmp/mob04.keyscan
+```
+
+✅ `SHA256:…` ตรงกับที่ owner ประกาศ**ทุกตัวอักษร** → (ถ้ายังไม่มี entry) `cat /tmp/mob04.keyscan >> ~/.ssh/known_hosts` ·
+❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม ถาม owner · Windows Git Bash: คำสั่งเดียวกัน (`~/.ssh` = `$SSHDIR`) — ฟังก์ชัน `ans` คัด `known_hosts` เข้า container
+
+แล้ว ssh ด้วยมือหนึ่งครั้ง (ไม่ควรถามเรื่อง fingerprint อีก — ถ้าถาม = key ยังไม่ถูกตรึง กลับไปทำข้อบน):
 
 ```bash
 ssh mob04-deploy 'id; docker ps --format "{{.Names}}" | head -3'
 ```
-
-ครั้งแรกจะถาม `Are you sure you want to continue connecting` พร้อม fingerprint → **เทียบกับที่ owner ประกาศ** ก่อนตอบ `yes`
 
 ✅ `id` มี group `docker` และเห็นชื่อ container รูป `srisurart-pos-<service>-<n>` (เช่น `api-1` → `srisurart-pos-api-1-1`,
 `nginx` → `srisurart-pos-nginx-1`, `platform-ui` → `srisurart-pos-platform-ui-1`)
@@ -1186,7 +1195,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.nam
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `config file = None` | Mac: ไม่ได้อยู่ใน `deploy/ansible/` · Windows: ไม่ได้บังคับ `ANSIBLE_CONFIG` (mount world-writable) | `cd` ให้ถูก · ใช้ฟังก์ชัน `ans` |
-| `Host key verification failed` | `ansible.cfg` ไม่ถูกอ่าน · หรือ host key ใน `known_hosts` ไม่ตรง | แก้ข้อบน · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
+| `Host key verification failed` | ยังไม่ได้ตรึง host key (§1.4 — `ansible.cfg` ตรวจ host key ตั้งแต่ 2026-10-13) · Windows: `known_hosts` ไม่อยู่ใน `$SSHDIR` · หรือ host key ใน `known_hosts` ไม่ตรง | ทำ §1.4 (เทียบ fingerprint กับ console) · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
 | `UNREACHABLE` + timeout | ไม่ได้ต่อ VPN | §1.2 |
 | `UNREACHABLE` กับ `127.0.0.1` | ลืม `DEMO_SSH_HOST` (default `127.0.0.1`) | ใส่ `DEMO_SSH_HOST=172.30.58.20` |
 | `Permission denied (publickey)` | key/user ไม่ตรงคู่ · key ยังไม่ติดตั้ง · ACL บน Windows | ตาราง §0.3 · §2.4 · `icacls` §1.3 |
