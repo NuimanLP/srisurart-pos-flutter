@@ -27,15 +27,21 @@ CA_DIR="${CA_DIR:-/ca}"
 # duplicates dropped (input order kept). Changing the list reissues the server cert on the next
 # run; the CA stays. Every entry is validated before any file is touched: a bad one exits 1.
 ips="${CERT_SAN_IPS:-}"
-[ -n "$(printf '%s' "$ips" | tr -d ' \t,')" ] || ips="172.30.58.20"
+[ -n "$(printf '%s' "$ips" | tr -d ' \t\r,')" ] || ips="172.30.58.20"
 SAN="DNS:localhost,IP:127.0.0.1"
 seen=","
 old_ifs="$IFS"
 IFS=","
+# No globbing while splitting: an entry such as '*' must be rejected, not expanded to file names.
+set -f
 for ip in $ips; do
-  ip=$(printf '%s' "$ip" | tr -d ' \t')
+  # \r too: a CRLF-edited .env must not change the SAN (or reissue the cert on mob04).
+  ip=$(printf '%s' "$ip" | tr -d ' \t\r')
   [ -n "$ip" ] || continue
-  if ! printf '%s' "$ip" | grep -Eq '^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$' ||
+  # The `case` rejects anything but digits and dots first: grep matches line by line, so an
+  # embedded newline ("1.2.3.4<LF>foo") would otherwise pass and land in the openssl ext file.
+  if case "$ip" in *[!0-9.]*) true ;; *) false ;; esac ||
+    ! printf '%s' "$ip" | grep -Eq '^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$' ||
     [ "$(printf '%s' "$ip" | tr '.' '\n' | sort -n | tail -n 1)" -gt 255 ]; then
     echo "certgen: CERT_SAN_IPS entry '$ip' is not a dotted IPv4 address" >&2
     exit 1
@@ -44,6 +50,7 @@ for ip in $ips; do
   seen="$seen$ip,"
   SAN="$SAN,IP:$ip"
 done
+set +f
 IFS="$old_ifs"
 
 if [ ! -s "$CA_DIR/ca.key" ]; then

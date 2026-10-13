@@ -90,6 +90,8 @@ check "empty: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf_fp"
 check "empty: default SAN" test "$(san)" = "$DEF"
 CERT_SAN_IPS=" , " run_certgen
 check "blank-only list: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf_fp"
+CERT_SAN_IPS="$(printf '172.30.58.20\r')" run_certgen
+check "CRLF .env value: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf_fp"
 
 CERT_SAN_IPS=172.30.58.20,192.168.1.50 run_certgen
 check "two IPs: both in SAN" test "$(san)" = "$DEF, IP Address:192.168.1.50"
@@ -111,7 +113,8 @@ check "back to default: same CA" test "$(fp "$CA_DIR/ca.crt")" = "$ca_fp"
 
 leaf3="$(fp "$CERTS_DIR/server.crt")"
 key3="$(cksum <"$CERTS_DIR/server.key")"
-for bad in foo 999.1.1.1 1.2.3 1.2.3.4.5 "172.30.58.20,256.0.0.1" 01.2.3.4; do
+nl_bad="$(printf '1.2.3.4\nsubjectAltName=DNS:evil')"
+for bad in foo 999.1.1.1 1.2.3 1.2.3.4.5 "172.30.58.20,256.0.0.1" 01.2.3.4 "*" "$nl_bad"; do
   if CERT_SAN_IPS="$bad" sh "$SCRIPT" >"$WORK/out" 2>&1; then
     echo "FAIL - '$bad' should exit 1"
     fails=$((fails + 1))
