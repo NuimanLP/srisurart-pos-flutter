@@ -233,4 +233,28 @@ check "worker exec failure writes no pos_sale_photos_* (no .partial)" test "$(co
 check "worker exec failure keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "worker exec failure keeps the product-images archive" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
 
+# 7. BACKUP_VOLUMES=0 (the pre-migration dump): dump only, even with both volume dirs present;
+# the default (unset) and BACKUP_VOLUMES=1 still archive them.
+printf '#!/bin/sh\nexit 0\n' > "$STUBS/docker" # neutral stub again (section 6 replaced it)
+D="$WORK/dbonly"
+mkdir -p "$D" "$WORK/v_img" "$WORK/v_sp"
+echo x > "$WORK/v_img/a.webp"
+echo y > "$WORK/v_sp/b.webp"
+BACKUP_VOLUMES=0 run_backup "$D" 0 "$WORK/v_img" "$WORK/v_sp"
+check "BACKUP_VOLUMES=0 exits 0" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 still writes the dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "BACKUP_VOLUMES=0 archives no product images" test "$(count "$D" 'pos_images_*')" = 0
+check "BACKUP_VOLUMES=0 archives no sale photos" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "BACKUP_VOLUMES=0 does not warn about a missing volume" test -z "$(grep 'No product-images volume\|No sale-photos volume' "$D.log")"
+D="$WORK/dbonly_fail"
+mkdir -p "$D"
+BACKUP_VOLUMES=0 run_backup "$D" 1
+check "BACKUP_VOLUMES=0 with a failing dump exits non-zero" test "$rc" -ne 0
+check "BACKUP_VOLUMES=0 with a failing dump leaves no dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 0
+D="$WORK/vol_default"
+mkdir -p "$D"
+run_backup "$D" 0 "$WORK/v_img" "$WORK/v_sp"
+check "default still archives product images" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
+check "default still archives sale photos" test "$(count "$D" 'pos_sale_photos_*.tar.gz')" = 1
+
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
