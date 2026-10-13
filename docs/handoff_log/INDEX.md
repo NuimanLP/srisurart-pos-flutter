@@ -2,6 +2,7 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-10-13 — [Handoff — image multi-arch (amd64+arm64), `CERT_SAN_IPS`, `host-setup.sh` เตรียม Raspberry Pi 5, release `5c7f210`](session-2026-10-13-pi5-multiarch.md) — PR #711/#712/#713 → `develop`, #714 → `main` (merge commit) · deploy run `38393626652` · `.current_sha` = `5c7f210` · คู่มือ `docs/tutorial/pi5-full-stack-tutorial.md` · ยังไม่มี Pi จริง, CD ไป Pi ยังไม่ต่อ
 - 2026-10-13 — [Handoff — กล้องในแอปสำหรับรูปหลักฐาน + เรียงรูป, แท็บซัพพลายเออร์แบบซัพฯ ก่อน, release `8a44a03`](session-2026-10-13-camera-suppliers.md) — PR #702/#703 → `develop`, #704 → `main` (merge commit) · deploy run `38275228902` · `.current_sha` = `8a44a03`, `/health/ready` 200 · client only ไม่มี migration · ยังไม่ทดลองกล้องจริง · ข้อความ `agent ร่าง` + สิทธิ์แก้ราคาซัพฯ รอเจ้าของ — รอคนอื่น
 - 2026-10-12 — [Handoff — รูปหลักฐานสินค้าหลังชำระเงิน + สแกนบาร์โค้ดด้วยกล้อง, release `c3e33aa`](session-2026-10-12-photo-evidence-barcode.md) — PR #697/#698 → `develop`, #699 → `main` (merge commit) · deploy run `38260777086` · `.current_sha` = `c3e33aa`, `/health/ready` 200, migration `SalePhotos1788652805200` · `backup-db.sh` ติดตั้งด้วยมือแล้ว (เก็บ `pos_sale_photos_*.tar.gz`) · ยังไม่ทดลองกล้องจริง (X1) · ข้อความ `agent ร่าง` + PDPA รอเจ้าของ — รอคนอื่น
 - 2026-10-11/12 — [Handoff — ขัด UI/UX ทุกหน้าจอ (presentation only), 2 release `2d6a575` + `ec31121`](session-2026-10-12-ui-ux-polish.md) — PR #693/#694 + ข้อความไทยที่เจ้าของรับรอง #695/#696 — ปิดแล้ว

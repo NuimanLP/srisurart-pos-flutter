@@ -48,8 +48,11 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `8a44a03`
-(PR #704, merge commit, 2026-10-13)**: the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `5c7f210`
+(PR #714, merge commit, 2026-10-13)**: multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
+(PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" below — deployed to `mob04` (run `38393626652`, `.current_sha`
+checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`). Before it `8a44a03`
+(PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
 supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
 below), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
 `docs/handoff_log/session-2026-10-13-camera-suppliers.md`). Before it `c3e33aa`
@@ -65,7 +68,8 @@ presentation-only UI/UX polish of every screen (PR #693; audits in `docs/researc
 `38100697523`, `.current_sha` checked over SSH). The release before that, `e77356f` (PR #683, 2026-10-10, run `38066101954`): the first
 try `ac9d4dd` (#681) rolled back because sharp's prebuilt binaries need x86-64-v2 and `mob04` is a `qemu64` CPU; fixed by
 PR #682 (`docs/handoff_log/session-2026-10-10-product-images.md`). A Raspberry Pi 5 move is only a plan
-(`docs/research/pi5-migration-plan.md`, owner undecided). 🔴 **`develop` → `main` showing
+(`docs/research/pi5-migration-plan.md`, owner undecided): the installer and arm64 images exist
+(`docs/tutorial/pi5-full-stack-tutorial.md`) but **no Pi is in service** and `mob04` stays production. 🔴 **`develop` → `main` showing
 "conflict" while `git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into
 `develop` with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to**
 (a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
@@ -785,7 +789,22 @@ on void/return paths. Keep this order in any new write touching more than one of
   until the CA asset is recommitted and APKs rebuilt. `ca.key` lives only in `certs-ca`. `frontend/assets/certs/pos-ca.crt`
   holds the CA since 2026-10-03 (first certgen deploy `7ea0178`; SHA-256 `87:7B:B8:F7:…:54:CF:83:65`) — it must match
   `certs-ca/ca.crt` on the VM (`07_CICD_DEPLOY.md` §5 "TLS"). Never add `badCertificateCallback`.
-  A VM IP change = edit the SAN in `server/docker/certgen/certgen.sh`.
+  A host IP change = set `CERT_SAN_IPS` in that host's `.env` (no code edit since PR #712).
+- **Multi-arch images + Raspberry Pi 5 host (2026-10-13, PRs #711/#712/#713, release #714 `5c7f210`;
+  `docs/tutorial/pi5-full-stack-tutorial.md`):** server/web `:<sha>` and `:main` are **amd64+arm64 manifest lists**, made by
+  `publish-image` only after both per-arch legs (`:<sha>-amd64`/`:<sha>-arm64`, each built + smoke + sharp check — arm64 under
+  `qemu-aarch64 -cpu cortex-a76` — + Trivy) pass; `server-ci-status` is red if `publish-image` was skipped on a `main` code push.
+  Releases before `5c7f210` are amd64 only. `verify-ghcr-tags.sh <sha> [linux/amd64|linux/arm64]` (no platform = old check).
+  `CERT_SAN_IPS` (comma-separated IPv4; unset = `172.30.58.20`, byte-identical SAN on `mob04`). `deploy/scripts/host-setup.sh`
+  runs before `provision.yml`: **never formats** (prints `sfdisk`/`mkfs.ext4` for the owner), refuses page size ≠ 4096
+  (Raspberry Pi OS on a Pi 5 = 16K; use Ubuntu Server 26.04/24.04), moves Docker `data-root` to `/srv/pos-data` with a
+  `RequiresMountsFor` drop-in — 🔴 never remove it (Docker would start on an empty SD dir); backups stay on the boot disk.
+  A runner on a Pi must set `RUNNER_NAME` + `RUNNER_LABELS` (script refuses on aarch64 otherwise) and **never share
+  `srisurart-demo-deploy`**. 🔴 **Pi CD is not wired:** `deploy.yml` runs on `mob04`'s label and passes no platform.
+- **Tailscale on `mob04` (2026-10-13, `docs/research/tailscale-remote-access-plan-2026-10-13.md`):** subnet router for
+  `172.30.58.20/32` only (`tag:pos-server`, Personal plan = non-commercial). 🔴 `--snat-subnet-routes=false` is required —
+  never re-enable SNAT (every phone would share one IP: per-IP login rate limit + nginx's RFC1918 allowlist). SSH over the
+  tailnet is the owner's only; dashboards (Grafana/Prometheus/Bull-Board/platform-ui) only through an SSH tunnel.
 
 **Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
 - `http_requests_total` and `http_request_duration_seconds` are **named by the existing

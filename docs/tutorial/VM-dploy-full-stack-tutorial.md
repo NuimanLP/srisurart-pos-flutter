@@ -7,6 +7,8 @@
 
 ## 0. หน้าแรก — อ่านหน้านี้ก่อนทำอะไร
 
+> **Raspberry Pi 5 แทน VM?** ดู `docs/tutorial/pi5-full-stack-tutorial.md` (2026-10-13 — `host-setup.sh` + image arm64; ยังไม่มี Pi จริงในระบบ, CD ไป Pi ยังไม่ต่อ)
+
 ### 0.1 สถานะวันนี้: FortiGate ไม่ตัด `ghcr.io` แล้ว (2026-09-29)
 
 เดิม (2026-09-21 → 09-28) Firewall **FortiGate** ของคณะทำ SSL inspection กับ HTTPS ขาออกของ VM `172.30.58.20` และตอบ `ghcr.io`
