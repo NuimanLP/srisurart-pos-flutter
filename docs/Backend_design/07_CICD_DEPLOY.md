@@ -323,9 +323,15 @@ node-exporter 64m → **≈ 4.2 GB จาก 6 GB** — ทุกตัวต้
 * **CA** อยู่ใน volume `certs-ca` (mount เฉพาะ `certgen`) — สร้างครั้งแรกครั้งเดียว อายุ 10 ปี **ไม่สร้างใหม่เอง**
   เพราะทุก APK ฝัง public cert ของมันไว้ · `ca.key` ไม่ออกจาก VM: ไม่อยู่ใน git, ไม่อยู่ใน CI, nginx/platform-ui ก็อ่านไม่ได้
 * **server cert** ใน volume `certs` (`server.crt`/`server.key` ที่ nginx เสิร์ฟ + สำเนา `ca.crt` ให้ platform-ui trust)
-  SAN = `DNS:localhost, IP:127.0.0.1, IP:172.30.58.20` อายุ 825 วัน · `certgen` ออกใบใหม่เองทุกครั้งที่รัน (= ทุก deploy)
+  SAN = `DNS:localhost, IP:127.0.0.1` + IP ของ host จาก `CERT_SAN_IPS` (ไม่ตั้ง/ว่าง = `IP:172.30.58.20` เหมือนเดิมทุกไบต์ → `mob04` ไม่ออกใบใหม่) อายุ 825 วัน · `certgen` ออกใบใหม่เองทุกครั้งที่รัน (= ทุก deploy)
   ถ้าใบไม่มี / CA นี้ไม่ได้เซ็น / SAN ไม่ตรงลิสต์ / เหลือ < 30 วัน — volume `certs` เดิมบน `mob04` (ใบ `CN=localhost`)
   จึงได้ใบใหม่ใน deploy แรกหลัง merge โดยไม่ต้องแตะ volume อื่น และ nginx/platform-ui ถูก force-recreate ในรอบเดียวกันอยู่แล้ว
+* **host ที่ IP ต่างจาก `mob04` (เช่น Raspberry Pi 5):** ใส่ `CERT_SAN_IPS=<ip>[,<ip>…]` (IPv4 คั่นด้วย `,` ตัดช่องว่าง/ตัดซ้ำให้
+  ลำดับตามที่ใส่) ใน `.env` ของ host นั้น (`DEMO_ENV_FILE`) — `deploy.yml` รัน `docker compose run --rm --no-deps certgen`
+  ใน `/opt/pos` จึงอ่านจาก `/opt/pos/.env` ที่เดียว · ค่าที่ไม่ใช่ IPv4 → certgen exit 1 ก่อนแตะใบ/คีย์ใด ๆ ·
+  เปลี่ยนลิสต์ = ออกใบ server ใหม่ด้วย **CA เดิม** (APK ที่ฝัง `pos-ca.crt` ยังใช้ได้ ถ้า SAN มี IP ที่แอปเรียก) ·
+  host นั้นต้องตั้ง `CORS_ORIGINS` เป็น origin ของตัวเองด้วย และต้อง build APK ใหม่ด้วย `API_BASE_URL` ของ IP นั้น
+  (`android-apk.yml` ฮาร์ดโค้ด `https://172.30.58.20` อยู่ — ยังไม่ได้แก้ แค่บันทึกไว้) · ช่วงซ้อม ใส่ **ทั้งสอง IP** ในใบเดียว
 * **แอป** (`frontend/lib/core/network/pos_trust_io.dart`): build native ทั้งหมดเชื่อ system roots **บวก** CA ใน asset
   `frontend/assets/certs/pos-ca.crt` ผ่าน `SecurityContext` — ไม่มี `badCertificateCallback` ไม่ปิด verify, hostname/IP ยังถูกเช็ค
   (`frontend/test/pos_trust_test.dart`: IP ผิด = `IP address mismatch`) · asset commit ไว้**ว่าง** = trust แค่ system roots ·
