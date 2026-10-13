@@ -207,7 +207,8 @@ secret scan: gitleaks) · action ของ third-party อ้างด้วย 
 * **CodeQL default setup = advisory เท่านั้น** — ถ้าเจ้าของจะเปิด ให้เปิดเองใน repo settings (agent ไม่แก้ settings
   ผ่าน API) และไม่ทำให้เป็น required check
 * **action ของ third-party pin ด้วย commit SHA** พร้อม comment `# vX` · binary ของ trivy pin ผ่าน input `version:`
-  ด้วย · `actions/*` (first-party ของ GitHub) ยังใช้ tag · Dependabot ของ `github-actions` ยังปิด (limit 0) — bump ด้วยมือ
+  ด้วย · `actions/*` (first-party ของ GitHub — `checkout`/`setup-*`/`cache`/`upload-artifact`) **ใช้ tag โดยตั้งใจ ไม่ pin SHA**
+  (เจ้าของเดียวกับ runner ที่เราเชื่ออยู่แล้ว · ตัวที่ต้อง pin คือ third-party) · Dependabot ของ `github-actions` ยังปิด (limit 0) — bump ด้วยมือ
   ตามกติกา "เวอร์ชันอายุ ≥ 2 สัปดาห์"
 
 **ที่ปฏิเสธ:** Semgrep Cloud / `semgrep ci` (ต้องมี token และส่งผลออกนอก repo) · `p/secrets` (ซ้ำกับ gitleaks) ·

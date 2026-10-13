@@ -731,11 +731,13 @@ on void/return paths. Keep this order in any new write touching more than one of
   migration is never edited — add a new one. 🔴 Two PRs green alone can be red
   together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
   `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
-- **IaC lint + web image scans (2026-10-13, branch `devops-improvements` only — not on `main`):** `ci-guards` runs
+- **IaC lint + web image scans (2026-10-13, landed via branch `devops-improvements`; released only when the owner merges it to `main`):** `ci-guards` runs
   **ansible-lint** (`deploy/ansible/.ansible-lint`: profile `production`, offline; hash-pinned
-  `deploy/ansible/lint-requirements.txt` + sha256-checked `ansible.posix`) over every playbook in `deploy/ansible/` —
+  `deploy/ansible/lint-requirements.txt` on CPython 3.12 pinned by `actions/setup-python` + sha256-checked `ansible.posix`;
+  pip wheels and the Galaxy tarball are cached, and a cache hit is still hash-checked) over every playbook in `deploy/ansible/` —
   fix the playbook, or `# noqa: <rule> <reason>` on that line; never a `skip_list`. `audit` Trivy-config-scans
-  `deploy/web.Dockerfile`; `build-web` Trivy-scans the web image on PRs too (build-only, no push). DS-0002 is met by
+  `deploy/web.Dockerfile`; `build-web` Trivy-scans the web image on PRs too (build-only, no push) — only the single-arch **amd64** build is
+  scanned; the pushed amd64+arm64 list is a buildx rebuild of the same COPY-only Dockerfile, its arm64 half unscanned. DS-0002 is met by
   `USER 65534` in the image while `web-sync` runs `user: "0:0"` on purpose (root-owned `web` volume) — never call the
   deploy rootless. 🔴 The lint edits to `deploy.yml` (explicit `changed_when`, folded long lines) are proven **only by a
   real deploy + `.current_sha`** — none happens until the owner releases this branch. `ansible.cfg` no longer sets
@@ -755,7 +757,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   fallback for when the #67 runner is offline, not a competing trigger policy.
 - **A red `server-ci-status` on `main` = no images on GHCR = every Deploy run skips while
   reporting success** (2026-09-30: `pnpm audit --audit-level=high` blocked every deploy
-  until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only".
+  until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only". Release-gating jobs
+  also download from outside at run time, so an outage there is a red run too: PyPI + Galaxy (`ci-guards`, cached and
+  hash-checked), Docker Hub (`nginx-check`'s grafana/prometheus/gatus/node-exporter pulls, the semgrep image), GitHub
+  (`sast`'s `semgrep-rules` fetch, the gitleaks/actionlint/shellcheck releases) and the Trivy DB (`mirror.gcr.io`, then
+  `ghcr.io` — Trivy v0.70.0's own default order, left as is). Re-run; never weaken the gate.
 - **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
@@ -885,7 +891,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
   point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
   `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),
-  platform-ui, bull-board (401), Postgres/Redis×2/etcd TCP, Grafana, Prometheus. Rules: API instance down uses
+  platform-ui (**403** = up: its nginx allows only the bridge gateway, so every container gets 403), bull-board (401),
+  Postgres/Redis×2/etcd TCP, Grafana, Prometheus. Rules: API instance down uses
   `up{job="api-metrics"}` — **never `api-readiness`** (always 0); anything a rolling deploy can trip has `for:` ≥ 5m;
   deleting a rule from the file does not delete it (use `deleteRules:`); annotations are not env-interpolated and
   never carry tenant/customer data. `ALERT_DISCORD_WEBHOOK` is a secret (`/opt/pos/.env` only); unset = a
@@ -894,14 +901,26 @@ on void/return paths. Keep this order in any new write touching more than one of
   `frontend/assets/certs/pos-ca.crt` (CI `cmp`); config dir-mounted, never a single file. **Backup freshness:**
   `backup-db.sh` writes `pos_backup_last_success_timestamp_seconds` to `/opt/pos/node-textfile` (0755, from
   `provision.yml`) only on a green run that is not DB-only (`BACKUP_VOLUMES=0`); rule "backup stale" > 26h, no data
-  = Alerting — so `provision.yml` must run **before** the deploy that ships it. CI: `monitoring-alerting.test.sh`
+  = Alerting. 🔴 **First-release order (07 §10.5):** merge `develop`→`main` first (Deploy waits for approval) → in that
+  window run `provision.yml` as `cloud` from a **clean `origin/main`** worktree (before the merge `origin/main` holds the
+  old playbook: heartbeat cron back, no `node-textfile`, old `backup-db.sh`) → seed the gauge by running `backup-db.sh`
+  once as `deploy` in cron's env → then approve. `deploy.yml` warns (never fails) when `node-textfile` is missing or
+  `/opt/pos/scripts/backup-db.sh` differs from the release's copy. Before provision: ask the Healthchecks.io account
+  owner to pause/delete the check (not the team's account — removing the cron makes it page *them*), and compare the
+  local `DEMO_ENV_FILE` sha256 with the VM's `/opt/pos/.env` (stale file = wrong DB/etcd passwords). The nightly
+  `backup-db.sh` also prunes `/opt/pos/backups-pre-migrate` past 30 days (top level only; those dumps hold customer
+  data — PDPA, owner's retention call). 🔴 **Rollback past this release** (old `deploy.yml`) leaves an orphan `gatus`
+  container and the 10 file-provisioned rules in Grafana (which never deletes a rule whose file vanished) → "Gatus
+  down"/"backup stale" page every 4h: `docker rm -f` the gatus container and drop a `deleteRules:` file (07 §7 row
+  "rollback ข้าม release alerting"); the provisioning API cannot delete a `file`-provenance rule. CI: `monitoring-alerting.test.sh`
   (nginx-check) boots prometheus+grafana+gatus from `monitoring.yml` and checks rules load and evaluate without
   `error`, Gatus config loads, and the Gatus amd64 binary is `GOAMD64=v1` (mob04 = qemu64). 🔴 Gatus runs on the host
   it watches: a dead host pages nobody until a second host (Pi 5) exists — documented, not claimed. Owner steps on
   `mob04` (Discord egress `curl -v https://discord.com/api/v10/gateway`, webhook, `DEMO_ENV_FILE`, provision) in 07 §10.5.
   🔴 A webhook send that fails at the network level puts the **full webhook URL (token) in `docker logs gatus`** (Go
-  error text) — never paste those logs unredacted; leaked = rotate the webhook. No rule is `for: 0s` (Error state
-  honours `for`; each deploy recreates Prometheus).
+  error text) — never paste those logs unredacted; leaked = rotate the webhook. Every rule is `execErrState: Alerting`,
+  never `Error` (Grafana 11.2's Error skips `for:` — one failed evaluation while a deploy recreates Prometheus would
+  page a DatasourceError), and none is `for: 0s`. p95 and 5xx rules only evaluate above 0.05 req/s.
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly

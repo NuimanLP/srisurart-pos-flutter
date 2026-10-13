@@ -43,12 +43,15 @@ endpoints:
     alerts:
       - type: discord
 
+  # platform-ui's own nginx allows only the bridge gateway 172.30.0.1 (the ssh-tunnel path,
+  # server/docker/platform-ui/nginx.conf) and denies every other container, Gatus included.
+  # 403 = up and still refusing other containers — like Bull-Board's 401 below.
   - name: platform-ui
     group: pos
     url: "http://platform-ui:80/"
     interval: 1m
     conditions:
-      - "[STATUS] == 200"
+      - "[STATUS] == 403"
     alerts:
       - type: discord
 

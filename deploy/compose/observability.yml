@@ -108,6 +108,14 @@ services:
       # empty, so these three jobs exist only where this overlay runs.
       - ${MONITORING_CONFIG_DIR:-../deploy}/prometheus-local/local-scrape.yml:/etc/prometheus/scrape.d/local-scrape.yml:ro
 
+  # monitoring.yml's default POS_URL is mob04's address — on a laptop that is someone else's host
+  # (or unreachable). Point the local Gatus at the local Nginx instead. Its `pos-api-ready` check
+  # still reads red here unless GATUS_POS_URL/GATUS_CA_DIR match the local certgen CA and SAN
+  # (localhost/127.0.0.1 + CERT_SAN_IPS, no `nginx`); the webhook is a placeholder, so nothing is sent.
+  gatus:
+    environment:
+      POS_URL: ${GATUS_POS_URL:-https://nginx}
+
   # Adds the Loki datasource and the local infrastructure dashboard. `!override` replaces
   # monitoring.yml's volume list instead of appending to it: a file cannot be bind-mounted
   # inside the read-only provisioning directory mount, so the provisioning is mounted file by

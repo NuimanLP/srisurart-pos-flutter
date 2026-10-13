@@ -502,9 +502,9 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 |---|---|---|
 | `CERT_SAN_IPS` | `<PI_IP>` เท่านั้น | `certgen.sh` ใส่ IP ใน SAN ของใบ server · ไม่ตั้ง = `172.30.58.20` (ของ `mob04`) → เบราว์เซอร์/แอปที่เรียก `<PI_IP>` จะ `IP address mismatch` · ค่าที่ไม่ใช่ IPv4 = certgen exit 1 · 🔴 **ห้ามใส่ `172.30.58.20`** (§4.1) |
 | `CORS_ORIGINS` | `https://<PI_IP>` | origin ของ Pi เอง · ตั้งแต่ #367 ค่าที่ตั้งแต่ว่างทำให้ api ไม่ boot |
-| `GATUS_POS_URL` | `https://<PI_IP>` | Gatus เช็ก `/health/ready` ผ่าน Nginx + TLS ของเครื่องตัวเอง · ไม่ตั้ง = `https://172.30.58.20` (ของ `mob04`) |
-| `GATUS_CA_DIR` | `/opt/pos/gatus-ca-local` | โฟลเดอร์ (0755) ที่มี `ca.crt` **public** ของ Pi (0644, ดึงตาม 07 §5 runbook ข้อ 2) — CA ของ Pi ≠ `mob04` · ไม่ตั้ง = Gatus ใช้ CA ของ `mob04` → check `pos-api-ready` แดงด้วย x509 · 🔴 ห้ามชี้ไปที่ volume `certs`/`certs-ca` |
-| `ALERT_DISCORD_WEBHOOK` | webhook **ใหม่** ของ Pi หรือไม่ใส่ | แยกช่อง/ชื่อให้รู้ว่า alert มาจากเครื่องไหน · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 |
+| `GATUS_POS_URL` | `https://<PI_IP>` — **ตั้งเสมอ** | Gatus เช็ก `/health/ready` ผ่าน Nginx + TLS ของเครื่องตัวเอง · 🔴 ไม่ตั้ง = ค่า default `https://172.30.58.20` → Gatus ของ Pi **เฝ้า `mob04` เงียบ ๆ** (ไม่มี warning ใด ๆ) แทนตัวเอง |
+| `GATUS_CA_DIR` | `/opt/pos/gatus-ca-local` | โฟลเดอร์ (0755, owner `deploy`) ที่มี `ca.crt` **public** ของ Pi (0644) — **สร้างก่อน deploy แรก** (§8 ข้อ 5b: ไม่มี = Docker สร้างโฟลเดอร์ว่างของ root ให้) แล้วใส่ `ca.crt` หลัง deploy แรก (§8 ข้อ 7b) — CA ของ Pi ≠ `mob04` · ไม่ตั้ง = Gatus ใช้ CA ของ `mob04` → check `pos-api-ready` แดงด้วย x509 · 🔴 ห้ามชี้ไปที่ volume `certs`/`certs-ca` |
+| `ALERT_DISCORD_WEBHOOK` | webhook **แยก**ของ Pi (สร้างใหม่) หรือไม่ใส่ | ห้ามใช้ webhook ของ `mob04` — แยกช่อง/ชื่อให้รู้ว่า alert มาจากเครื่องไหน และ rotate แยกกันได้ · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 |
 | `PLATFORM_ADMINS` | `admin:<hex ใหม่ 24 ตัว>` (สร้างข้างบน) | ไม่มี = platform-ui ไม่มี admin ให้ login · 🔴 **ห้ามใช้รหัสเดียวกับ `mob04`** |
 
 🔴 `provision.yml` **ไม่ตรวจ** `CERT_SAN_IPS`/`CORS_ORIGINS` (ตรวจแค่ 11 คีย์ `:?`) → ค่าผิดจะ deploy "เขียว" แต่ SAN/CORS ผิด · ตรวจเอง:
@@ -637,6 +637,14 @@ ssh pi5-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_P
 **5. ข้าม backup ก่อน deploy ครั้งแรก** — Pi ใหม่ยังไม่มี DB และไม่มี `.current_sha` (`backup-db.sh` จะ error เรื่อง `IMAGE_TAG`) ·
 deploy ครั้งต่อไปรัน `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -8'` ก่อนทุกครั้ง
 
+**5b. โฟลเดอร์ CA ของ Gatus — ก่อน deploy แรก** (ไม่มีโฟลเดอร์ = Docker สร้างโฟลเดอร์ว่างของ root ให้ตอน bind mount แล้ว Gatus ไม่ trust อะไรเลย):
+
+```bash
+ssh pi5-deploy 'install -d -m 0755 /opt/pos/gatus-ca-local && ls -ld /opt/pos/gatus-ca-local'
+```
+
+✅ `drwxr-xr-x ... deploy deploy` · `pos-api-ready` ของ Gatus จะแดงด้วย x509 จนกว่าจะทำข้อ 7b — ปกติ
+
 **6. deploy** — Mac (ใน `$WT/deploy/ansible`):
 
 ```bash
@@ -686,6 +694,20 @@ openssl s_client -connect "$PI_IP:443" </dev/null 2>/dev/null | openssl x509 -no
 
 เปิด `https://<PI_IP>` ในเบราว์เซอร์ → หน้า login ขึ้น (เตือนใบรับรอง = ปกติ ดู §9) · ตรวจต่อ (etcd, migration, รูปสินค้า) ตามคู่มือ VM §4 —
 🔴 คำสั่งในนั้นเป็น `ssh mob04-deploy ...` ทั้งหมด: **พิมพ์ใหม่เป็น `ssh pi5-deploy ...` ทีละบรรทัด** ห้ามวางทั้งก้อน
+
+**7b. ให้ Gatus trust CA ของ Pi** — `certgen` ของ deploy แรกเพิ่งสร้าง CA · ดึงแค่ `ca.crt` (public) จากสำเนาใน volume `certs` ผ่าน nginx
+(ไม่แตะ `certs-ca` / `ca.key`) แล้ว recreate เฉพาะ gatus:
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml exec -T nginx cat /etc/nginx/certs/ca.crt > gatus-ca-local/ca.crt && chmod 0644 gatus-ca-local/ca.crt && openssl x509 -in gatus-ca-local/ca.crt -noout -subject -fingerprint -sha256'
+```
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate gatus'
+```
+
+✅ fingerprint **ไม่ตรง** กับของ `mob04` (`87:7B:B8:F7:…`) — เป็น CA ใหม่ของ Pi · หลัง ~3 นาที tunnel `13300` (§10) → `pos-api-ready` เขียว ·
+ยังแดงด้วย x509 = `GATUS_CA_DIR` ไม่ถึง `/opt/pos/.env` (§5) · แดงด้วย connection refused/timeout = `GATUS_POS_URL` ไม่ใช่ IP ของ Pi
 
 **8. เก็บกวาด** (เมื่อเลิกซ้อม — worktree ใช้ซ้ำได้ถ้าจะ deploy SHA เดิมอีก):
 

@@ -466,13 +466,31 @@ jobs:
           shellcheck deploy/scripts/**/*.sh
       # ansible-lint, profile `production` (deploy/ansible/.ansible-lint). Every package is pinned by
       # sha256 (deploy/ansible/lint-requirements.txt, `--require-hashes`), wheels only, no resolver.
+      # The wheels are compiled for CPython 3.12, so the interpreter is pinned here instead of
+      # trusting whatever python3 ubuntu-latest ships next. `cache: pip` keeps the wheels between
+      # runs (keyed on lint-requirements.txt) — a cache hit is still hash-checked by pip.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: deploy/ansible/lint-requirements.txt
+      # Galaxy's tarball cached by version + sha256; a hit is still verified below.
+      - name: cache ansible.posix tarball
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/galaxy/ansible-posix.tgz
+          key: ansible-posix-${{ env.ANSIBLE_POSIX_VERSION }}-${{ env.ANSIBLE_POSIX_SHA256 }}
       - name: install ansible-lint (pinned, hash-checked) + ansible.posix (sha256-verified)
         run: |
-          python3 -m venv "$RUNNER_TEMP/ansible-lint"
+          python -m venv "$RUNNER_TEMP/ansible-lint"
           "$RUNNER_TEMP/ansible-lint/bin/pip" install --quiet --require-hashes --no-deps \
             --only-binary :all: -r deploy/ansible/lint-requirements.txt
-          curl -sSfL -o "$RUNNER_TEMP/ansible-posix.tgz" \
-            "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-posix-${ANSIBLE_POSIX_VERSION}.tar.gz"
+          mkdir -p "$RUNNER_TEMP/galaxy"
+          if [ ! -f "$RUNNER_TEMP/galaxy/ansible-posix.tgz" ]; then
+            curl -sSfL -o "$RUNNER_TEMP/galaxy/ansible-posix.tgz" \
+              "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-posix-${ANSIBLE_POSIX_VERSION}.tar.gz"
+          fi
+          cp "$RUNNER_TEMP/galaxy/ansible-posix.tgz" "$RUNNER_TEMP/ansible-posix.tgz"
           echo "${ANSIBLE_POSIX_SHA256}  $RUNNER_TEMP/ansible-posix.tgz" | sha256sum -c -
           "$RUNNER_TEMP/ansible-lint/bin/ansible-galaxy" collection install --offline \
             -p "$RUNNER_TEMP/collections" "$RUNNER_TEMP/ansible-posix.tgz"
