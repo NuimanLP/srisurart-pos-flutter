@@ -17,6 +17,10 @@
 #   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
 #   PRODUCT_IMAGES_DIR   Product-images directory to archive when no compose nginx mounts the
 #                        `product-images` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_VOLUMES       1 (default) = also archive the product-images and sale-photos volumes.
+#                        0 = database dump only (the pre-migration dump deploy.yml takes before
+#                        `migrate`: a migration changes the schema, never those files, so the
+#                        archives would only slow the deploy down). Anything but 0 means 1.
 #   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
 #                        `sale-photos` volume (tests, a bare host). Unset on the VM.
 #   BACKUP_TEXTFILE_DIR  node-exporter textfile directory for the backup freshness gauge
@@ -286,12 +290,18 @@ archive_volume() {
   fi
 }
 
-archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
-  "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
-IMAGES_STATE="$ARCHIVE_STATE"
-archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
-  "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
-SALE_PHOTOS_STATE="$ARCHIVE_STATE"
+IMAGES_STATE=absent
+SALE_PHOTOS_STATE=absent
+if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+  echo "BACKUP_VOLUMES=0: database dump only -- product images and sale photos are not archived by this run."
+else
+  archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
+    "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
+  IMAGES_STATE="$ARCHIVE_STATE"
+  archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
+    "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
+  SALE_PHOTOS_STATE="$ARCHIVE_STATE"
+fi
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any

@@ -698,6 +698,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `refs/heads/main`, active, **no bypass actors**) refuses squash/rebase into `main` — so admins
   cannot push directly to `main` either. Verify: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main`.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
+- **Backup before migration (2026-10-13, `agent ร่าง`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
+  (or the check fails), a DB-only `backup-db.sh` (`BACKUP_VOLUMES=0`, shipped to the VM with `ansible.builtin.script` because `/opt/pos/scripts`
+  is stale until `provision.yml`) into `/opt/pos/backups-pre-migrate/` (sibling of `backups/`, 30 days, no offsite). A failed dump stops the deploy before
+  any container/schema change. 🔴 It is the only undo for a migration (no down-migrations); restoring is an owner decision and loses every write after the dump (07 §7).
 - **Secret scan = gitleaks** (job `secrets` in `server.yml`, 2026-10-01): never path-gated,
   scans the commits each PR/push adds (`-v --redact`), and `server-ci-status` requires its
   `success`. Allowlists live in `.gitleaks.toml` (placeholder patterns) and

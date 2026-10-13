@@ -4,6 +4,7 @@
 # 1. Checks if release is already running (early exit if identical SHA and .env unchanged)
 # 2. Synchronizes Compose definitions and Nginx configurations
 # 3. Pulls GHCR release images
+# 3b. If migrations are pending, dumps the database to /opt/pos/backups-pre-migrate first
 # 4. Executes database migrations ('migrate' container: schema before code)
 # 5. Performs rolling restart of api-1 -> api-2 -> api-3 with health checks
 # 6. Restarts worker and bull-board
@@ -260,6 +261,39 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+
+    # Backup before migration (WP3). The migrations have no `down` path in production, so this dump
+    # is the only undo for a schema change. `status` runs the NEW image's migrate.js (rc 0 = up to
+    # date, 1 = pending OR the check itself failed -- either way take the dump), so a deploy with no
+    # new migration pays nothing. Config files are already copied above, and `run` starts (or, on a
+    # changed config, recreates) migrate's dependency `postgres` exactly as the migrate task below
+    # always has; nothing else is restarted and nothing is migrated yet, so a failed dump stops the
+    # deploy before any schema change and before api/worker/nginx are touched.
+    - name: Check whether database migrations are pending (new image)
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm migrate node dist/db/migrate.js status"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      register: migrate_status
+      failed_when: false
+      changed_when: false
+
+    # `script` ships the repo's backup-db.sh (this release's copy, with BACKUP_VOLUMES) to the VM and
+    # runs it there; /opt/pos/scripts is only updated by provision.yml, so it may be older. DB only
+    # (a migration never touches the image/photo volumes), into a SIBLING of backups/ so the nightly
+    # prune never counts it, 30 days by age, offsite forced off. The script creates the dir 0700.
+    - name: Back up the database before applying migrations
+      ansible.builtin.script:
+        cmd: "{{ repo_root }}/deploy/scripts/backup-db.sh {{ app_dir }}/backups-pre-migrate"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+        APP_DIR: "{{ app_dir }}"
+        BACKUP_VOLUMES: "0"
+        BACKUP_KEEP_DAYS: "30"
+        BACKUP_RCLONE_REMOTE: ""
+      when: migrate_status.rc != 0
+      changed_when: true
 
     - name: Apply database schema migrations (schema before code)
       ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm migrate"
