@@ -31,8 +31,9 @@ check() { # description, command...
 
 rc=0
 run_backup() { # dir, fail-flag, [images dir], [sale photos dir] ; sets rc
-  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG \
+  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG -u BACKUP_VOLUMES \
     PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
+    BACKUP_TEXTFILE_DIR="${TEXTFILE_DIR:-$WORK/no-textfile-dir}" ${BACKUP_VOLUMES:+"BACKUP_VOLUMES=$BACKUP_VOLUMES"} \
     PRODUCT_IMAGES_DIR="${3:-}" SALE_PHOTOS_DIR="${4:-}" \
     bash "$SCRIPT" "$1" >"$1.log" 2>&1
   rc=$?
@@ -173,6 +174,54 @@ check "failed sale-photos archive exits non-zero" test "$rc" -ne 0
 check "failed sale-photos archive leaves no pos_sale_photos_* (no .partial)" test "$(count "$D" 'pos_sale_photos_*')" = 0
 check "failed sale-photos archive keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "failed sale-photos archive says so" grep -q '::error::SALE PHOTOS ARCHIVE FAILED' "$D.log"
+
+# 3g. backup freshness gauge (07 §10, Grafana rule "backup stale"): a green nightly run writes
+# pos_backup_last_success_timestamp_seconds for node-exporter's textfile collector, 0644, no tmp
+# left behind; a failed run, and a DB-only run (BACKUP_VOLUMES=0, the pre-migrate dump), never do.
+TF="$WORK/textfile"
+mkdir -p "$TF"
+D="$WORK/gauge"
+mkdir -p "$D"
+before="$(date -u +%s)"
+TEXTFILE_DIR="$TF" run_backup "$D" 0
+gauge_value() { awk '$1 == "pos_backup_last_success_timestamp_seconds" { print $2 }' "$TF/pos_backup.prom"; }
+check "gauge run exits 0" test "$rc" -eq 0
+check "gauge file is written" test -f "$TF/pos_backup.prom"
+check "gauge value is this run's unix time" test "$(gauge_value)" -ge "$before"
+check "gauge file declares a gauge" grep -qx '# TYPE pos_backup_last_success_timestamp_seconds gauge' "$TF/pos_backup.prom"
+mode_ok() { [ "$(stat -c %a "$TF/pos_backup.prom" 2>/dev/null || stat -f %Lp "$TF/pos_backup.prom")" = 644 ]; }
+check "gauge file is world-readable (0644) for node-exporter" mode_ok
+check "gauge write leaves no tmp file" test "$(find "$TF" -name '.pos_backup.prom.*' | wc -l | tr -d ' ')" = 0
+printf 'pos_backup_last_success_timestamp_seconds 1\n' > "$TF/pos_backup.prom"
+D="$WORK/gauge-dbonly"
+mkdir -p "$D"
+TEXTFILE_DIR="$TF" BACKUP_VOLUMES=0 run_backup "$D" 0
+check "DB-only run exits 0" test "$rc" -eq 0
+check "DB-only run (BACKUP_VOLUMES=0) does not touch the gauge" test "$(gauge_value)" = 1
+D="$WORK/gauge-fail"
+mkdir -p "$D"
+TEXTFILE_DIR="$TF" run_backup "$D" 1
+check "failed run does not touch the gauge" test "$(gauge_value)" = 1
+D="$WORK/gauge-nodir"
+mkdir -p "$D"
+run_backup "$D" 0
+check "missing textfile dir still exits 0" test "$rc" -eq 0
+check "missing textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+# A textfile dir this user cannot write in (created by hand as root): the backup is still green.
+# Skipped where chmod does not stop the owner writing (root, Git Bash on Windows).
+RO="$WORK/textfile-ro"
+mkdir -p "$RO"
+chmod 0555 "$RO"
+if ! (: >"$RO/.probe") 2>/dev/null; then
+  D="$WORK/gauge-rodir"
+  mkdir -p "$D"
+  TEXTFILE_DIR="$RO" run_backup "$D" 0
+  check "unwritable textfile dir still exits 0" test "$rc" -eq 0
+  check "unwritable textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+else
+  echo "skip - unwritable textfile dir (this user can write through 0555)"
+fi
+chmod 0755 "$RO"
 
 # 4. the real mob04 path: compose lists a postgres service, `exec` fails -> same guarantees.
 cat > "$STUBS/docker" <<'STUB'

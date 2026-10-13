@@ -108,10 +108,9 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
-              # backup-db.sh, healthcheck-ping.sh, measure-container-rss.sh, verify-ghcr-tags.sh + their tests run in the
+              # backup-db.sh, measure-container-rss.sh, verify-ghcr-tags.sh + their tests run in the
               # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
-              - 'deploy/scripts/healthcheck-ping.sh'
               - 'deploy/scripts/host-setup.sh'
               - 'deploy/scripts/measure-container-rss.sh'
               - 'deploy/scripts/verify-ghcr-tags.sh'
@@ -119,6 +118,13 @@ jobs:
               # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
               - 'deploy/prometheus/**'
               - 'deploy/prometheus-local/**'
+              # monitoring-alerting.test.sh in the nginx-check job boots these from monitoring.yml.
+              - 'deploy/compose/monitoring.yml'
+              - 'deploy/grafana/**'
+              - 'deploy/gatus/**'
+              - 'deploy/gatus-ca/**'
+              # the test checks deploy/gatus-ca/pos-ca.crt is still a copy of this file.
+              - 'frontend/assets/certs/pos-ca.crt'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
               # test/owner-import*.ts import the file the app's backup button saves.
@@ -482,9 +488,6 @@ jobs:
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh
-      # Uptime heartbeat: right ping on success/failure, URL never printed, unset = warning only.
-      - name: healthcheck-ping.sh tests (stubbed curl)
-        run: deploy/scripts/test/healthcheck-ping.test.sh
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
@@ -508,6 +511,12 @@ jobs:
             check config /etc/prometheus/prometheus.yml
           docker run --rm --entrypoint promtool -v "$cfg" -v "$overlay" "$PROM_IMAGE" \
             check config /etc/prometheus/prometheus.yml
+      # Alerting + uptime (07 §10.5): boots prometheus + grafana + gatus from monitoring.yml's pinned
+      # digests on a throwaway compose project — provisioned rules load and evaluate without
+      # error, Gatus parses its config, its binary is GOAMD64=v1 (mob04 = qemu64), CA copy matches.
+      - name: Grafana alerting + Gatus boot test (monitoring-alerting.test.sh)
+        timeout-minutes: 10
+        run: deploy/scripts/test/monitoring-alerting.test.sh
       - name: cleanup temporary files
         if: always()
         run: rm -rf .tmp-nginx

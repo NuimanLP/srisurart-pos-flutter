@@ -23,6 +23,8 @@
 #                        archives would only slow the deploy down). Anything but 0 means 1.
 #   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
 #                        `sale-photos` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_TEXTFILE_DIR  node-exporter textfile directory for the backup freshness gauge
+#                        (default: $APP_DIR/node-textfile, created by provision.yml). See the end.
 #
 # Product images (contract §2): each run also writes ${POSTGRES_DB}_images_<ts>.tar.gz (+ .sha256)
 # from the `product-images` volume — Postgres holds only each image's key. Same `.partial` + `mv`,
@@ -419,9 +421,43 @@ if [[ "$IMAGES_STATE" == failed || "$SALE_PHOTOS_STATE" == failed ]]; then
   exit 1
 fi
 
+# --- Backup freshness gauge (Grafana rule "backup stale", 07 §10) ------------------------------
+# On a green run only (every exit-1 path above and below never reaches this), write
+# pos_backup_last_success_timestamp_seconds for node-exporter's textfile collector. Not for a
+# DB-only run (BACKUP_VOLUMES=0, the pre-migrate dump): that one is not the nightly backup, and
+# counting it would hide a nightly cron that stopped. tmp + mv, so node-exporter never reads half a
+# file. A missing directory (provision.yml not re-run yet) only warns: the backup itself is fine.
+write_freshness_gauge() {
+  local dir="${BACKUP_TEXTFILE_DIR:-$APP_DIR/node-textfile}" tmp
+  if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+    return
+  fi
+  if [[ ! -d "$dir" ]]; then
+    echo "::warning::$dir does not exist -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it creates the directory)." >&2
+    return
+  fi
+  # The backup is already complete here: a gauge that cannot be written (directory not writable by
+  # this user, disk full) must warn, never turn a good backup into a non-zero exit under `set -e`.
+  if ! tmp="$(mktemp "$dir/.pos_backup.prom.XXXXXX" 2>/dev/null)"; then
+    echo "::warning::cannot write in $dir -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it owns the directory)." >&2
+    return
+  fi
+  if ! { printf '# HELP pos_backup_last_success_timestamp_seconds Unix time of the last nightly backup-db.sh run that exited 0.\n# TYPE pos_backup_last_success_timestamp_seconds gauge\npos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" >"$tmp" &&
+    chmod 0644 "$tmp" && mv "$tmp" "$dir/pos_backup.prom"; }; then
+    rm -f "$tmp"
+    echo "::warning::writing $dir/pos_backup.prom failed -- the backup freshness gauge was not updated, so Grafana's \"backup stale\" alert may fire." >&2
+  fi
+}
+
 case "$OFFSITE_STATE" in
-  ok)       echo "=== Backup Complete (local + offsite) ===" ;;
-  disabled) echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ===" ;;
+  ok)
+    write_freshness_gauge
+    echo "=== Backup Complete (local + offsite) ==="
+    ;;
+  disabled)
+    write_freshness_gauge
+    echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ==="
+    ;;
   failed)
     echo "=== Backup Complete LOCALLY ONLY -- see the OFFSITE BACKUP error above (#363) ==="
     exit 1

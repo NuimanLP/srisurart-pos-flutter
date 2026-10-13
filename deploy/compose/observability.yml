@@ -11,7 +11,7 @@
 # Its Grafana and Prometheus files live in ../grafana-local/ and ../prometheus-local/, NOT in
 # ../grafana/ or ../prometheus/: deploy.yml copies those two trees to the VM wholesale, which
 # would ship a Loki datasource with nothing behind it and an all-"No data" dashboard.
-# Uptime is not here: the VM pings Healthchecks.io from cron (deploy/scripts/healthcheck-ping.sh).
+# Uptime is not here: Gatus lives in monitoring.yml (07 §10.5), so it runs under this overlay too.
 #
 # Everything publishes on host loopback only, same pattern as monitoring.yml.
 # Every `image:` is pinned `name:tag@sha256:<digest>` (#401).
@@ -118,6 +118,7 @@ services:
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/loki-datasource.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/provisioning/alerting/pos-alerts.yml:/etc/grafana/provisioning/alerting/pos-alerts.yml:ro
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/dashboards-provider.yml:/etc/grafana/provisioning/dashboards/local.yml:ro
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/dashboards:/var/lib/grafana/dashboards-local:ro
