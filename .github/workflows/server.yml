@@ -20,6 +20,9 @@ name: Server CI
 # (test/client-request-fixtures.e2e-spec.ts): a 400/401/5xx or a missing route fails it.
 # Job "secrets" (2026-10-01) runs gitleaks over the commits each PR/push adds — repo-wide,
 # never path-gated, so it lives here, feeding the always-required server-ci-status.
+# Job "sast" (2026-10-13) runs Semgrep (pinned image + pinned rules commit) over the whole repo,
+# also never path-gated; any ERROR-severity result fails it. Third-party actions are pinned by
+# commit SHA (`# vX` comment = the tag it was resolved from).
 #
 # Job "build-image" (#61 ci.4, extending #40) is the release half: on a green build of main
 # it builds the server image, smoke-runs it, Trivy-scans it and — only then — pushes it to
@@ -96,7 +99,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: deploy/scripts/push-changes-kind.sh
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         # PR only — on a push its 'false' string would win the `||` below over the push step.
         if: github.event_name == 'pull_request'
@@ -203,6 +206,110 @@ jobs:
             --ignore-gitleaks-allow --config "$cfg" --gitleaks-ignore-path "$gl" \
             --log-opts="$range" .
 
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    # Like `secrets`: NOT gated on `changes` — workflows, Dockerfiles, compose files and nginx
+    # configs are scanned too, and a finding can land in any path. server-ci-status demands
+    # `success` (a skip does not count), and build-image needs it on main.
+    # Engine: the semgrep image pinned by digest, run with --metrics=off (no upload, no login).
+    # Rules: semgrep/semgrep-rules at a pinned commit — only the folders that match this repo's
+    # code (TS/JS, Dockerfiles, GitHub Actions, compose, nginx); no p/secrets (gitleaks covers
+    # it). Gate: any result of severity ERROR fails the job. WARNING/INFO go to the SARIF upload
+    # only. A false positive is silenced inline as `nosemgrep: rule-id -- reason`; a marker with
+    # no rule id or no reason fails the job, and so does a .semgrepignore below the repo root
+    # (Semgrep honours nested ones; only the root file is swapped for the base copy on a PR).
+    # Bump image + rules by hand, each version
+    # at least two weeks old, together with the 07_CICD_DEPLOY.md §2c row.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # SARIF upload to code scanning only; the gate never depends on it.
+      security-events: write
+    defaults:
+      run:
+        working-directory: .
+    env:
+      SEMGREP_IMAGE: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+      SEMGREP_RULES_SHA: a84ff9cc2453ca91d581380de4b8b3f272f6f4be
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: fetch the pinned semgrep-rules commit
+        run: |
+          rules="$RUNNER_TEMP/semgrep-rules"
+          git init -q "$rules"
+          git -C "$rules" fetch -q --depth 1 https://github.com/semgrep/semgrep-rules.git "$SEMGREP_RULES_SHA"
+          git -C "$rules" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$rules" rev-parse HEAD)" = "$SEMGREP_RULES_SHA"
+      - name: .semgrepignore from the trusted commit (PR base), like the gitleaks allowlists
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # A PR must not be able to ignore its own new code. Absent on the base → the PR's copy
+          # is removed and Semgrep falls back to its built-in default ignores.
+          git fetch -q --depth 1 origin "$PR_BASE"
+          if git cat-file -e "$PR_BASE:.semgrepignore" 2>/dev/null; then
+            git show "$PR_BASE:.semgrepignore" > .semgrepignore
+          else
+            rm -f .semgrepignore
+          fi
+      - name: only the root .semgrepignore; every Semgrep suppression names a rule id and a reason
+        run: |
+          # Semgrep also honours a .semgrepignore in any subdirectory (like .gitignore), and the
+          # step above only swaps the root one for the base copy — so a nested one would let a PR
+          # hide its own code. Only the root file is allowed, on every event.
+          if nested=$(find . -path ./.git -prune -o -name .semgrepignore ! -path ./.semgrepignore -print | grep .); then
+            echo "::error::.semgrepignore is allowed only at the repo root:"
+            echo "$nested"
+            exit 1
+          fi
+          # Allowed: `nosemgrep: rule-id -- reason` (one rule id, lower case). Semgrep matches the
+          # marker case-insensitively and also accepts it without the trailing "grep", so the
+          # search does too:
+          # any other use in a non-Markdown file fails; Markdown only documents the convention.
+          # The marker is split ('no''sem…') on the next line only so this check does not match itself.
+          if bad=$(git grep -nIi 'no''sem' -- . ':(exclude)*.md' | grep -vE 'no''semgrep: [A-Za-z0-9_.-]+ -- [^ ]'); then
+            echo "::error::Semgrep suppression without 'nosemgrep: rule-id -- reason':"
+            echo "$bad"
+            exit 1
+          fi
+      - name: semgrep scan (JSON + SARIF)
+        run: |
+          out="$RUNNER_TEMP/semgrep-out"
+          mkdir -p "$out"
+          # Run as the runner's own uid so git sees the checkout as safe and Semgrep scans the
+          # tracked files only; HOME=/tmp because that uid has no home in the image.
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src" -v "$RUNNER_TEMP/semgrep-rules:/rules:ro" -v "$out:/out" -w /src \
+            "$SEMGREP_IMAGE" semgrep scan --metrics=off --disable-version-check \
+            --config /rules/typescript --config /rules/javascript --config /rules/dockerfile \
+            --config /rules/yaml/github-actions --config /rules/yaml/docker-compose/security \
+            --config /rules/generic/nginx/security \
+            --json-output=/out/semgrep.json --sarif-output=/out/semgrep.sarif .
+      - name: gate — fail on any ERROR-severity result
+        run: |
+          json="$RUNNER_TEMP/semgrep-out/semgrep.json"
+          jq -r '.results | group_by(.extra.severity)[] | "\(.[0].extra.severity): \(length)"' "$json"
+          errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' "$json")
+          if [[ "$errors" != 0 ]]; then
+            jq -r '.results[] | select(.extra.severity == "ERROR")
+              | "::error file=\(.path),line=\(.start.line)::\(.check_id): \(.extra.message | gsub("\n"; " "))"' "$json"
+            exit 1
+          fi
+          echo "no ERROR-severity Semgrep findings"
+      - name: upload SARIF (code scanning; never decides the gate)
+        # Not on fork PRs (their token cannot write security events). continue-on-error: the
+        # gate step above is the verdict; code scanning is a view of the same results.
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/semgrep-out/semgrep.sarif
+          category: semgrep
+
   lint:
     name: lint + typecheck
     runs-on: ubuntu-latest
@@ -244,8 +351,11 @@ jobs:
       # entry in package.json when the vulnerable package is transitive (see multer).
       - run: pnpm audit --audit-level=high
       - name: Trivy — lockfile CVEs + Dockerfile misconfig
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The trivy binary is pinned too (= this action version's default), not left to the
+          # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
+          version: v0.70.0
           scan-type: fs
           scan-ref: server
           scanners: vuln,misconfig
@@ -470,7 +580,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    needs: [secrets, lint, audit, unit, ci-guards, integration, nginx-check]
+    needs: [secrets, sast, lint, audit, unit, ci-guards, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
@@ -478,7 +588,7 @@ jobs:
     # builds no image. ci-guards runs on a PR only when workflows/deploy scripts/migrations
     # changed (`changes.ci`), so a PR touching server/src alone has it `skipped` — accepted on a
     # PR only, or such a PR would never build the two legs. On main every gate must succeed.
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && (needs.ci-guards.result == 'success' || (github.event_name == 'pull_request' && needs.ci-guards.result == 'skipped')) && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.sast.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && (needs.ci-guards.result == 'success' || (github.event_name == 'pull_request' && needs.ci-guards.result == 'skipped')) && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; the libvips compile dominates. `docker run` of the app must
     # never be allowed to hang for the 6-hour default.
     timeout-minutes: 30
@@ -580,15 +690,18 @@ jobs:
         # registry gains no tag for this commit. Fix it by bumping the base digest in
         # server/Dockerfile — never by an ignore file (ADR-0013). Release-only, as before:
         # a PR leg does not scan (the `audit` job covers the lockfile + Dockerfile on PRs).
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The trivy binary is pinned too (= this action version's default), not left to the
+          # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
+          version: v0.70.0
           scan-type: image
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         if: github.ref == 'refs/heads/main'
         with:
           registry: ghcr.io
@@ -620,7 +733,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -655,7 +768,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, publish-image, nginx-check]
+    needs: [changes, secrets, sast, lint, audit, unit, ci-guards, integration, build-image, publish-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -695,6 +808,11 @@ jobs:
             echo "::error::secret scan (gitleaks) did not succeed: ${{ needs.secrets.result }}"
             exit 1
           fi
+          # Same for SAST: never path-gated, so only `success` passes.
+          if [[ "${{ needs.sast.result }}" != "success" ]]; then
+            echo "::error::SAST (Semgrep) did not succeed: ${{ needs.sast.result }}"
+            exit 1
+          fi
           # On a push, `changes` must have classified it (true = code, false = docs only).
           if [[ "${{ github.event_name }}" == "push" && "${{ needs.changes.outputs.server }}" != "true" && "${{ needs.changes.outputs.server }}" != "false" ]]; then
             echo "::error::push was not classified by the changes job: '${{ needs.changes.outputs.server }}'"
@@ -702,13 +820,13 @@ jobs:
           fi
           # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
           # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
             echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
             exit 1
           fi
           # Same for the multi-arch publish: without it `<sha>` never reaches GHCR, and every Deploy
           # run skips while reporting success.
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.publish-image.result }}" != "success" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.publish-image.result }}" != "success" ]]; then
             echo "::error::publish-image did not run on a main push: ${{ needs.publish-image.result }}"
             exit 1
           fi
