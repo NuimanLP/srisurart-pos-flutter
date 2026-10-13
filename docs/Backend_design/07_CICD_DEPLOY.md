@@ -76,7 +76,7 @@ Ansible ด้วยมือ") จนกระทั่งตีความใ
 GitHub ตั้งแล้ว 2026-09-15** (#186) — ค่าอยู่ใน §4 ข้างล่างนี้
 · **แก้ 2026-09-23:** `server.yml` มี job ที่สี่ที่กรองตาม `changes` แล้ว คือ **`nginx-check`** (`nginx -t`, #270 —
 `.github/workflows/server.yml:145`) และอยู่ใน `needs:` ของทั้ง `build-image` และ `server-ci-status` · job ปล่อยของ
-(`build-image`, `build-web`) ก็อยู่ใน `needs:` ของ status job ด้วย (skip บน PR = ผ่าน) · trigger `push` จำกัด
+(`build-image`, `build-web`) ก็อยู่ใน `needs:` ของ status job ด้วย (skip บน PR = ผ่าน · **แก้ 2026-10-13:** บน PR ทั้งสองรันแบบ build-only ไม่ push — server: build + smoke · web: build + smoke + Trivy image scan — และแดง = status แดง, §2c) · trigger `push` จำกัด
 `branches: [main]` ทั้งสองไฟล์ (push ไป branch อื่นไม่รัน — PR เป็นตัวรัน)
 
 ---
@@ -268,7 +268,7 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
   workflow ประกาศ `permissions: contents: read` ระดับไฟล์ ซึ่ง*แทน* default ทั้งหมด (packages กลายเป็น none)
 * **แก้ 2026-09-23 (ตรวจกับ workflow จริง):** Trivy image scan มีเฉพาะ image **server** (`server.yml:280`) — image web
   (`busybox` ที่ pin digest + ไฟล์ static, `deploy/web.Dockerfile:11`) **ไม่มี** Trivy scan ใน `flutter.yml` (**แก้ 2026-10-13:** มีแล้ว — `build-web` scan ก่อน push และรันบน PR ด้วย, §2c) · job
-  `build-image` ของ server push เฉพาะ `refs/heads/main` (ตั้งแต่ 2026-10-13 PR ที่แตะ `server/` ก็ build + smoke แต่ไม่ push) แต่ `build-web` รันเมื่อ `main` **หรือ `workflow_dispatch`** (`flutter.yml:184`)
+  `build-image` ของ server push เฉพาะ `refs/heads/main` (ตั้งแต่ 2026-10-13 PR ที่แตะ `server/` ก็ build + smoke แต่ไม่ push) แต่ `build-web` push เมื่อ `main` **หรือ `workflow_dispatch`** (`flutter.yml:184`; **แก้ 2026-10-13:** บน PR ก็รันแต่ build-only — ไม่ login/upload/push)
   — dispatch จาก branch อื่นจึง push tag `<sha>` ของ web ได้ (tag `main` push เฉพาะบน `main`) · ไม่เป็นปัญหากับ deploy เพราะ
   `resolve` รับเฉพาะ commit บน `main` และต้องมี image **ครบทั้งสอง** ที่ SHA นั้น · web image build ด้วย
   `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=` ตั้งแต่ #342 (`flutter.yml` ขั้น *flutter build web*) — ดู §9
