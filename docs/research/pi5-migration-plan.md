@@ -175,8 +175,8 @@ digest ที่ pin คือ manifest list จึง **multi-arch pin ใช�
 
 ### 4.5 Private CA / certgen SAN / APK
 
-* `server/docker/certgen/certgen.sh`: `SAN="DNS:localhost,IP:127.0.0.1,IP:172.30.58.20"` ฮาร์ดโค้ด · IP ใหม่ของ Pi ≠ 172.30.58.20 ⇒ **ต้องแก้ SAN** (ตามที่ `CLAUDE.md` ระบุไว้แล้ว: "A VM IP change = edit the SAN") · ข้อเสนอ: ทำให้ SAN รับค่าจาก env (`.env` ของ host) แทนการแก้โค้ดทุกครั้งที่ย้าย — **เป็นการเปลี่ยนพฤติกรรม certgen ต้อง review** · ช่วงซ้อมใส่ *ทั้งสอง IP* ในใบเดียว
-* ทดสอบ: `deploy/scripts/test/certgen.test.sh` ยืนยัน SAN เป็นสตริงตายตัว (บรรทัด ~40–41, 69–70) → ต้องแก้ตามที่เปลี่ยน
+* `server/docker/certgen/certgen.sh`: **SAN ขับด้วย env แล้ว** — `CERT_SAN_IPS` (IPv4 คั่นด้วย `,`) ใน `.env` ของ host; ไม่ตั้ง/ว่าง = `172.30.58.20` เหมือนเดิมทุกไบต์ (`mob04` ไม่ต้องแตะอะไร) · IP ของ Pi ตั้งใน `.env` ของ Pi ไม่ต้องแก้โค้ด · ช่วงซ้อมใส่ *ทั้งสอง IP* ในใบเดียว · วิธีใช้: `07_CICD_DEPLOY.md` §5 "TLS"
+* ทดสอบ: `deploy/scripts/test/certgen.test.sh` ครอบคลุม `CERT_SAN_IPS` แล้ว (ค่าเริ่มต้น/ว่าง, สองIP, ตัดซ้ำ/ช่องว่าง, ค่าไม่ถูกต้อง exit 1)
 * `.github/workflows/android-apk.yml`: `API_BASE_URL: https://172.30.58.20` → APK เก่า **ชี้ไป mob04 ตลอด** ต้อง build APK ใหม่ที่ชี้ IP/โดเมนใหม่ และแจกจ่ายใหม่ทุกเครื่อง (ดูหมวด 5 ผลกระทบ)
 * `frontend/assets/certs/pos-ca.crt`: ถ้า **รักษา CA เดิม** (คัดลอก volume `certs-ca` — หมวด 5) ไฟล์นี้ **ไม่ต้องแก้** → APK ใหม่ trust ได้ทันที · ถ้าเสีย CA = ต้อง commit `ca.crt` ใหม่ + build APK ใหม่ (ซ้ำ runbook `07_CICD_DEPLOY.md` §5 "Runbook ครั้งเดียว") — และ **APK/เบราว์เซอร์ทุกเครื่องที่เคย trust CA เดิมจะต่อไม่ได้** จนกว่าจะอัปเดต
 * ที่อยู่แบบ IP ในร้าน: DHCP reservation/IP คงที่บน router เป็นเงื่อนไขบังคับ (ใบ SAN ผูก IP) · ชื่อ `.local` (mDNS) กับ Dart `HttpClient` บน Android **[ไม่ยืนยัน]** — อย่าพึ่ง

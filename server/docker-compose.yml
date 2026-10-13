@@ -169,6 +169,10 @@ services:
     image: alpine/openssl:latest@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
     entrypoint: sh
     command: ["/certgen.sh"]
+    environment:
+      # Comma-separated IPv4 list for the SAN; empty = certgen.sh's default (mob04). Compose reads
+      # it from the project .env (/opt/pos/.env on a host: deploy.yml runs certgen with chdir there).
+      CERT_SAN_IPS: ${CERT_SAN_IPS:-}
     volumes:
       - ./docker/certgen/certgen.sh:/certgen.sh:ro
       - certs:/certs

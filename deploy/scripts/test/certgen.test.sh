@@ -79,6 +79,50 @@ cp "$WORK/other/ca.crt" "$CERTS_DIR/server.crt"
 check "foreign cert run succeeds" run_certgen
 check "foreign cert replaced by one this CA signed" verifies
 
+# 5. CERT_SAN_IPS. DEF is today's SAN; unset and empty both give it, and neither reissues.
+DEF="DNS:localhost, IP Address:127.0.0.1, IP Address:172.30.58.20"
+unset CERT_SAN_IPS
+run_certgen >/dev/null
+check "unset: default SAN" test "$(san)" = "$DEF"
+leaf_fp="$(fp "$CERTS_DIR/server.crt")"
+CERT_SAN_IPS="" run_certgen
+check "empty: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf_fp"
+check "empty: default SAN" test "$(san)" = "$DEF"
+CERT_SAN_IPS=" , " run_certgen
+check "blank-only list: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf_fp"
+
+CERT_SAN_IPS=172.30.58.20,192.168.1.50 run_certgen
+check "two IPs: both in SAN" test "$(san)" = "$DEF, IP Address:192.168.1.50"
+check "two IPs: reissued" test "$(fp "$CERTS_DIR/server.crt")" != "$leaf_fp"
+check "two IPs: same CA" test "$(fp "$CA_DIR/ca.crt")" = "$ca_fp"
+check "two IPs: verifies" verifies
+leaf2="$(fp "$CERTS_DIR/server.crt")"
+CERT_SAN_IPS=172.30.58.20,192.168.1.50 run_certgen
+check "two IPs again: no reissue" test "$(fp "$CERTS_DIR/server.crt")" = "$leaf2"
+CERT_SAN_IPS=" 172.30.58.20 , 192.168.1.50,172.30.58.20 ,192.168.1.50" run_certgen
+check "whitespace/duplicates: same SAN, no reissue" \
+  test "$(fp "$CERTS_DIR/server.crt")" = "$leaf2"
+
+unset CERT_SAN_IPS
+run_certgen
+check "back to default: reissued" test "$(fp "$CERTS_DIR/server.crt")" != "$leaf2"
+check "back to default: default SAN" test "$(san)" = "$DEF"
+check "back to default: same CA" test "$(fp "$CA_DIR/ca.crt")" = "$ca_fp"
+
+leaf3="$(fp "$CERTS_DIR/server.crt")"
+key3="$(cksum <"$CERTS_DIR/server.key")"
+for bad in foo 999.1.1.1 1.2.3 1.2.3.4.5 "172.30.58.20,256.0.0.1" 01.2.3.4; do
+  if CERT_SAN_IPS="$bad" sh "$SCRIPT" >"$WORK/out" 2>&1; then
+    echo "FAIL - '$bad' should exit 1"
+    fails=$((fails + 1))
+  else
+    echo "ok   - '$bad' exits non-zero"
+  fi
+  check "'$bad': message mentions CERT_SAN_IPS" grep -q 'CERT_SAN_IPS' "$WORK/out"
+  check "'$bad': cert and key untouched" \
+    test "$(fp "$CERTS_DIR/server.crt")" = "$leaf3" -a "$(cksum <"$CERTS_DIR/server.key")" = "$key3"
+done
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails check(s) failed"
   exit 1
