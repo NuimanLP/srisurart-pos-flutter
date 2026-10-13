@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-12 (รูปหลักฐานสินค้าตอนขาย — volume `sale-photos`, ตาราง `sale_photos` → Postgres 31 ตาราง, `backup-db.sh` เก็บ `pos_sale_photos_*.tar.gz`; `main` `c3e33aa` PR #699 — §3 ข้อ 8, §4.7b)** — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-13 (release `main` `8a44a03` PR #704 = แผ่นถ่ายรูปมีกล้องในแอป + เรียงรูป #702 และแท็บซัพพลายเออร์แบบเริ่มที่ซัพฯ #703 — เฉพาะ client: ไม่มี migration, ไม่มีขั้นตอนมือ, `backup-db.sh` ไม่เปลี่ยน; deploy run `38275228902`; APK ใหม่ `apk-32a2544` — §6.7)** — **อัปเดต 2026-10-12 (รูปหลักฐานสินค้าตอนขาย — volume `sale-photos`, ตาราง `sale_photos` → Postgres 31 ตาราง, `backup-db.sh` เก็บ `pos_sale_photos_*.tar.gz`; `main` `c3e33aa` PR #699 — §3 ข้อ 8, §4.7b)** — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -1103,6 +1103,20 @@ APK ไม่ได้มากับ deploy — ต้องสั่ง workfl
 4. ย้ายไฟล์เข้าเครื่อง Android → เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" (unknown sources) ให้แอปที่ใช้เปิดไฟล์ → ติดตั้ง · รุ่นใหม่ติดตั้งทับรุ่นเก่าได้เพราะเซ็นด้วยกุญแจเดิม
 5. เครื่องต้องอยู่ในเครือข่ายคณะหรือต่อ VPN จึงเปิดแอปแล้วเข้า `https://172.30.58.20` ได้
 
-ก่อนใช้ APK ใหม่: ล้าง storage ของแอปเก่าก่อน (#616 — outbox เก่าส่งไม่ได้)
+ล้าง storage ของแอปเก่าก่อนใช้ APK ใหม่ — **เฉพาะเครื่องที่ใช้งานครั้งสุดท้ายก่อน 2026-10-06** (#616 เปลี่ยน id เป็น UUID, outbox ของแอปรุ่นก่อนนั้นส่ง/discard ไม่ได้) · เครื่องที่ติดตั้ง/ใช้หลังวันนั้นติดตั้งทับได้เลย ไม่ต้องล้าง
+
+**ชื่อ release = `apk-<sha7>` ของ commit ที่ build** — เลขใหม่สุด (ดูวันที่ build) คือรุ่นล่าสุด เช่น `apk-32a2544` (build 2026-10-13 จาก `main` `32a2544`, run `38325443859`; โค้ดเดียวกับ release `8a44a03`) · ยังไม่ได้ลองบนมือถือจริง
+
+**ครั้งแรกที่ใช้กล้อง** (ปุ่ม **ถ่ายรูป** ในแผ่น **รูปหลักฐานสินค้า**, หรือไอคอนสแกนบาร์โค้ด): Android ขึ้นหน้าต่างขออนุญาตใช้กล้อง → กดอนุญาต · ถ้ากดไม่อนุญาต แอปแสดง `ไม่ได้รับอนุญาตให้ใช้กล้อง` กับคำแนะนำ `อนุญาตให้แอปหรือเบราว์เซอร์ใช้กล้อง แล้วกด ลองอีกครั้ง` และ `หรือปิดหน้านี้ แล้วใช้ปุ่ม เลือกรูปจากเครื่อง` (เลือกรูปจากเครื่องแทนได้) — เปิดสิทธิ์เองได้ที่ ตั้งค่า → แอป → Srisurart POS → สิทธิ์
+
+**สิทธิ์ที่แอปขอ** (จาก `aapt dump badging` ของ `apk-32a2544`): package `com.srisurart.srisurart_pos` · versionCode 1 · minSdk 24 (Android 7.0) · targetSdk 36 · `INTERNET`, `CAMERA`, `READ_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE` และสิทธิ์ภายในของ AndroidX (`…DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`) · **ไม่มี `RECORD_AUDIO` / `WRITE_EXTERNAL_STORAGE`** (manifest ตัดทิ้งด้วย `tools:node="remove"` เพราะ plugin `camera` ดึงมารวมให้ — ห้ามลบบรรทัดนั้น)
+
+**ตรวจสิทธิ์เอง** (PowerShell; เลขรุ่น build-tools ใช้ตามที่ติดตั้งอยู่ใน `…\Sdk\build-tools\`):
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\37.0.0\aapt.exe" dump badging srisurart-pos-32a2544.apk | Select-String "package:|sdkVersion|uses-permission"
+```
+
+ผ่านเมื่อ: เห็น `CAMERA` และไม่เห็น `RECORD_AUDIO` กับ `WRITE_EXTERNAL_STORAGE`
 
 ข้อควรรู้: workflow ล้มถ้า release `apk-<sha7>` ของ commit นั้นมีอยู่แล้ว (ลบ release ก่อน) · ล้มถ้า secret `ANDROID_KEYSTORE_B64` ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit

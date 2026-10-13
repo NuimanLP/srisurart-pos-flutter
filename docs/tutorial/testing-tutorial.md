@@ -303,6 +303,26 @@ bash deploy/scripts/test/backup-db.test.sh
 
 (e2e ต้องเตรียม Postgres/Redis ตามข้อ 2.3 เช่นเดียวกับ `product-images.e2e-spec.ts`) · กล้องจริง (ถ่ายรูป/สแกน) ทดสอบด้วยมือบน APK หรือเว็บ HTTPS เท่านั้น — ไม่มี test อัตโนมัติ
 
+#### 🆕 กล้องในแผ่นรูปหลักฐาน + เรียงรูป + แท็บซัพพลายเออร์แบบเริ่มที่ซัพฯ (PR #702/#703, release `8a44a03`, 2026-10-13)
+
+ฝั่ง client ล้วน (ไม่มี test ฝั่ง server เพิ่ม) · `flutter test` ทั้งชุด 1988 ตัว ณ #703
+
+| ไฟล์ | ชนิด | ตรวจอะไร |
+|---|---|---|
+| `frontend/test/sale_photo_camera_test.dart` | widget (fake camera platform) | เปิดกล้องหลังก่อน · ไม่เปิดเสียง · ถ่ายต่อหลายรูป · คืนกล้องเมื่อปิดหน้า / สลับกล้อง / แอปถูก pause · สถานะ error · กรณีปิดหน้าระหว่างกำลังเปิดกล้อง (race) |
+| `frontend/test/sale_photo_sheet_test.dart` (เพิ่ม) | widget | สองปุ่ม `ถ่ายรูป` / `เลือกรูปจากเครื่อง` · เรียงรูปด้วยลาก/ลูกศร ◀ ▶ · `sortOrder` = ช่องว่างต่ำสุด 0–4 รวมกรณี "A ถูกปฏิเสธ, B–E บันทึกแล้ว, ลบ A, เพิ่ม F" |
+| `frontend/test/suppliers_tab_test.dart` (23 ตัว) | widget | จัดกลุ่มตามซัพฯ · ราคาเท่ากันระดับสตางค์ · ค้นหา · ถูกสุด/แพงกว่า · แก้/เพิ่ม/ลบ · Degraded ปิดการแก้ · ปุ่มกลับบนจอ 390 px และผ่าน router จริง · ส่งต่อให้ใบสั่งซื้อ · zoom 1280 / 3x-1920 / 2x-1366 / 3x-1366 / 390 |
+| `frontend/test/purchase_orders_screen_test.dart` (เพิ่ม) | widget | `สร้างใบสั่งซื้อ (n)` เติมซัพฯ + สินค้าใกล้หมดลงหน้าต่างสร้างใบสั่งซื้อ |
+| `frontend/test/route_smoke_test.dart` | widget | หน้ากล้องผ่านทุกขนาดจอ/zoom ของ smoke test |
+
+```bash
+cd frontend
+flutter test test/sale_photo_camera_test.dart test/sale_photo_sheet_test.dart test/suppliers_tab_test.dart test/purchase_orders_screen_test.dart
+dart analyze
+```
+
+ผ่านเมื่อไม่มี test แดง และ `dart analyze` ไม่พบปัญหา · กล้องจริง (พรีวิว/การหมุนภาพ/หน้าต่างขออนุญาตบน Android-iOS, webcam บน `mob04`) ต้องลองด้วยมือ — ไม่มี test อัตโนมัติ
+
 ---
 
 ## 3. Test ฝั่ง Flutter — รันในโฟลเดอร์ `frontend/`
