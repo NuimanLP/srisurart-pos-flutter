@@ -1,7 +1,8 @@
 // Runs INSIDE the server image (mounted, not copied in) — see server.yml build-image and the
 // runtime-stage comment in server/Dockerfile. Exits non-zero unless the image's sharp loads the
 // libvips it was compiled against and the real product-image pipeline (dist/) works end to end.
-// Run it under `qemu-x86_64 -cpu qemu64` to prove it on a CPU below x86-64-v2 (mob04, 2026-10-10).
+// Run it under `qemu-x86_64 -cpu qemu64` to prove it on a CPU below x86-64-v2 (mob04, 2026-10-10),
+// and, in the arm64 image, under `qemu-aarch64 -cpu cortex-a76` for a Raspberry Pi 5 (2026-10-13).
 'use strict';
 const fs = require('node:fs');
 const assert = require('node:assert/strict');

@@ -13,15 +13,45 @@
 #    That is what moves an existing volume off the old CN=localhost self-signed cert: the
 #    volume's contents are never re-created by a config change on their own.
 #
+# CERT_SAN_IPS (optional) lists the host's LAN IPs for the SAN; see the SAN block below.
+#
 # Idempotent: a second run with a good certificate changes nothing. CERTS_DIR/CA_DIR exist only
 # for deploy/scripts/test/certgen.test.sh.
 set -eu
 
 CERTS_DIR="${CERTS_DIR:-/certs}"
 CA_DIR="${CA_DIR:-/ca}"
-# localhost / 127.0.0.1: dev and platform-ui (proxy_ssl_name localhost). 172.30.58.20: mob04.
-# Changing this list reissues the server cert on the next run; the CA stays.
-SAN="DNS:localhost,IP:127.0.0.1,IP:172.30.58.20"
+# localhost / 127.0.0.1: dev and platform-ui (proxy_ssl_name localhost). The host IPs come from
+# CERT_SAN_IPS (comma-separated IPv4, set in the host .env); unset or empty = 172.30.58.20
+# (mob04), so the SAN string is unchanged there and nothing is reissued. Whitespace is trimmed,
+# duplicates dropped (input order kept). Changing the list reissues the server cert on the next
+# run; the CA stays. Every entry is validated before any file is touched: a bad one exits 1.
+ips="${CERT_SAN_IPS:-}"
+[ -n "$(printf '%s' "$ips" | tr -d ' \t\r,')" ] || ips="172.30.58.20"
+SAN="DNS:localhost,IP:127.0.0.1"
+seen=","
+old_ifs="$IFS"
+IFS=","
+# No globbing while splitting: an entry such as '*' must be rejected, not expanded to file names.
+set -f
+for ip in $ips; do
+  # \r too: a CRLF-edited .env must not change the SAN (or reissue the cert on mob04).
+  ip=$(printf '%s' "$ip" | tr -d ' \t\r')
+  [ -n "$ip" ] || continue
+  # The `case` rejects anything but digits and dots first: grep matches line by line, so an
+  # embedded newline ("1.2.3.4<LF>foo") would otherwise pass and land in the openssl ext file.
+  if case "$ip" in *[!0-9.]*) true ;; *) false ;; esac ||
+    ! printf '%s' "$ip" | grep -Eq '^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$' ||
+    [ "$(printf '%s' "$ip" | tr '.' '\n' | sort -n | tail -n 1)" -gt 255 ]; then
+    echo "certgen: CERT_SAN_IPS entry '$ip' is not a dotted IPv4 address" >&2
+    exit 1
+  fi
+  case "$seen" in *",$ip,"*) continue ;; esac
+  seen="$seen$ip,"
+  SAN="$SAN,IP:$ip"
+done
+set +f
+IFS="$old_ifs"
 
 if [ ! -s "$CA_DIR/ca.key" ]; then
   openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
