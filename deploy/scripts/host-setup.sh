@@ -64,7 +64,7 @@ case "$profile" in auto|vm|pi5) ;; *) usage ;; esac
 IFS='|' read -r os_id os_version codename < <(. "$R/etc/os-release" && echo "${ID:-}|${VERSION_ID:-}|${VERSION_CODENAME:-}")
 arch="${HOST_SETUP_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 page_size="$(getconf PAGESIZE)"
-model="$(tr -d '\0' < "$R/proc/device-tree/model" 2>/dev/null || true)"
+model="$(tr -d '\0' 2>/dev/null < "$R/proc/device-tree/model" || true)"
 mem_mib=$(( $(awk '/^MemTotal:/ {print $2}' "$R/proc/meminfo") / 1024 ))
 x86_level=n/a
 if [ "$arch" = amd64 ]; then
@@ -104,7 +104,7 @@ case "$os_id" in
 esac
 case "$arch" in amd64|arm64) ;; *) die "architecture '$arch' is not supported — install the 64-bit OS (amd64/arm64)" ;; esac
 [ "$page_size" = 4096 ] || die "kernel page size is $page_size, not 4096 (Raspberry Pi OS uses 16K pages on a Pi 5; Redis/jemalloc breaks) — install Ubuntu Server instead"
-[ "$mem_mib" -ge 7168 ] || warn "only $mem_mib MiB RAM; the full stack is sized for 8 GB"
+[ "$is_pi5" != 1 ] || [ "$mem_mib" -ge 7168 ] || warn "only $mem_mib MiB RAM; a Pi 5 should be the 8 GB model (stack mem_limit total ~4.2 GB)"
 [ "$profile" != pi5 ] || [ "$is_pi5" = 1 ] || die "--profile pi5 on a host that is not a Raspberry Pi 5 (model: ${model:-none})"
 [ "$profile" = pi5 ] || [ -z "$data_disk" ] || die "--data-disk is only for --profile pi5"
 
@@ -296,15 +296,16 @@ EOF
   if command -v tailscale >/dev/null && tailscale status >/dev/null 2>&1; then
     echo "already logged in to Tailscale — correcting the route only (no 'up')"
     run tailscale set --advertise-routes="$lan_ip/32" --snat-subnet-routes=false
+    echo "If the route changed, approve $lan_ip/32 for this machine in the Tailscale admin console."
   else
     run tailscale up --hostname="$ts_hostname" --advertise-routes="$lan_ip/32" \
       --advertise-tags=tag:pos-server --snat-subnet-routes=false
-  fi
-  cat <<EOF
+    cat <<EOF
 Then in the Tailscale admin console -> Machines -> $ts_hostname:
   1. Edit route settings -> approve $lan_ip/32
   2. ... -> Disable key expiry
 EOF
+  fi
 }
 
 [ "$profile" = pi5 ] && setup_storage
