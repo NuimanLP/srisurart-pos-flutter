@@ -712,6 +712,17 @@ on void/return paths. Keep this order in any new write touching more than one of
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
+- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *proposed*): never
+  path-gated, `server-ci-status` requires `success`, `build-image` needs it. Pinned image digest
+  (`--metrics=off`) + pinned `semgrep/semgrep-rules` commit; **any ERROR-severity result fails**,
+  WARNING/INFO only go to SARIF. False positive → inline `nosemgrep: rule-id -- reason` (a marker
+  without both fails the job); `.semgrepignore` holds vendored/generated paths only and, like the
+  gitleaks allowlists, is read from the PR **base**; a `.semgrepignore` anywhere but the root fails the
+  job (Semgrep honours nested ones, so a PR could hide its own code); the marker check is
+  case-insensitive and also catches the short form Semgrep accepts. Never put `${{ github.ref }}` (or other
+  `github.*` user-controlled context) inside `run:` — use `$GITHUB_REF` / an `env:` entry. Every
+  third-party action is pinned by commit SHA with a `# vX` comment (trivy binary via `version:`);
+  bump = `gh api repos/<o>/<r>/commits/<tag> --jq .sha`, version ≥ 2 weeks old.
 - In Actions expressions `0` is falsy: `cond && 0 || 1` is always `1` — use strings (`'0'`). This silently disabled the docs-only push skip until it was fixed (2026-10-01).
 - **Quality gates (2026-10-03, PRs #579/#581/#582 — table in `07_CICD_DEPLOY.md §2c`):**
   a UI write that can fail silently gets a surfacing catch — never an `_allowlist` entry
