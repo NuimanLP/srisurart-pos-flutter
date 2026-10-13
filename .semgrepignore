@@ -1,0 +1,12 @@
+# Semgrep SAST (server.yml job `sast`). Only vendored or generated code belongs here — never
+# a path just because it has findings (fix it, or `nosemgrep: rule-id -- reason` inline).
+# On a pull_request CI reads this file from the BASE commit, so an edit takes effect once merged.
+# A .semgrepignore replaces Semgrep's built-in default ignores, so node_modules is listed too.
+node_modules/
+server/dist/
+# Vendored web assets (bundled third-party builds, pinned in VERSION/WEB_DB_ASSET_VERSIONS files).
+frontend/web/zxing/
+frontend/web/drift_worker.js
+frontend/web/sqlite3*
+# Generated Dart (Drift codegen etc.).
+*.g.dart

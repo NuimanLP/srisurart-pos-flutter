@@ -191,3 +191,27 @@ environment `demo` (= production ตัวเดียวตาม #242 ด้�
 (`proxy_ssl_trusted_certificate`) · `deploy/ansible/deploy.yml` (task "Issue the TLS certificate (certgen)") ·
 `frontend/lib/core/network/pos_trust*.dart` · `07_CICD_DEPLOY.md` §5 · กติกาใน `CLAUDE.md` (CI/CD) ·
 VM เปลี่ยน IP = แก้ SAN ใน `certgen.sh`
+
+## Addendum 2026-10-13 — SAST ด้วย Semgrep + action pin ด้วย SHA (สถานะ: **proposed**, `agent ร่าง` — รอเจ้าของรับรอง)
+
+**เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาพบว่า pipeline นี้ไม่มี SAST (มีแค่ SCA: `pnpm audit`/OSV/Trivy และ
+secret scan: gitleaks) · action ของ third-party อ้างด้วย tag ที่ย้ายได้ — `aquasecurity/trivy-action` เคยถูกยึด tag
+(2026-03-19, CVE-2026-33634)
+
+**ข้อเสนอ (ค่าตั้งต้นของ orchestrator — เจ้าของเปลี่ยนได้):**
+* **Semgrep = ด่านบังคับ (blocking) ที่ระดับ ERROR** — job `sast` ใน `server.yml` ไม่ดู path, `server-ci-status`
+  ต้องการ `success`, `build-image` รอมัน · engine เป็น image `semgrep/semgrep` pin ด้วย digest (`--metrics=off`,
+  ไม่ login, ไม่ส่งผลออก) · กฎจาก `semgrep/semgrep-rules` pin ด้วย commit เฉพาะโฟลเดอร์ที่ตรงกับ code ของ repo ·
+  WARNING/INFO ขึ้น code scanning ผ่าน SARIF เท่านั้น · false positive ปิดเฉพาะจุดด้วย `nosemgrep: rule-id -- reason`
+  (ไม่มีเหตุผล = ล้ม) · `.semgrepignore` เฉพาะ vendored/generated และบน PR อ่านจาก base
+* **CodeQL default setup = advisory เท่านั้น** — ถ้าเจ้าของจะเปิด ให้เปิดเองใน repo settings (agent ไม่แก้ settings
+  ผ่าน API) และไม่ทำให้เป็น required check
+* **action ของ third-party pin ด้วย commit SHA** พร้อม comment `# vX` · binary ของ trivy pin ผ่าน input `version:`
+  ด้วย · `actions/*` (first-party ของ GitHub) ยังใช้ tag · Dependabot ของ `github-actions` ยังปิด (limit 0) — bump ด้วยมือ
+  ตามกติกา "เวอร์ชันอายุ ≥ 2 สัปดาห์"
+
+**ที่ปฏิเสธ:** Semgrep Cloud / `semgrep ci` (ต้องมี token และส่งผลออกนอก repo) · `p/secrets` (ซ้ำกับ gitleaks) ·
+`--baseline-commit` (ทำให้ finding เดิมที่มีอยู่ไม่ถูกบังคับ — triage ครั้งแรกแก้ ERROR ทั้งหมดแทน)
+
+**ผลที่ตามมา:** `.github/workflows/server.yml` (job `sast`), `.semgrepignore`, ทุก workflow (pin SHA) ·
+`07_CICD_DEPLOY.md` §1 และ §2c · `CLAUDE.md` (CI/CD)
