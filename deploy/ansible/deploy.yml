@@ -663,7 +663,10 @@
     # without a placeholder a removed password makes compose refuse and the containers keep running.
     # Only the services that stale file defines: a monitoring.yml from before Gatus (2026-10-13)
     # has no `gatus`, and `rm` naming an unknown service removes nothing at all.
-    - name: Remove monitoring containers left from an earlier deploy
+    # risky-shell-pipe: /bin/sh is dash on Ubuntu/Debian (no pipefail); the pipe's only failure,
+    # grep matching nothing, is meant to be absorbed by `|| true`, and a failing `config` already
+    # stops the script at its own assignment above it under `set -e`.
+    - name: Remove monitoring containers left from an earlier deploy  # noqa: risky-shell-pipe dash has no pipefail; grep no-match is intended
       ansible.builtin.shell: |
         set -eu
         # Separate step so a failing `config` exits non-zero (and warns below) instead of
