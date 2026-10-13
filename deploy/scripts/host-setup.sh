@@ -282,7 +282,10 @@ setup_tailscale() {
   if ! grep -Eq '^[[:space:]]*net\.ipv4\.ip_forward[[:space:]]*=[[:space:]]*1[[:space:]]*$' "$R$sc" 2>/dev/null; then
     if [ -s "$R$sc" ]; then # keep whatever else it holds (e.g. an IPv6 forwarding line)
       if [ "$dry" = 1 ]; then echo "DRY-RUN: append to $sc: net.ipv4.ip_forward = 1"
-      else { [ -z "$(tail -c1 "$R$sc")" ] || echo; echo 'net.ipv4.ip_forward = 1'; } >> "$R$sc"; fi
+      else
+        local last; last="$(tail -c1 "$R$sc")"
+        { [ -z "$last" ] || echo; echo 'net.ipv4.ip_forward = 1'; } >> "$R$sc"
+      fi
     else
       put "$sc" 'net.ipv4.ip_forward = 1'
     fi
