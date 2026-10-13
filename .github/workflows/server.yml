@@ -217,7 +217,9 @@ jobs:
     # code (TS/JS, Dockerfiles, GitHub Actions, compose, nginx); no p/secrets (gitleaks covers
     # it). Gate: any result of severity ERROR fails the job. WARNING/INFO go to the SARIF upload
     # only. A false positive is silenced inline as `nosemgrep: rule-id -- reason`; a marker with
-    # no rule id or no reason fails the job. Bump image + rules by hand, each version
+    # no rule id or no reason fails the job, and so does a .semgrepignore below the repo root
+    # (Semgrep honours nested ones; only the root file is swapped for the base copy on a PR).
+    # Bump image + rules by hand, each version
     # at least two weeks old, together with the 07_CICD_DEPLOY.md §2c row.
     timeout-minutes: 15
     permissions:
@@ -254,12 +256,22 @@ jobs:
           else
             rm -f .semgrepignore
           fi
-      - name: every Semgrep suppression names a rule id and a reason
+      - name: only the root .semgrepignore; every Semgrep suppression names a rule id and a reason
         run: |
-          # Allowed: `nosemgrep: rule-id -- reason` (one rule id). Any other use of the marker in a
-          # non-Markdown file fails; Markdown only documents the convention.
-          # The marker is split ('no''semgrep') on the next line only so this check does not match itself.
-          if bad=$(git grep -nI 'no''semgrep' -- . ':(exclude)*.md' | grep -vE 'no''semgrep: [A-Za-z0-9_.-]+ -- [^ ]'); then
+          # Semgrep also honours a .semgrepignore in any subdirectory (like .gitignore), and the
+          # step above only swaps the root one for the base copy — so a nested one would let a PR
+          # hide its own code. Only the root file is allowed, on every event.
+          if nested=$(find . -path ./.git -prune -o -name .semgrepignore ! -path ./.semgrepignore -print | grep .); then
+            echo "::error::.semgrepignore is allowed only at the repo root:"
+            echo "$nested"
+            exit 1
+          fi
+          # Allowed: `nosemgrep: rule-id -- reason` (one rule id, lower case). Semgrep matches the
+          # marker case-insensitively and also accepts it without the trailing "grep", so the
+          # search does too:
+          # any other use in a non-Markdown file fails; Markdown only documents the convention.
+          # The marker is split ('no''sem…') on the next line only so this check does not match itself.
+          if bad=$(git grep -nIi 'no''sem' -- . ':(exclude)*.md' | grep -vE 'no''semgrep: [A-Za-z0-9_.-]+ -- [^ ]'); then
             echo "::error::Semgrep suppression without 'nosemgrep: rule-id -- reason':"
             echo "$bad"
             exit 1

@@ -713,7 +713,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   (`--metrics=off`) + pinned `semgrep/semgrep-rules` commit; **any ERROR-severity result fails**,
   WARNING/INFO only go to SARIF. False positive → inline `nosemgrep: rule-id -- reason` (a marker
   without both fails the job); `.semgrepignore` holds vendored/generated paths only and, like the
-  gitleaks allowlists, is read from the PR **base**. Never put `${{ github.ref }}` (or other
+  gitleaks allowlists, is read from the PR **base**; a `.semgrepignore` anywhere but the root fails the
+  job (Semgrep honours nested ones, so a PR could hide its own code); the marker check is
+  case-insensitive and also catches the short form Semgrep accepts. Never put `${{ github.ref }}` (or other
   `github.*` user-controlled context) inside `run:` — use `$GITHUB_REF` / an `env:` entry. Every
   third-party action is pinned by commit SHA with a `# vX` comment (trivy binary via `version:`);
   bump = `gh api repos/<o>/<r>/commits/<tag> --jq .sha`, version ≥ 2 weeks old.

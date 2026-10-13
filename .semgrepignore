@@ -1,6 +1,7 @@
 # Semgrep SAST (server.yml job `sast`). Only vendored or generated code belongs here — never
 # a path just because it has findings (fix it, or `nosemgrep: rule-id -- reason` inline).
 # On a pull_request CI reads this file from the BASE commit, so an edit takes effect once merged.
+# Root only: CI fails on a .semgrepignore in any subdirectory (Semgrep would honour it).
 # A .semgrepignore replaces Semgrep's built-in default ignores, so node_modules is listed too.
 node_modules/
 server/dist/
