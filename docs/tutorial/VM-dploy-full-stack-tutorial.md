@@ -321,7 +321,7 @@ test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SEC
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
 ห้ามมี `ALLOW_DEV_SECRETS`, `IMAGE_TAG`, ค่า `dev-only-*` · **ห้าม `export DEMO_ENV_FILE`** — ใส่นำหน้าคำสั่ง provision คำสั่งเดียว (§2.5)
 
-**คีย์ไม่บังคับ `HEALTHCHECKS_PING_URL`** (uptime heartbeat → Healthchecks.io, `07_CICD_DEPLOY.md §7b`) — รูปแบบ `https://hc-ping.com/<uuid>` · **เป็นความลับ** (ใครมี URL ก็ ping แทนได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ cron จะ log `::warning::` ทุก 5 นาทีโดยไม่ส่งอะไร (ไม่มีใครถูกแจ้งเมื่อ VM ดับ) · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์
+**คีย์ไม่บังคับ `ALERT_DISCORD_WEBHOOK`** (Grafana alerting + Gatus → Discord, `07_CICD_DEPLOY.md §10.5`, 2026-10-13) — รูปแบบ `https://discord.com/api/webhooks/<id>/<token>` · **เป็นความลับ** (ใครมี URL ก็โพสต์เข้าช่องได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ alert ทุกตัวยังประเมินปกติแต่ส่งไม่ถึงใคร · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์ · 🔴 ก่อนเปิดใช้ ตรวจว่า VM ออกไป Discord ผ่าน FortiGate ได้: `curl -v https://discord.com/api/v10/gateway` (HTTP 200 และ issuer ของใบ **ไม่ใช่** FortiGate) · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 — ลบออกจาก `DEMO_ENV_FILE` ได้
 
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
@@ -484,8 +484,8 @@ ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
 — ไม่ต้องรัน และ 🔴 ห้ามรัน `--tailscale` บน `mob04` (§1.2) · `provision.yml` ไม่ copy มันลง `/opt/pos/scripts` · รายละเอียด `07_CICD_DEPLOY.md` §6
 
 `provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
-authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh`, `healthcheck-ping.sh` ลง `/opt/pos/scripts` →
-**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) + cron ทุก 5 นาทีของ `deploy` (`healthcheck-ping.sh | logger -t pos-healthcheck` — ดูผลที่ `sudo journalctl -t pos-healthcheck`)
+authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh` ลง `/opt/pos/scripts` (และลบ `healthcheck-ping.sh` ที่ปลดแล้ว) →
+**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/node-textfile` 0755 (gauge ความสดของ backup ให้ node-exporter) → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) → ลบ cron heartbeat Healthchecks.io เดิม (ปลด 2026-10-13 — แทนด้วย Gatus + Grafana alerting, `07 §10.5`)
 
 ⚠️ **UFW ไม่ได้กรองพอร์ตที่ container publish** — Docker ใส่กฎใน nat table ก่อน UFW (docs.docker.com/engine/network/packet-filtering-firewalls/) ·
 พอร์ตที่ต้องอยู่ในเครื่องต้อง bind `127.0.0.1:` ใน compose (แบบ 9090/3000/3100/3200 วันนี้) — ห้ามพึ่ง `ufw deny`
@@ -925,7 +925,7 @@ ssh mob04-deploy 'curl -s -o /dev/null -w "prometheus=%{http_code}\n" http://127
 ✅ ทั้งคู่ `200` · ดูด้วยตาผ่าน SSH tunnel (เปิดค้างไว้หน้าต่างหนึ่ง):
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 mob04-deploy
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 -L 3300:127.0.0.1:3300 mob04-deploy
 ```
 
 | URL บน notebook | คือ | login |
@@ -934,6 +934,7 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 | `http://localhost:9090` | Prometheus | — |
 | `http://localhost:3100` | Bull-Board | `BULL_BOARD_USER`/`_PASSWORD` (owner) |
 | `http://localhost:3200` | platform-ui | platform admin (หลัง migration `1788652804600` ทุกคนต้อง login ใหม่ — ปกติ) |
+| `http://localhost:3300` | Gatus — uptime ของทุก service (ต้องเขียวหลัง ~3 นาที) · Grafana → Alerting → Alert rules ต้องเห็น 10 rule ไม่มี `Error` (§10.5 ของ 07) | — (ผูก loopback เท่านั้น) |
 
 **4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ, ต่อ VPN, หรือ Tailscale ที่ login เข้า tailnet ของร้าน — §1.2; ไม่ต้อง build APK ใหม่ เพราะที่อยู่/SAN เดิม) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
 

@@ -554,7 +554,8 @@
             dest: "{{ app_dir }}/monitoring.yml"
             mode: "0644"
 
-        - name: Copy Prometheus and Grafana configuration trees
+        # gatus-ca holds only the PUBLIC private-CA cert (a copy of frontend/assets/certs/pos-ca.crt).
+        - name: Copy Prometheus, Grafana and Gatus configuration trees
           ansible.builtin.copy:
             src: "{{ repo_root }}/deploy/{{ item }}/"
             dest: "{{ app_dir }}/deploy/{{ item }}/"
@@ -563,6 +564,8 @@
           loop:
             - prometheus
             - grafana
+            - gatus
+            - gatus-ca
 
         # copy never deletes: a dashboard removed or renamed in the repo would stay provisioned
         - name: List monitoring config files in the repo
@@ -570,6 +573,8 @@
             paths:
               - "{{ repo_root }}/deploy/prometheus"
               - "{{ repo_root }}/deploy/grafana"
+              - "{{ repo_root }}/deploy/gatus"
+              - "{{ repo_root }}/deploy/gatus-ca"
             recurse: true
           delegate_to: localhost
           register: monitoring_config_repo
@@ -579,6 +584,8 @@
             paths:
               - "{{ app_dir }}/deploy/prometheus"
               - "{{ app_dir }}/deploy/grafana"
+              - "{{ app_dir }}/deploy/gatus"
+              - "{{ app_dir }}/deploy/gatus-ca"
             recurse: true
           register: monitoring_config_vm
 
@@ -595,7 +602,7 @@
             vm_files: "{{ monitoring_config_vm.files | map(attribute='path') | map('relpath', app_dir ~ '/deploy') | list }}"
 
         - name: Pull monitoring images
-          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} pull node-exporter prometheus grafana"
+          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} pull node-exporter prometheus grafana gatus"
           environment:
             IMAGE_TAG: "{{ image_tag }}"
           args:
@@ -620,21 +627,22 @@
         # for a new image_tag, so the cost is a few seconds of monitoring gap per release; the
         # TSDB and Grafana state are named volumes and survive. Dependencies (node-exporter) are
         # not force-recreated.
-        - name: Recreate Prometheus and Grafana so they load the copied config
-          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d --force-recreate prometheus grafana"
+        - name: Recreate Prometheus, Grafana and Gatus so they load the copied config
+          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d --force-recreate prometheus grafana gatus"
           environment:
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
           changed_when: true
 
-        - name: Verify Prometheus and Grafana answer on host loopback
+        - name: Verify Prometheus, Grafana and Gatus answer on host loopback
           ansible.builtin.uri:
             url: "{{ item }}"
             status_code: 200
           loop:
             - "http://127.0.0.1:9090/-/healthy"
             - "http://127.0.0.1:3000/api/health"
+            - "http://127.0.0.1:3300/api/v1/endpoints/statuses"
           register: monitoring_ready
           retries: 20
           delay: 3
@@ -653,8 +661,18 @@
 
     # The stale monitoring.yml still requires GRAFANA_ADMIN_PASSWORD at interpolation, even for rm;
     # without a placeholder a removed password makes compose refuse and the containers keep running.
+    # Only the services that stale file defines: a monitoring.yml from before Gatus (2026-10-13)
+    # has no `gatus`, and `rm` naming an unknown service removes nothing at all.
     - name: Remove monitoring containers left from an earlier deploy
-      ansible.builtin.command: "docker compose {{ monitoring_compose_files }} rm -sf node-exporter prometheus grafana"
+      ansible.builtin.shell: |
+        set -eu
+        # Separate step so a failing `config` exits non-zero (and warns below) instead of
+        # silently matching nothing.
+        all="$(docker compose {{ monitoring_compose_files }} config --services)"
+        svcs="$(printf '%s\n' "$all" | grep -xE 'node-exporter|prometheus|grafana|gatus' || true)"
+        if [ -n "$svcs" ]; then
+          docker compose {{ monitoring_compose_files }} rm -sf $svcs
+        fi
       environment:
         IMAGE_TAG: "{{ image_tag }}"
         GRAFANA_ADMIN_PASSWORD: "unused"
@@ -675,7 +693,7 @@
           WARNING: enable_monitoring=false, but removing the monitoring containers failed on
           {{ inventory_hostname }} (rc={{ monitoring_removed.rc | default('none') }}):
           {{ monitoring_removed.stderr | default('', true) or monitoring_removed.msg | default('see task output above') }}.
-          node-exporter, Prometheus and Grafana may still be running; check
+          node-exporter, Prometheus, Grafana and Gatus may still be running; check
           `docker compose {{ monitoring_compose_files }} ps` in {{ app_dir }}.
       when:
         - not (enable_monitoring | bool)

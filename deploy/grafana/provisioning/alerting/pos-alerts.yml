@@ -1,0 +1,288 @@
+# Grafana-managed alerting for the `grafana` service in ../../../compose/monitoring.yml
+# (07 §10.5, ADR-0013 addendum 2026-10-13 — Grafana's built-in alerting; Alertmanager is still
+# not deployed). File-provisioned like the datasource and dashboard: a rebuilt Grafana volume
+# comes back with the same rules, and the UI cannot edit them.
+#
+# 🔴 Deleting a rule from this file does NOT delete it from Grafana — add its uid under
+#    `deleteRules:` for one release instead. Renaming a uid = delete + add.
+# 🔴 `$ALERT_DISCORD_WEBHOOK` is interpolated by Grafana from its environment (monitoring.yml
+#    gives it a harmless placeholder when the host .env has none). Write a literal `$` as `$$`.
+#    Annotations are templates, not interpolated: no secret ever goes in one.
+# Payloads carry the rule title, its labels (job/instance — container names) and the summary
+# below. Never put tenant, customer or bill data in a rule or annotation.
+#
+# Every rule: query A (Prometheus, instant) → C (threshold). `for:` is at least 2m and 5m for
+# anything a rolling deploy can trip (each api is recreated in turn, well under 5 minutes).
+# Never `for: 0s`: execErrState Error honours `for`, and every deploy recreates Prometheus — a
+# rule with no pending period would page a DatasourceError on one failed evaluation.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: pos-discord
+        type: discord
+        settings:
+          url: $ALERT_DISCORD_WEBHOOK
+          use_discord_username: false
+        disableResolveMessage: false
+
+# Without a policy tree the contact point above is never used (Grafana's default receiver is
+# its own email placeholder).
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: ['grafana_folder', 'alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: pos-availability
+    folder: POS alerts
+    interval: 1m
+    rules:
+      # api-metrics, never api-readiness: that job's `up` is always 0 (JSON body, prometheus.yml).
+      - uid: pos-api-instance-down
+        title: API instance down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'up{job="api-metrics"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'api instance {{ $labels.instance }} has not answered /metrics for 5 minutes.'
+
+      - uid: pos-node-exporter-down
+        title: Host metrics down (node-exporter)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'up{job="node"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'node-exporter has not answered for 5 minutes — the host disk/memory alerts below are blind.'
+
+      - uid: pos-gatus-down
+        title: Gatus down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'up{job="gatus"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [1] } }]
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Gatus has not answered for 5 minutes — the uptime checks (Postgres, Redis, etcd, TLS) are blind.'
+
+      # 5xx share of all API requests, only while there is real traffic (> 0.05 req/s): below
+      # that the `and on()` empties the result, and no data = OK.
+      - uid: pos-api-5xx-ratio
+        title: API 5xx ratio above 5%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: Prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])))
+                and on() (sum(rate(http_requests_total[5m])) > 0.05)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.05] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'More than 5% of API requests answered 5xx over the last 5 minutes.'
+
+      - uid: pos-api-p95-latency
+        title: API p95 latency above 1s
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: Prometheus
+            model:
+              refId: A
+              instant: true
+              expr: 'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [1] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'API p95 latency has been above 1 second for 10 minutes.'
+
+      - uid: pos-db-pool-waiting
+        title: DB pool has waiting requests
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'max(pos_db_pool_connections{state="waiting"})' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Requests have been queueing for a Postgres connection for 2 minutes (pool exhausted).'
+
+      # A rolling deploy restarts each api once (changes = 1); more than one restart in 15 minutes
+      # is a crash loop (e.g. PLATFORM_ADMINS set and Postgres down — 07 §5).
+      - uid: pos-api-restart-loop
+        title: API restart loop
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'changes(process_start_time_seconds{job="api-metrics"}[15m])' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [1] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'api instance {{ $labels.instance }} restarted more than once in 15 minutes.'
+
+  - orgId: 1
+    name: pos-host
+    folder: POS alerts
+    interval: 1m
+    rules:
+      - uid: pos-root-disk-full
+        title: Root disk above 85%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: Prometheus
+            model:
+              refId: A
+              instant: true
+              expr: '1 - node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.85] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: 'The root filesystem is more than 85% full — a full disk stops Postgres and the POS.'
+
+      - uid: pos-memory-low
+        title: Available memory below 10%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.1] } }]
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Less than 10% of host memory has been available for 10 minutes (OOM risk).'
+
+      # Written by deploy/scripts/backup-db.sh after a green nightly run (node-exporter textfile
+      # collector). No data = Alerting: a gauge that never appeared is a backup we cannot see.
+      - uid: pos-backup-stale
+        title: Nightly backup stale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: Prometheus
+            model: { refId: A, instant: true, expr: 'time() - max(pos_backup_last_success_timestamp_seconds)' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [93600] } }]
+        noDataState: Alerting
+        execErrState: Error
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'No green nightly backup in the last 26 hours — read /opt/pos/backups/backup-cron.log.'

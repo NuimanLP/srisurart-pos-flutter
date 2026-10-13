@@ -100,6 +100,9 @@ REQUIRED_FILES=(
   "deploy/grafana/provisioning/datasources/prometheus.yml"
   "deploy/grafana/provisioning/dashboards/dashboards.yml"
   "deploy/grafana/dashboards/pos-overview.json"
+  "deploy/grafana/provisioning/alerting/pos-alerts.yml"
+  "deploy/gatus/config.yaml"
+  "deploy/gatus-ca/pos-ca.crt"
   "deploy/ansible/ansible.cfg"
   "deploy/ansible/inventory/hosts.ini"
   "deploy/ansible/provision.yml"
@@ -110,7 +113,6 @@ REQUIRED_FILES=(
   "deploy/scripts/backup-db.sh"
   "deploy/scripts/restore-db.sh"
   "deploy/scripts/measure-container-rss.sh"
-  "deploy/scripts/healthcheck-ping.sh"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do

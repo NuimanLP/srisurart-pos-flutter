@@ -215,3 +215,27 @@ secret scan: gitleaks) · action ของ third-party อ้างด้วย 
 
 **ผลที่ตามมา:** `.github/workflows/server.yml` (job `sast`), `.semgrepignore`, ทุก workflow (pin SHA) ·
 `07_CICD_DEPLOY.md` §1 และ §2c · `CLAUDE.md` (CI/CD)
+
+## Addendum 2026-10-13 — alerting → Discord + Gatus แทน Healthchecks.io (**proposed**, `agent ร่าง` — รอ owner)
+
+**เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาชี้ว่าเรา "ไม่มี alerting" — dashboard มี แต่ไม่มีใครถูกเรียกเมื่อของพัง ·
+heartbeat Healthchecks.io (PR #596, 2026-10-04) ใช้บัญชีที่ไม่ใช่ของทีม (owner 2026-10-13) จึงต้องเลิก
+
+**ข้อเสนอ (defaults ของ orchestrator — owner เปลี่ยนได้):**
+* **Grafana alerting ในตัว** (provision จากไฟล์ `deploy/grafana/provisioning/alerting/pos-alerts.yml`) → **Discord webhook** ·
+  **Alertmanager ยังปฏิเสธเหมือนเดิม** (service เพิ่ม + config อีกชุด สำหรับงานที่ Grafana ทำได้อยู่แล้ว)
+* **Gatus** (`twinproduction/gatus` pin digest, amd64 + arm64, binary `GOAMD64=v1` ตรวจใน CI) เฝ้า HTTP/TCP ของสแต็ก + อายุใบ TLS →
+  Discord · ใช้ได้ทั้ง `mob04` (amd64 `qemu64`) และ Pi 5 (arm64) · 64m
+* **Healthchecks.io ปลด** — script/test/cron ถูกลบ (`provision.yml` ลบ cron + ไฟล์บน VM)
+* **ข้อจำกัดที่ยอมรับ (ไม่ได้อ้างว่าแก้แล้ว):** ทุกตัวเฝ้ารันบนเครื่องเดียวกับที่มันเฝ้า — **เครื่องดับทั้งเครื่อง ไม่มีใครรู้** จนกว่าจะมีเครื่องที่สอง
+  (Pi 5) เฝ้าข้ามเครื่อง
+* **egress:** webhook ต้องออกผ่าน FortiGate ของคณะไป `discord.com` — owner ตรวจด้วย `curl -v https://discord.com/api/v10/gateway`
+  ก่อนเปิด (issuer ต้องไม่ใช่ FortiGate) · **payload มีแค่ชื่อ rule/endpoint, ชื่อ container และ summary — ไม่มีข้อมูล tenant/ลูกค้า/บิล**
+* webhook เป็นความลับใน `/opt/pos/.env` (ผ่าน `DEMO_ENV_FILE`) เท่านั้น · ไม่ตั้ง = placeholder ส่งไม่ถึงใคร + `provision.yml` เตือน
+  (เงียบแต่ซื่อสัตย์ — กฎเดียวกับ offsite backup ที่ยังไม่ตั้ง)
+
+**ผลที่ตามมา:** `deploy/compose/monitoring.yml` (service `gatus`, node-exporter textfile collector, env ของ Grafana) ·
+`deploy/gatus/` + `deploy/gatus-ca/` · `deploy/prometheus/prometheus.yml` (job `gatus`) · `deploy/scripts/backup-db.sh`
+(gauge `pos_backup_last_success_timestamp_seconds`) · `deploy/ansible/{deploy,provision}.yml` ·
+`deploy/scripts/test/monitoring-alerting.test.sh` (CI `nginx-check`) · `07_CICD_DEPLOY.md` §10.5 (ขั้นตอนบน `mob04`) ·
+RAM monitoring 832m → 896m

@@ -37,7 +37,7 @@
 
 | # | ของ | หมายเหตุ |
 |---|---|---|
-| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.2 GB) |
+| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.3 GB) |
 | 2 | ที่จ่ายไฟทางการ **27 W USB-C (5V/5A)** | ตัวนี้ตัวเดียวที่ทำให้ Pi จ่ายไฟ USB ได้ 1.6 A · ที่จ่ายไฟอื่น = USB รวมแค่ 600 mA → ดิสก์ USB หลุดกลางทาง · ห้ามใช้ที่ชาร์จโทรศัพท์ · **ห้ามบังคับ `usb_max_current_enable` ใน `config.txt`** แทนการใช้ที่จ่ายไฟทางการ (ตรวจใน §2 ข้อ 6) |
 | 3 | Active Cooler + เคสระบายอากาศ | |
 | 4 | **ดิสก์ข้อมูล** (เลือกหนึ่ง) | USB SSD · USB HDD (**ต้องมีกล่องที่มีไฟเลี้ยงเอง** หรือ hub มีไฟ — สคริปต์เตือนเมื่อเจอ HDD) · NVMe ผ่าน M.2 HAT+ · หรือ microSD ตัวเดียว (**ไม่แนะนำ** — Postgres เขียนตลอด SD สึกและพังโดยไม่เตือน) · กล่อง USB-SATA บางรุ่นพังในโหมด UAS — ดู `dmesg` ก่อนไว้ใจ (§3) |
@@ -502,7 +502,9 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 |---|---|---|
 | `CERT_SAN_IPS` | `<PI_IP>` เท่านั้น | `certgen.sh` ใส่ IP ใน SAN ของใบ server · ไม่ตั้ง = `172.30.58.20` (ของ `mob04`) → เบราว์เซอร์/แอปที่เรียก `<PI_IP>` จะ `IP address mismatch` · ค่าที่ไม่ใช่ IPv4 = certgen exit 1 · 🔴 **ห้ามใส่ `172.30.58.20`** (§4.1) |
 | `CORS_ORIGINS` | `https://<PI_IP>` | origin ของ Pi เอง · ตั้งแต่ #367 ค่าที่ตั้งแต่ว่างทำให้ api ไม่ boot |
-| `HEALTHCHECKS_PING_URL` | check **ใหม่** ของ Pi หรือไม่ใส่ | 🔴 **ห้ามใช้ URL ของ `mob04`** — สองเครื่อง ping URL เดียว = `mob04` ดับแล้วไม่มีใครรู้ |
+| `GATUS_POS_URL` | `https://<PI_IP>` | Gatus เช็ก `/health/ready` ผ่าน Nginx + TLS ของเครื่องตัวเอง · ไม่ตั้ง = `https://172.30.58.20` (ของ `mob04`) |
+| `GATUS_CA_DIR` | `/opt/pos/gatus-ca-local` | โฟลเดอร์ (0755) ที่มี `ca.crt` **public** ของ Pi (0644, ดึงตาม 07 §5 runbook ข้อ 2) — CA ของ Pi ≠ `mob04` · ไม่ตั้ง = Gatus ใช้ CA ของ `mob04` → check `pos-api-ready` แดงด้วย x509 · 🔴 ห้ามชี้ไปที่ volume `certs`/`certs-ca` |
+| `ALERT_DISCORD_WEBHOOK` | webhook **ใหม่** ของ Pi หรือไม่ใส่ | แยกช่อง/ชื่อให้รู้ว่า alert มาจากเครื่องไหน · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 |
 | `PLATFORM_ADMINS` | `admin:<hex ใหม่ 24 ตัว>` (สร้างข้างบน) | ไม่มี = platform-ui ไม่มี admin ให้ login · 🔴 **ห้ามใช้รหัสเดียวกับ `mob04`** |
 
 🔴 `provision.yml` **ไม่ตรวจ** `CERT_SAN_IPS`/`CORS_ORIGINS` (ตรวจแค่ 11 คีย์ `:?`) → ค่าผิดจะ deploy "เขียว" แต่ SAN/CORS ผิด · ตรวจเอง:
@@ -712,12 +714,12 @@ git -C "$MAIN" worktree remove ../pos-pi5
 Grafana / Prometheus / Bull-Board / platform-ui ผูก `127.0.0.1` ของ Pi เท่านั้น — เข้าผ่าน SSH tunnel (ไม่ใช่ grant ของ tailnet):
 
 ```bash
-ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 pi5-deploy
+ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 -L 13300:127.0.0.1:3300 pi5-deploy
 ```
 
-แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`
+แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`, `:13300` (Gatus — uptime + alert → Discord, `07 §10.5`)
 
-RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.2 GB — เพดาน ไม่ใช่การจอง):
+RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.3 GB — เพดาน ไม่ใช่การจอง):
 
 ```bash
 ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsage}}"'
@@ -816,7 +818,7 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 ## 14. กฎห้ามทำ (สรุป)
 
 * ห้ามรันคำสั่งจากคู่มือ VM ตามตัวอักษรกับ Pi (ทุกบรรทัดชี้ `mob04`) · ทำ Pi ในหน้าต่าง terminal แยก + `pi_guard` ทุกคำสั่ง Ansible
-* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `HEALTHCHECKS_PING_URL` ร่วมกับ `mob04`
+* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `ALERT_DISCORD_WEBHOOK` ร่วมกับ `mob04`
 * ห้าม `docker compose down -v` · ห้ามลบ `certs-ca` · ห้าม `--diff` กับ `provision.yml` · ห้ามคัดลอก `certs-ca` ของ `mob04` โดย owner ไม่ตัดสิน
 * `provision.yml` = `cloud` เท่านั้น · `deploy.yml` = `deploy` เท่านั้น
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`
