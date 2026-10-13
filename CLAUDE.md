@@ -854,13 +854,26 @@ on void/return paths. Keep this order in any new write touching more than one of
   `promtool check config` step in `server.yml` `nginx-check` is the real gate — keep its image
   digest equal to `monitoring.yml`'s. Keep local-only files out of `deploy/prometheus/` and
   `deploy/grafana/` (deploy.yml copies those trees wholesale).
-- **Uptime heartbeat (#596, 2026-10-04):** `deploy/scripts/healthcheck-ping.sh`, cron every 5 min as
-  `deploy` from `provision.yml` (`journalctl -t pos-healthcheck`). **Installed on `mob04` by hand
-  2026-10-04** (07 §7b: script sha256 `77f79d62…` = `origin/main`, key appended to `/opt/pos/.env`,
-  cron entry with the `#Ansible:` marker so `provision.yml` adopts it; first cron run 15:20 UTC
-  silent = healthy ping). 🔴 A CD deploy never updates it — re-install after a script change. The ping URL is a secret: only in `/opt/pos/.env`, passed to
-  curl on stdin (`-K -`) never argv; a URL holding a quote/backslash/space is refused (`::error::`),
-  not escaped. Unset = `::warning::` exit 0 (same rule as offsite backup).
+- ~~Uptime heartbeat (#596, Healthchecks.io)~~ — **retired 2026-10-13** (not the team's account):
+  script/test deleted, `provision.yml` removes the cron (same `name:`, `state: absent`) and the VM copy.
+- **Alerting → Discord + Gatus (2026-10-13, `agent ร่าง`, ADR-0013 addendum *proposed*; 07 §10.5).**
+  Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
+  point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
+  `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),
+  platform-ui, bull-board (401), Postgres/Redis×2/etcd TCP, Grafana, Prometheus. Rules: API instance down uses
+  `up{job="api-metrics"}` — **never `api-readiness`** (always 0); anything a rolling deploy can trip has `for:` ≥ 5m;
+  deleting a rule from the file does not delete it (use `deleteRules:`); annotations are not env-interpolated and
+  never carry tenant/customer data. `ALERT_DISCORD_WEBHOOK` is a secret (`/opt/pos/.env` only); unset = a
+  placeholder (Grafana refuses an empty Discord URL) + `provision.yml` warning. Gatus trusts the private CA via
+  `SSL_CERT_DIR=/pos-ca` (never `SSL_CERT_FILE`); `deploy/gatus-ca/pos-ca.crt` must stay a byte copy of
+  `frontend/assets/certs/pos-ca.crt` (CI `cmp`); config dir-mounted, never a single file. **Backup freshness:**
+  `backup-db.sh` writes `pos_backup_last_success_timestamp_seconds` to `/opt/pos/node-textfile` (0755, from
+  `provision.yml`) only on a green run that is not DB-only (`BACKUP_VOLUMES=0`); rule "backup stale" > 26h, no data
+  = Alerting — so `provision.yml` must run **before** the deploy that ships it. CI: `monitoring-alerting.test.sh`
+  (nginx-check) boots prometheus+grafana+gatus from `monitoring.yml` and checks rules load and evaluate without
+  `error`, Gatus config loads, and the Gatus amd64 binary is `GOAMD64=v1` (mob04 = qemu64). 🔴 Gatus runs on the host
+  it watches: a dead host pages nobody until a second host (Pi 5) exists — documented, not claimed. Owner steps on
+  `mob04` (Discord egress `curl -v https://discord.com/api/v10/gateway`, webhook, `DEMO_ENV_FILE`, provision) in 07 §10.5.
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly

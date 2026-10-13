@@ -1,5 +1,6 @@
 # Monitoring overlay (#63 `ops.1`, 07_CICD_DEPLOY.md §10, ADR-0013).
-# Node Exporter (host metrics) + Prometheus + Grafana, on top of the base stack:
+# Node Exporter (host metrics) + Prometheus + Grafana (+ its alerting → Discord) + Gatus (uptime
+# checks → Discord, 07 §10.5), on top of the base stack:
 #
 #   docker compose -f server/docker-compose.yml -f deploy/compose/monitoring.yml up -d
 #
@@ -13,8 +14,9 @@
 # publishes nothing at all and is reached only over the compose network, by Prometheus.
 # `server/.env` (or the VM's copy) must carry GRAFANA_ADMIN_PASSWORD — see .env.example.
 #
-# Memory budget (07 §5): node-exporter 64m + prometheus 512m + grafana 256m = 832m, on top of
-# the base stack's ≈3.3 GB (etcd included — server/docker-compose.yml header) ≈ 4.2 GB of 6 GB.
+# Memory budget (07 §5): node-exporter 64m + prometheus 512m + grafana 256m + gatus 64m = 896m,
+# on top of the base stack's ≈3.4 GB (etcd included — server/docker-compose.yml header) ≈ 4.3 GB of 6 GB.
+# ALERT_DISCORD_WEBHOOK (optional, a secret — /opt/pos/.env only) feeds both Grafana and Gatus.
 #
 # Every `image:` below is pinned `name:tag@sha256:<digest>` (#401), same policy as
 # server/docker-compose.yml and Dockerfile — see the note there.
@@ -37,6 +39,10 @@ services:
       - "--path.sysfs=/host/sys"
       - "--path.rootfs=/rootfs"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      # backup-db.sh writes pos_backup_last_success_timestamp_seconds here after a green nightly
+      # run (Grafana rule "backup stale"). /opt/pos/node-textfile is created 0755 by provision.yml;
+      # until then node-exporter reports node_textfile_scrape_error and the rule fires (no data).
+      - "--collector.textfile.directory=/rootfs/opt/pos/node-textfile"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9100/metrics"]
       interval: 15s
@@ -95,6 +101,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Read by provisioning/alerting/pos-alerts.yml. Grafana refuses to boot on a Discord
+      # contact point with an empty URL, so unset = a placeholder nothing listens on (sends fail
+      # and are logged; provision.yml warns). Quiet but honest, like an unset offsite backup.
+      ALERT_DISCORD_WEBHOOK: ${ALERT_DISCORD_WEBHOOK:-http://127.0.0.1:9/alert-discord-webhook-not-set}
     volumes:
       # Datasource + dashboard provider config: file-based, read-only, so a rebuilt Grafana
       # volume comes back identical with no manual step. (See the path note on `prometheus`
@@ -112,6 +122,39 @@ services:
     ports:
       # Host loopback only — reach it via `ssh -L 3000:127.0.0.1:3000 …` (07 §7).
       - "127.0.0.1:3000:3000"
+
+  # Uptime checks (deploy/gatus/config.yaml) → Discord; replaces the Healthchecks.io heartbeat.
+  # Runs on this host, so it cannot report this host dying (07 §10.5). amd64 + arm64 image; the
+  # binary is GOAMD64=v1 (checked in CI — mob04 is a qemu64 CPU, below x86-64-v2).
+  gatus:
+    image: twinproduction/gatus:v5.37.0@sha256:094eb186e55235db367e90e9d56140e5897b7044c41de23cde4cc18e6da1242e
+    restart: unless-stopped
+    mem_limit: 64m
+    user: "65534:65534"
+    read_only: true
+    environment:
+      # A directory, not a file: a single-file bind mount keeps the old inode after deploy.yml's
+      # atomic copy (#148).
+      GATUS_CONFIG_PATH: /config
+      # Go reads every file in these directories ON TOP of the image's system bundle, so the
+      # private CA is trusted without losing the public roots Discord needs (SSL_CERT_FILE would
+      # replace the bundle).
+      SSL_CERT_DIR: /pos-ca
+      ALERT_DISCORD_WEBHOOK: ${ALERT_DISCORD_WEBHOOK:-http://127.0.0.1:9/alert-discord-webhook-not-set}
+      # The VM's own address, through Nginx + TLS like the app (the cert SAN holds it). Another
+      # host (Pi 5) sets GATUS_POS_URL to its own https://<ip>.
+      POS_URL: ${GATUS_POS_URL:-https://172.30.58.20}
+    volumes:
+      - ${MONITORING_CONFIG_DIR:-../deploy}/gatus:/config:ro
+      # Only the PUBLIC CA cert (a copy of frontend/assets/certs/pos-ca.crt = mob04's CA, CI checks
+      # they match) — never the certs-ca / certs volumes. A host with its own CA (Pi 5) sets
+      # GATUS_CA_DIR to a directory holding that host's public ca.crt (07 §10.5).
+      - ${GATUS_CA_DIR:-${MONITORING_CONFIG_DIR:-../deploy}/gatus-ca}:/pos-ca:ro
+    # No healthcheck: the image is FROM scratch (no shell, no wget). Prometheus scrapes it
+    # (job `gatus`) and Grafana alerts on up{job="gatus"}.
+    ports:
+      # Host loopback only — reach it via `ssh -L 3300:127.0.0.1:3300 …` (07 §7).
+      - "127.0.0.1:3300:8080"
 
 volumes:
   prometheus-data:

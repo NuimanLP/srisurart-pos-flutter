@@ -234,7 +234,7 @@ rm -rf .tmp-nginx
 job `nginx-check` ใน CI ยังรันสิ่งต่อไปนี้ด้วย (ดู `.github/workflows/server.yml`) — รันเองได้จาก root ของรีโป:
 
 - 🆕 `deploy/scripts/test/nginx-img.test.sh` (PR #680, step ชื่อ *nginx /img/ + import body-limit behaviour* ใน `server.yml`) — เปิด nginx image จริงกับ `nginx.conf` จริง แล้วยิง `curl`: `/img/<uuid>/<32 hex>_{t,p}.webp` ต้องได้ไฟล์จาก volume พร้อม `Cache-Control: public, max-age=31536000, immutable` + `X-Content-Type-Options: nosniff`, path/รูปแบบอื่นใต้ `/img/` ต้อง 404 (ไม่ใช่หน้า SPA) และเฉพาะสอง location ของ import เท่านั้นที่รับ body เกิน 10 MB · ต้องมี `docker`, `openssl`, `curl` · รัน: `deploy/scripts/test/nginx-img.test.sh`
-- สคริปต์ deploy ที่ stub คำสั่งจริง: `deploy/scripts/test/certgen.test.sh`, `backup-db.test.sh` (🆕 ตั้งแต่ PR #680 ครอบคลุม `pos_images_*.tar.gz` + sha256, prune, ไม่มี volume = เตือนแต่ exit 0, tar พัง = exit ≠ 0), `healthcheck-ping.test.sh` (stub `curl`: ping/`/fail` ถูกต้อง, URL ไม่ถูกพิมพ์ออก, ไม่ตั้ง URL = `::warning::` เท่านั้น) — **ผ่านเมื่อ** exit code 0
+- สคริปต์ deploy ที่ stub คำสั่งจริง: `deploy/scripts/test/certgen.test.sh`, `backup-db.test.sh` (🆕 ตั้งแต่ PR #680 ครอบคลุม `pos_images_*.tar.gz` + sha256, prune, ไม่มี volume = เตือนแต่ exit 0, tar พัง = exit ≠ 0) (+ gauge ความสดของ backup 2026-10-13), `monitoring-alerting.test.sh` (boot prometheus + grafana + gatus จริงจาก `monitoring.yml`: rule ครบและไม่มี health `error`, Gatus โหลด config, binary `GOAMD64=v1` — ต้องมี Docker) — **ผ่านเมื่อ** exit code 0
 - `promtool check config` ของ `deploy/prometheus/prometheus.yml` ทั้งแบบที่ VM ใช้ และแบบมี overlay `deploy/prometheus-local/local-scrape.yml` (image `prom/prometheus` ตามที่ปักไว้ใน workflow ต้องมี Docker)
 
 ### 2.6 Image smoke test + Trivy image — "ตรวจรถก่อนออกจากโรงงาน"
