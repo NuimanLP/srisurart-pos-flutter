@@ -54,7 +54,8 @@ over TCP 443 — works, just slower. `tailscale status` after install shows `dir
    `echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-tailscale.conf && sudo sysctl -p /etc/sysctl.d/99-tailscale.conf`
 3. Join with no stored auth key — the command prints a login URL the owner opens once 👤:
    `sudo tailscale up --hostname=mob04-pos --advertise-routes=172.30.58.20/32 --advertise-tags=tag:pos-server`
-   (no `--ssh`: SSH stays on the faculty path only).
+   (no `--ssh`: SSH stays on the faculty path only). **Superseded by "As-built":** the node also needs
+   `--snat-subnet-routes=false`, and the owner (only) is granted SSH over the tailnet.
 4. 👤 Admin console → Machines → `mob04-pos`: **approve the subnet route** `172.30.58.20/32` and **disable key expiry**
    (otherwise the server drops off the tailnet after the key lifetime).
 5. `tailscale status`, `tailscale netcheck` → record direct/relay and nearest DERP.
@@ -83,6 +84,8 @@ over TCP 443 — works, just slower. `tailscale status` after install shows `dir
 
 Principle: tailnet members may reach **only `172.30.58.20:443`**; nothing else on `mob04` (no SSH, no Grafana — they stay
 on `127.0.0.1`/faculty path), and `mob04` may not initiate connections to members.
+**Superseded in part by "As-built":** members still get only `:443`, but the owner alone is granted SSH over the tailnet.
+The policy block below is the original intent, not the applied policy.
 
 ```jsonc
 {
