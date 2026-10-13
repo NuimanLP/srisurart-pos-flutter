@@ -109,6 +109,7 @@ jobs:
               # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
               - 'deploy/scripts/healthcheck-ping.sh'
+              - 'deploy/scripts/host-setup.sh'
               - 'deploy/scripts/measure-container-rss.sh'
               - 'deploy/scripts/verify-ghcr-tags.sh'
               - 'deploy/scripts/test/**'
@@ -377,6 +378,9 @@ jobs:
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
+      # Host installer: never formats, one fstab line after re-runs, Tailscale /32 without SNAT.
+      - name: host-setup.sh tests (fixture root + stubbed lsblk/findmnt/tailscale)
+        run: deploy/scripts/test/host-setup.test.sh
       # deploy.yml's release check: 404 = not yet (1), registry error = red (2), and with a platform
       # arg the tag's manifest list must hold that platform (legacy single image = amd64 only).
       - name: verify-ghcr-tags.sh tests (stubbed curl)

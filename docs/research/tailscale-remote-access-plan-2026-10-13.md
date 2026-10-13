@@ -1,6 +1,6 @@
 # Plan — reach `mob04` from anywhere without the faculty VPN (Tailscale)
 
-**Status:** plan only, nothing installed (2026-10-13). Owner asked: "access from anywhere, no VPN, which provider is free?"
+**Status:** installed on `mob04` (2026-10-13) — see "As-built" at the end for where it differs from this plan; the install is codified in `deploy/scripts/host-setup.sh --tailscale`. Original status: plan only (2026-10-13). Owner asked: "access from anywhere, no VPN, which provider is free?"
 → owner chose Tailscale. Steps marked 👤 need the owner (accounts, approvals); everything else an agent can run.
 
 ## 1. Goal and shape
@@ -119,9 +119,20 @@ untouched throughout, so the faculty-VPN path keeps working before, during and a
 ## 9. After it works (follow-ups, not part of this plan's first run)
 
 - Record the setup in `docs/Backend_design/07_CICD_DEPLOY.md` and the VM tutorial; add a row to CLAUDE.md "Still open".
-- Codify the package + sysctl in `provision.yml` (the login stays manual — never store an auth key in the repo or `.env`
-  without the owner's decision).
+- ~~Codify the package + sysctl in `provision.yml`~~ — **covered by `deploy/scripts/host-setup.sh --tailscale`** (2026-10-13:
+  signed repo, `apt-get install`, `99-tailscale.conf`, `up`/`set` with the flags below; it never takes an auth key — the login
+  stays manual).
 - If wider access is needed without an app on each phone, revisit Cloudflare Tunnel (needs a domain, a new APK URL, public-CA
   trust, nginx real-IP handling — a rule change for the owner).
+
+## As-built (2026-10-13)
+
+- **SNAT must be off.** The node runs with `--snat-subnet-routes=false` (`tailscale set --snat-subnet-routes=false` on a node
+  already up). Verified: nginx's access log shows each phone's `100.x.y.z`, so the per-IP rate limit stays per device (§5.4).
+  `host-setup.sh --tailscale` always passes it, on `up` and on `set`.
+- **SSH grant for the owner only.** Members get `172.30.58.20:443`; SSH over the tailnet is granted to the owner alone.
+- **Dashboards stay on `127.0.0.1`** — reach them through an SSH tunnel, never a tailnet grant:
+  `ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 mob04`
+  (Grafana, Prometheus, Bull Board, platform-ui → `http://localhost:13000` etc.).
 
 Sources: tailscale.com/pricing, tailscale.com/kb/1019/subnets, tailscale.com/kb/1082/firewall-ports (read 2026-10-13).
