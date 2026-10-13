@@ -26,7 +26,7 @@ fails=0
 check() { # description, command...
   local d="$1"
   shift
-  if "$@"; then echo "ok   - $d"; else echo "FAIL - $d"; fails=$((fails + 1)); fi
+  if "$@" >/dev/null; then echo "ok   - $d"; else echo "FAIL - $d"; fails=$((fails + 1)); fi
 }
 
 compose() {
@@ -94,7 +94,7 @@ wait_for() { # seconds, description, command...
   shift 2
   until "$@" >/dev/null 2>&1; do
     if ((SECONDS >= deadline)); then
-      echo "     timed out waiting for: $d"
+      echo "     timed out waiting for: $d" >&2
       return 1
     fi
     sleep 3
@@ -105,7 +105,7 @@ grafana_ok() { curl -sf "$GRAFANA/api/health" | jq -e '.database == "ok"'; }
 check "grafana becomes healthy" wait_for 120 "grafana /api/health" grafana_ok
 
 # 4. provisioning
-expected_rules="$(grep -c '^      - uid: ' "$RULES")"
+expected_rules="$(grep -c '^        title: ' "$RULES")"  # rules only (the contact point's receiver also has a uid)
 rule_count() { gf /api/v1/provisioning/alert-rules | jq 'length'; }
 echo "     rules in pos-alerts.yml: $expected_rules, provisioned: $(rule_count || echo '?')"
 check "grafana provisioned every rule in pos-alerts.yml" test "$(rule_count)" = "$expected_rules"
