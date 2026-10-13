@@ -14,7 +14,7 @@ name: Server CI
 # *image* is scanned in "build-image" instead, where a finding can still stop a release.
 # Job "unit" also runs the coverage ratchet (server/coverage-baseline.json, 2026-10-03).
 # Job "ci-guards" (2026-10-03): migrations are append-only vs the PR base, actionlint over the
-# workflows, shellcheck over deploy/scripts — pinned binaries, gated on the `ci` paths.
+# workflows, shellcheck over deploy/scripts, ansible-lint over deploy/ansible — pinned, gated on the `ci` paths.
 # "integration" also replays docs/Backend_design/fixtures/client-requests/ (what the Flutter
 # client really sends, recorded by frontend/test/contract/) through the real app
 # (test/client-request-fixtures.e2e-spec.ts): a 400/401/5xx or a missing route fails it.
@@ -129,10 +129,14 @@ jobs:
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
               # test/owner-import*.ts import the file the app's backup button saves.
               - 'frontend/test/fixtures/app_export_*.json'
+              # Trivy config scan of the web image's Dockerfile in the audit job.
+              - 'deploy/web.Dockerfile'
             ci:
               - '.github/workflows/**'
               - 'deploy/scripts/**'
               - 'server/src/db/migrations/**'
+              # ansible-lint (deploy.yml, provision.yml, ansible.cfg, .ansible-lint, its requirements).
+              - 'deploy/ansible/**'
 
   secrets:
     name: secret scan (gitleaks)
@@ -368,6 +372,19 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+      # The web image's Dockerfile lives outside server/, so the fs scan above never sees it.
+      # Config (misconfiguration) checks only; Trivy has no checks for Compose files, so
+      # deploy/compose/ is deliberately not scanned here (a scan with no checks proves nothing).
+      - name: Trivy — web image Dockerfile misconfig (deploy/web.Dockerfile)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          # The trivy binary is pinned too, not left to the action (trivy-action supply-chain
+          # incident 2026-03-19, CVE-2026-33634). Same version as the other Trivy steps.
+          version: v0.70.0
+          scan-type: config
+          scan-ref: deploy/web.Dockerfile
+          severity: HIGH,CRITICAL
+          exit-code: '1'
 
   unit:
     name: unit
@@ -391,7 +408,7 @@ jobs:
       - run: pnpm test:coverage
 
   ci-guards:
-    name: ci guards (migrations immutable, actionlint, shellcheck)
+    name: ci guards (migrations immutable, actionlint, shellcheck, ansible-lint)
     runs-on: ubuntu-latest
     needs: [changes]
     # Same gate shape as lint/audit/unit (see the comment there), on the `ci` paths.
@@ -406,6 +423,10 @@ jobs:
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
       SHELLCHECK_VERSION: 0.11.0
       SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+      # The one collection the playbooks use (ansible.posix.authorized_key in provision.yml), as
+      # Galaxy's own tarball + the sha256 Galaxy publishes for it. ansible-lint runs offline.
+      ANSIBLE_POSIX_VERSION: 2.2.2
+      ANSIBLE_POSIX_SHA256: 00a58c5d804c9adc99c3c3dc1b9f2246f4bb5f7337941440e0956f0e31c3b82b
     steps:
       - uses: actions/checkout@v5
         with:
@@ -443,6 +464,26 @@ jobs:
         run: |
           shopt -s globstar nullglob
           shellcheck deploy/scripts/**/*.sh
+      # ansible-lint, profile `production` (deploy/ansible/.ansible-lint). Every package is pinned by
+      # sha256 (deploy/ansible/lint-requirements.txt, `--require-hashes`), wheels only, no resolver.
+      - name: install ansible-lint (pinned, hash-checked) + ansible.posix (sha256-verified)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ansible-lint"
+          "$RUNNER_TEMP/ansible-lint/bin/pip" install --quiet --require-hashes --no-deps \
+            --only-binary :all: -r deploy/ansible/lint-requirements.txt
+          curl -sSfL -o "$RUNNER_TEMP/ansible-posix.tgz" \
+            "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-posix-${ANSIBLE_POSIX_VERSION}.tar.gz"
+          echo "${ANSIBLE_POSIX_SHA256}  $RUNNER_TEMP/ansible-posix.tgz" | sha256sum -c -
+          "$RUNNER_TEMP/ansible-lint/bin/ansible-galaxy" collection install --offline \
+            -p "$RUNNER_TEMP/collections" "$RUNNER_TEMP/ansible-posix.tgz"
+          echo "$RUNNER_TEMP/ansible-lint/bin" >> "$GITHUB_PATH"
+      - name: ansible-lint (deploy/ansible, profile production)
+        working-directory: deploy/ansible
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+        run: |
+          ansible-lint --version
+          ansible-lint
 
   nginx-check:
     name: nginx config check (nginx -t)

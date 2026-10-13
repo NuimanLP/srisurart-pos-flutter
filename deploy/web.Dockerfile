@@ -12,3 +12,10 @@ FROM busybox:stable-musl@sha256:3c6ae8008e2c2eedd141725c30b20d9c36b026eb796688f8
 
 # Build context is frontend/ — the workflow builds with `-f ../deploy/web.Dockerfile .`
 COPY build/web /web
+
+# Default user = nobody (Trivy DS-0002). COPY still writes /web as root (read-only to this user).
+# Honest limit: this does NOT make the deploy rootless. The one place the image runs on a host,
+# vm.override.yml's one-shot `web-sync`, sets `user: "0:0"` explicitly, because it writes into
+# the `web` volume whose existing files are root-owned. Moving that to a non-root user would need
+# a one-time chown of the volume on every host — an owner decision, not part of this change.
+USER 65534:65534

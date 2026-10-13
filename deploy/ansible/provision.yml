@@ -29,7 +29,7 @@
           - ufw
           - openssl
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Ensure /etc/apt/keyrings directory exists
       ansible.builtin.file:
@@ -46,11 +46,14 @@
 
     - name: Add Docker repository to APT sources
       ansible.builtin.copy:
-        # apt wants the Debian arch name (amd64/arm64); ansible_architecture is the kernel's
-        # (x86_64/aarch64), which matches no package list — docker-ce is then "not available".
-        content: "deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }} {{ ansible_distribution_release }} stable\n"
+        content: "deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc] {{ docker_apt_url }} {{ ansible_distribution_release }} stable\n"
         dest: /etc/apt/sources.list.d/docker.list
         mode: "0644"
+      vars:
+        # apt wants the Debian arch name (amd64/arm64); ansible_architecture is the kernel's
+        # (x86_64/aarch64), which matches no package list — docker-ce is then "not available".
+        docker_apt_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}"
+        docker_apt_url: "https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }}"
 
     - name: Install Docker Engine, CLI, and Compose plugin
       ansible.builtin.apt:
@@ -61,7 +64,7 @@
           - docker-buildx-plugin
           - docker-compose-plugin
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Ensure Docker daemon is started and enabled
       ansible.builtin.systemd:
@@ -102,7 +105,7 @@
         state: present
 
     - name: Configure SSH authorized key for deploy user
-      ansible.builtin.authorized_key:
+      ansible.posix.authorized_key:
         user: "{{ deploy_user }}"
         key: "{{ demo_ssh_pub_key }}"
         state: present
@@ -132,7 +135,7 @@
     # Only scripts whose runtime is the VM belong here. Deliberately excluded: pos-deploy.sh and
     # runner-job-started.sh (the owner installs those into /usr/local/bin, 07 §6.2), and
     # setup-mob04-runner.sh / validate.sh / verify-ghcr-tags.sh (repo- and CI-side).
-    - name: Install the ops scripts the VM runs (Slice 23 / #288, #184, #346)
+    - name: "Install the ops scripts the VM runs (Slice 23 / #288, #184, #346)"
       ansible.builtin.copy:
         src: '{{ playbook_dir }}/../scripts/{{ item }}'
         dest: '{{ app_dir }}/scripts/{{ item }}'
@@ -188,7 +191,9 @@
     # the stack comes up green with no platform admin, and nobody can log in to platform-ui.
     - name: Warn when no platform admin is configured
       ansible.builtin.debug:
-        msg: "DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no admin to log in with unless one already exists in the database."
+        msg: >-
+          DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no
+          admin to log in with unless one already exists in the database.
       when: demo_env_content != "" and demo_env_content is not search('(?m)^PLATFORM_ADMINS=\S')
 
     # ALERT_DISCORD_WEBHOOK is optional too: without it Grafana alerting and Gatus run against a
@@ -224,7 +229,7 @@
         group: "{{ deploy_user }}"
         mode: "0755"
 
-    - name: Create backup directory (0700 mode, Slice 23 / #288)
+    - name: "Create backup directory (0700 mode, Slice 23 / #288)"
       ansible.builtin.file:
         path: "{{ app_dir }}/backups"
         state: directory
@@ -254,7 +259,7 @@
     # -- when the owner is ready, add an `environment:` block to this task (or prefix `job:`) with
     # those two vars, pointing BACKUP_RCLONE_CONFIG at a file this playbook does NOT manage (no
     # credential belongs in this repo or in `demo_env_content`).
-    - name: Configure daily database backup cron job (Slice 23 / #288, #346)
+    - name: "Configure daily database backup cron job (Slice 23 / #288, #346)"
       ansible.builtin.cron:
         name: "Srisurart POS Daily Database Backup"
         user: "{{ deploy_user }}"
