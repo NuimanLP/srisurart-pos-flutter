@@ -13,7 +13,9 @@
 # refused unless its sha256 matches the one you pass.
 #
 # RUNNER_NAME (default mob04-demo) and RUNNER_LABELS (default srisurart-demo-deploy) can be
-# overridden from the environment. sudo resets the environment, so pass them through sudo:
+# overridden from the environment; on an aarch64 host both are REQUIRED (the defaults are mob04's,
+# and config.sh --replace would take over mob04-demo). sudo resets the environment, so pass them
+# through sudo:
 #   sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>
 # Two runners must never share the srisurart-demo-deploy label: deploy.yml's deploy job targets
 # that label, and GitHub would hand the deploy to whichever of them is idle.
@@ -24,9 +26,6 @@
 set -euo pipefail
 
 readonly REPO_URL="https://github.com/NuimanLP/srisurart-pos-flutter"
-readonly RUNNER_NAME="${RUNNER_NAME:-mob04-demo}"
-readonly RUNNER_LABELS="${RUNNER_LABELS:-srisurart-demo-deploy}"
-
 case "$(uname -m)" in
   x86_64) readonly RUNNER_ARCH="x64" ;;
   aarch64) readonly RUNNER_ARCH="arm64" ;;
@@ -35,6 +34,18 @@ case "$(uname -m)" in
     exit 1
     ;;
 esac
+
+# The defaults are mob04's. An arm64 host is never mob04, and config.sh runs with --replace, so
+# the default name would silently take over mob04-demo's registration (and with it the deploy
+# label): on aarch64 both values must be given explicitly.
+if [[ "$RUNNER_ARCH" != "x64" && ( -z "${RUNNER_NAME:-}" || -z "${RUNNER_LABELS:-}" ) ]]; then
+  echo "Error: on a non-x86_64 host RUNNER_NAME and RUNNER_LABELS must both be set explicitly" >&2
+  echo "(the defaults mob04-demo / srisurart-demo-deploy belong to mob04; --replace would take over its runner)." >&2
+  echo "Usage: sudo RUNNER_NAME=<name> RUNNER_LABELS=<labels> $0 <REGISTRATION_TOKEN> <RUNNER_VERSION> <RUNNER_SHA256>" >&2
+  exit 1
+fi
+readonly RUNNER_NAME="${RUNNER_NAME:-mob04-demo}"
+readonly RUNNER_LABELS="${RUNNER_LABELS:-srisurart-demo-deploy}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this script must be run as root (or with sudo)." >&2

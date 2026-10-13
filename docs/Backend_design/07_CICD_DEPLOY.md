@@ -233,7 +233,7 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
     `docker buildx imagetools create` จากสอง tag ต่อ arch (ไม่ build ใหม่ — amd64 ใน list คือ image เดียวกับที่ขา amd64 ทดสอบ) แล้ว
     `imagetools inspect` ยืนยันว่ามีครบทั้งสอง platform · `<sha>`/`main` เกิดเฉพาะ push บน `main` เท่านั้น ·
     `server-ci-status` แดงถ้า `publish-image` ไม่ได้รันบน push โค้ดเข้า `main` (กับดัก #184: ไม่มี `<sha>` = Deploy ข้ามแต่เขียว)
-  * **PR ที่แตะ `server/`** รันสองขานี้ด้วย (build + smoke + sharp check, **ไม่มี Trivy/login/push**) → PR พิสูจน์เองว่า image ยัง build
+  * **PR ที่แตะ `server/`** (ตาม filter `server` ของ job `changes`; `ci-guards` ที่ถูก skip บน PR ยอมรับได้) รันสองขานี้ด้วย (build + smoke + sharp check, **ไม่มี Trivy/login/push**) → PR พิสูจน์เองว่า image ยัง build
     และรันได้ทั้งสอง arch ก่อนถึง `main`
   * **web:** build + smoke ในเครื่อง runner (amd64) เหมือนเดิม แล้ว push ด้วย
     `docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --sbom=false` (Dockerfile มีแค่ `COPY` บน busybox
@@ -547,7 +547,7 @@ on:
 > **arch + ชื่อ/label (2026-10-13):** สคริปต์เลือก tarball ตาม `uname -m` — `x86_64` → `actions-runner-linux-x64-<VER>`,
 > `aarch64` → `actions-runner-linux-arm64-<VER>` (เช่น Raspberry Pi 5), อย่างอื่นปฏิเสธ · sha256 ที่ส่งต้องเป็นของ arch **เครื่องนั้น**
 > (หน้า New self-hosted runner เลือก Linux + x64 หรือ ARM64) · `RUNNER_NAME` (ค่าเริ่ม `mob04-demo`) และ `RUNNER_LABELS`
-> (ค่าเริ่ม `srisurart-demo-deploy`) override ได้ทาง env — **`sudo` ล้าง env** จึงต้องส่งผ่าน sudo:
+> (ค่าเริ่ม `srisurart-demo-deploy`) override ได้ทาง env — **บน `aarch64` บังคับต้องใส่ทั้งสองค่า** (ค่าเริ่มเป็นของ `mob04` และ `config.sh --replace` จะยึด registration `mob04-demo` ไป) · **`sudo` ล้าง env** จึงต้องส่งผ่าน sudo:
 > `sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>` · 🔴 **ห้าม runner สองตัวใช้ label
 > `srisurart-demo-deploy` ร่วมกัน** — job `deploy` เลือกด้วย label นี้ GitHub จะส่ง deploy ไปเครื่องไหนก็ได้ที่ว่าง
 

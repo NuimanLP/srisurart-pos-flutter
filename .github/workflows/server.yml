@@ -45,8 +45,9 @@ permissions:
 on:
   push:
     # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
-    # be red together. A push publishes to GHCR only from main: build-image and the
-    # status job's image check are gated on refs/heads/main, and deploy.yml only reacts to main.
+    # be red together. A push publishes to GHCR only from main: build-image's push steps,
+    # publish-image and the status job's image checks are gated on refs/heads/main (a server PR
+    # builds the two image legs without pushing), and deploy.yml only reacts to main.
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
@@ -470,8 +471,10 @@ jobs:
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
     # On a PR, lint/audit/unit are skipped unless server paths changed, so a frontend-only PR
-    # builds no image.
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.ci-guards.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    # builds no image. ci-guards runs on a PR only when workflows/deploy scripts/migrations
+    # changed (`changes.ci`), so a PR touching server/src alone has it `skipped` — accepted on a
+    # PR only, or such a PR would never build the two legs. On main every gate must succeed.
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && (needs.ci-guards.result == 'success' || (github.event_name == 'pull_request' && needs.ci-guards.result == 'skipped')) && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; the libvips compile dominates. `docker run` of the app must
     # never be allowed to hang for the 6-hour default.
     timeout-minutes: 30
@@ -493,6 +496,10 @@ jobs:
     # check (07 §4).
     steps:
       - uses: actions/checkout@v5
+        with:
+          # This job also runs PR code (the Dockerfile) with packages: write; nothing here needs
+          # the token in .git/config.
+          persist-credentials: false
 
       - name: docker build (tagged with the commit + arch)
         # GIT_SHA is baked in so GET /platform/system can say which commit is running (#443):
