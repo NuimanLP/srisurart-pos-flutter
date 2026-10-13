@@ -444,7 +444,7 @@ RAM < 7168 MiB = เตือน · **profile `vm` (`mob04`) = รายงา�
    rc 0 = schema ตรงแล้ว ข้ามไป · rc ≠ 0 (มี migration ค้าง **หรือ**เช็คเองล้ม) = รัน `backup-db.sh` ของ release นี้ (ส่งขึ้น VM ด้วย `ansible.builtin.script`
    เพราะ `/opt/pos/scripts` อัปเดตเฉพาะ `provision.yml`) ด้วย `BACKUP_VOLUMES=0` (dump ฐานข้อมูลอย่างเดียว — migration ไม่แตะรูป),
    `BACKUP_KEEP_DAYS=30`, `BACKUP_RCLONE_REMOTE=""` (ไม่ upload) ลง `/opt/pos/backups-pre-migrate/` (0700, **พี่น้อง**ของ `backups/` เพื่อไม่ให้ prune รายคืนนับรวม) ·
-   dump ล้ม = deploy ล้ม**ก่อน**แตะ container/schema (ไฟล์ config ในข้อ 2 ถูก copy ไปแล้ว แต่ยังไม่มี container ไหนถูก start/recreate หรือ migrate) ·
+   dump ล้ม = deploy ล้ม**ก่อน**แตะ schema และก่อน restart api/worker/nginx (ไฟล์ config ในข้อ 2 ถูก copy ไปแล้ว · `run` ของการเช็คจะ start/recreate dependency ของ `migrate` (= `postgres`) ถ้ายังไม่รันหรือ config ต่าง — แบบเดียวกับที่ `run --rm migrate` ข้อ 4 ทำมาตลอด) ·
    🔴 dump นี้คือ**ทางย้อนเดียว**ของ migration (ไม่มี down-migration) — วิธีใช้: §7 แถว "กู้ฐานข้อมูลหลัง migration เสีย"
 4. `docker compose run --rm migrate` — **schema ก่อนโค้ด** ครั้งเดียว
 5. `run --rm --no-deps certgen` (รอผล — ออกใบไม่สำเร็จ = deploy fail, 2026-10-03) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` (ทุกขั้นหลังจากนี้ใช้ `--no-deps` จึงต้องอยู่ในบรรทัดนี้)

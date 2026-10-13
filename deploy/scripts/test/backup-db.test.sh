@@ -257,4 +257,24 @@ run_backup "$D" 0 "$WORK/v_img" "$WORK/v_sp"
 check "default still archives product images" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
 check "default still archives sale photos" test "$(count "$D" 'pos_sale_photos_*.tar.gz')" = 1
 
+# 8. BACKUP_VOLUMES=0 on the mob04 compose path, mid-deploy: compose lists nginx and a worker
+# that cannot be exec'd into (the old release's worker). The dump must not touch either service.
+cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_CALLS"
+case "$*" in
+  *"ps --services"*) printf 'postgres\nnginx\nworker\n'; exit 0 ;;
+  *"exec -T postgres pg_dump"*) echo "CREATE TABLE t ();"; exit 0 ;;
+  *"exec -T worker"*) echo "Error: service worker is not running" >&2; exit 1 ;;
+esac
+exit 1
+STUB
+D="$WORK/dbonly_vm"
+mkdir -p "$D"
+: > "$WORK/dbonly_vm.calls"
+STUB_CALLS="$WORK/dbonly_vm.calls" BACKUP_VOLUMES=0 run_backup "$D" 0
+check "BACKUP_VOLUMES=0 on the compose path exits 0 with an unreachable worker" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 on the compose path writes the dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "BACKUP_VOLUMES=0 never execs into nginx or the worker" test -z "$(grep -E 'exec -T (nginx|worker)' "$WORK/dbonly_vm.calls")"
+
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
