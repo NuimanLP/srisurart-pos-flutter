@@ -313,7 +313,7 @@ bash deploy/scripts/test/backup-db.test.sh
 | `frontend/test/sale_photo_sheet_test.dart` (เพิ่ม) | widget | สองปุ่ม `ถ่ายรูป` / `เลือกรูปจากเครื่อง` · เรียงรูปด้วยลาก/ลูกศร ◀ ▶ · `sortOrder` = ช่องว่างต่ำสุด 0–4 รวมกรณี "A ถูกปฏิเสธ, B–E บันทึกแล้ว, ลบ A, เพิ่ม F" |
 | `frontend/test/suppliers_tab_test.dart` (23 ตัว) | widget | จัดกลุ่มตามซัพฯ · ราคาเท่ากันระดับสตางค์ · ค้นหา · ถูกสุด/แพงกว่า · แก้/เพิ่ม/ลบ · Degraded ปิดการแก้ · ปุ่มกลับบนจอ 390 px และผ่าน router จริง · ส่งต่อให้ใบสั่งซื้อ · zoom 1280 / 3x-1920 / 2x-1366 / 3x-1366 / 390 |
 | `frontend/test/purchase_orders_screen_test.dart` (เพิ่ม) | widget | `สร้างใบสั่งซื้อ (n)` เติมซัพฯ + สินค้าใกล้หมดลงหน้าต่างสร้างใบสั่งซื้อ |
-| route smoke test | widget | หน้ากล้องผ่านทุกขนาดจอ/zoom ของ smoke test |
+| `frontend/test/route_smoke_test.dart` | widget | หน้ากล้องผ่านทุกขนาดจอ/zoom ของ smoke test |
 
 ```bash
 cd frontend
