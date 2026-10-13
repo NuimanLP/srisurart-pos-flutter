@@ -220,8 +220,31 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
 
 | image | สร้างจาก | ข้างใน | tag |
 |---|---|---|---|
-| `ghcr.io/nuimanlp/srisurart-pos-server` | `server/Dockerfile` (job build image ใน `server.yml`) | node + `dist/` + prod deps — **ไม่มี npm/npx** | `<sha>`, `main` |
-| `ghcr.io/nuimanlp/srisurart-pos-web` | `deploy/web.Dockerfile` (ต่อจาก build web ใน `flutter.yml`) | **ไฟล์ static อย่างเดียว** ที่ `/web` (ไม่มี nginx ไม่มี conf) | `<sha>`, `main` |
+| `ghcr.io/nuimanlp/srisurart-pos-server` | `server/Dockerfile` (job build image ใน `server.yml`) | node + `dist/` + prod deps — **ไม่มี npm/npx** | `<sha>`, `main` (manifest list 2 arch) · `<sha>-amd64`, `<sha>-arm64` (ต่อ arch) |
+| `ghcr.io/nuimanlp/srisurart-pos-web` | `deploy/web.Dockerfile` (ต่อจาก build web ใน `flutter.yml`) | **ไฟล์ static อย่างเดียว** ที่ `/web` (ไม่มี nginx ไม่มี conf) | `<sha>`, `main` (manifest list 2 arch) |
+
+* **Multi-arch (2026-10-13):** tag `<sha>` และ `main` ของทั้งสอง image เป็น **manifest list (`linux/amd64` + `linux/arm64`)**
+  เพื่อให้ Raspberry Pi 5 (Ubuntu arm64) รัน stack เดียวกันได้ — `docker pull` เลือก arch ของเครื่องเอง **`mob04` (amd64) จึง
+  deploy เหมือนเดิมทุกอย่าง** (Ansible / `deploy.yml` / `.env` ไม่ต้องแก้) · release ก่อนหน้านี้เป็น image เดี่ยว = amd64 อย่างเดียว
+  * **server:** `build-image` เป็น matrix 2 ขา — `amd64` บน `ubuntu-latest`, `arm64` บน `ubuntu-24.04-arm` (build แบบ native ไม่ใช้
+    QEMU) · แต่ละขา build → smoke (ตรวจ arch ของ image ด้วย) → sharp check → Trivy → push **เฉพาะ `<sha>-<arch>`** · sharp check:
+    ขา amd64 ยังเป็น `qemu-x86_64 -cpu qemu64` เดิม (CPU ของ `mob04`) · ขา arm64 รันใต้ `qemu-aarch64 -cpu cortex-a76` (CPU ของ Pi 5 —
+    CPU ของ runner ใหม่กว่า Pi เหมือนบทเรียน qemu64) · จากนั้น job **`publish-image`** สร้าง `<sha>` + `main` ด้วย
+    `docker buildx imagetools create` จากสอง tag ต่อ arch (ไม่ build ใหม่ — amd64 ใน list คือ image เดียวกับที่ขา amd64 ทดสอบ) แล้ว
+    `imagetools inspect` ยืนยันว่ามีครบทั้งสอง platform · `<sha>`/`main` เกิดเฉพาะ push บน `main` เท่านั้น ·
+    `server-ci-status` แดงถ้า `publish-image` ไม่ได้รันบน push โค้ดเข้า `main` (กับดัก #184: ไม่มี `<sha>` = Deploy ข้ามแต่เขียว)
+  * **PR ที่แตะ `server/`** รันสองขานี้ด้วย (build + smoke + sharp check, **ไม่มี Trivy/login/push**) → PR พิสูจน์เองว่า image ยัง build
+    และรันได้ทั้งสอง arch ก่อนถึง `main`
+  * **web:** build + smoke ในเครื่อง runner (amd64) เหมือนเดิม แล้ว push ด้วย
+    `docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --sbom=false` (Dockerfile มีแค่ `COPY` บน busybox
+    ที่ pin digest แบบ multi-arch — ไม่ต้องใช้ QEMU) แล้ว inspect ยืนยันทั้งสอง platform · dispatch ยัง push แค่ `<sha>` ของ web
+  * **ไม่มี provenance/SBOM attestation** ใน tag ที่ push — list จึงมีแค่สอง image
+  * **`deploy/scripts/verify-ghcr-tags.sh <sha> [linux/amd64|linux/arm64]`:** ไม่ใส่ argument ที่สอง = พฤติกรรมเดิมทุกอย่าง
+    (ที่ `deploy.yml` ใช้อยู่) · ใส่ platform = tag ต้องมี image ของ platform นั้นด้วย (`linux/arm64/v8` นับเป็น `linux/arm64`,
+    entry `unknown/unknown` ของ attestation ไม่นับ, image เดี่ยวรุ่นเก่า = `linux/amd64` เท่านั้น) · มี tag แต่ไม่มี platform →
+    ข้อความแยก + **exit 2** (รอไปก็ไม่มีเพิ่ม) · Accept header รับทั้ง OCI index และ Docker manifest list แล้ว · test:
+    `deploy/scripts/test/verify-ghcr-tags.test.sh` (stub curl, รันใน `nginx-check`) · `deploy.yml` **ยังไม่ส่ง platform** —
+    เลื่อนไปจนกว่า Pi จะเป็นเป้า deploy จริง
 
 * **Trivy สแกน image server ก่อน push** — HIGH/CRITICAL, `ignore-unfixed: true`, `exit-code 1` →
   ไม่ผ่านไม่ push · ทำให้ผ่านได้ด้วย (1) `rm -rf` npm ใน runtime stage **ก่อน** `USER node`
@@ -240,7 +263,7 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
   workflow ประกาศ `permissions: contents: read` ระดับไฟล์ ซึ่ง*แทน* default ทั้งหมด (packages กลายเป็น none)
 * **แก้ 2026-09-23 (ตรวจกับ workflow จริง):** Trivy image scan มีเฉพาะ image **server** (`server.yml:280`) — image web
   (`busybox` ที่ pin digest + ไฟล์ static, `deploy/web.Dockerfile:11`) **ไม่มี** Trivy scan ใน `flutter.yml` · job
-  `build-image` ของ server รันเฉพาะ `refs/heads/main` แต่ `build-web` รันเมื่อ `main` **หรือ `workflow_dispatch`** (`flutter.yml:184`)
+  `build-image` ของ server push เฉพาะ `refs/heads/main` (ตั้งแต่ 2026-10-13 PR ที่แตะ `server/` ก็ build + smoke แต่ไม่ push) แต่ `build-web` รันเมื่อ `main` **หรือ `workflow_dispatch`** (`flutter.yml:184`)
   — dispatch จาก branch อื่นจึง push tag `<sha>` ของ web ได้ (tag `main` push เฉพาะบน `main`) · ไม่เป็นปัญหากับ deploy เพราะ
   `resolve` รับเฉพาะ commit บน `main` และต้องมี image **ครบทั้งสอง** ที่ SHA นั้น · web image build ด้วย
   `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=` ตั้งแต่ #342 (`flutter.yml` ขั้น *flutter build web*) — ดู §9
@@ -520,6 +543,13 @@ on:
 > มีสคริปต์ `deploy/scripts/setup-mob04-runner.sh` (commit `b687411`) ที่รวมข้อ 4–5 ไว้ในคำสั่งเดียว — **ตรวจก่อนใช้:**
 > สคริปต์นั้น~~**ไม่ได้**ตรวจ sha256 ของ tarball runner ตามข้อ 5~~ (แก้แล้ว #67 2026-09-29: รับ version + sha256 เป็น argument บังคับ
 > และ `sha256sum -c` ก่อนแตกไฟล์) และ**ไม่ได้**ตั้งข้อ 1 (fork approval) ให้ — ข้อ 1 ยังต้องทำก่อนเสมอ
+>
+> **arch + ชื่อ/label (2026-10-13):** สคริปต์เลือก tarball ตาม `uname -m` — `x86_64` → `actions-runner-linux-x64-<VER>`,
+> `aarch64` → `actions-runner-linux-arm64-<VER>` (เช่น Raspberry Pi 5), อย่างอื่นปฏิเสธ · sha256 ที่ส่งต้องเป็นของ arch **เครื่องนั้น**
+> (หน้า New self-hosted runner เลือก Linux + x64 หรือ ARM64) · `RUNNER_NAME` (ค่าเริ่ม `mob04-demo`) และ `RUNNER_LABELS`
+> (ค่าเริ่ม `srisurart-demo-deploy`) override ได้ทาง env — **`sudo` ล้าง env** จึงต้องส่งผ่าน sudo:
+> `sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>` · 🔴 **ห้าม runner สองตัวใช้ label
+> `srisurart-demo-deploy` ร่วมกัน** — job `deploy` เลือกด้วย label นี้ GitHub จะส่ง deploy ไปเครื่องไหนก็ได้ที่ว่าง
 
 1. **กัน fork PR ไม่ให้รันเองได้** — Settings → Actions → General → *Approval for running fork pull request workflows
    from contributors* = **Require approval for all external contributors** (✅ ตั้งแล้ว 2026-09-30; เดิม 2026-09-23 เป็น

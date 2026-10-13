@@ -6,8 +6,17 @@
 #   sudo ./setup-mob04-runner.sh <RUNNER_REGISTRATION_TOKEN> <RUNNER_VERSION> <RUNNER_SHA256>
 #
 # RUNNER_VERSION and RUNNER_SHA256 come from GitHub Repo -> Settings -> Actions -> Runners ->
-# New self-hosted runner (Linux x64), per 07_CICD_DEPLOY.md §6.2 step 5. No default is pinned
-# here: the tarball is refused unless its sha256 matches the one you pass.
+# New self-hosted runner (Linux, architecture x64 on mob04 / ARM64 on an arm64 host such as a
+# Raspberry Pi 5), per 07_CICD_DEPLOY.md §6.2 step 5. The archive is picked by `uname -m`
+# (x86_64 -> linux-x64, aarch64 -> linux-arm64; anything else is refused), so the sha256 you pass
+# must be the one for THIS machine's architecture. No default is pinned here: the tarball is
+# refused unless its sha256 matches the one you pass.
+#
+# RUNNER_NAME (default mob04-demo) and RUNNER_LABELS (default srisurart-demo-deploy) can be
+# overridden from the environment. sudo resets the environment, so pass them through sudo:
+#   sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>
+# Two runners must never share the srisurart-demo-deploy label: deploy.yml's deploy job targets
+# that label, and GitHub would hand the deploy to whichever of them is idle.
 #
 # Example:
 #   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.337.0 <sha256 from that page>
@@ -15,8 +24,17 @@
 set -euo pipefail
 
 readonly REPO_URL="https://github.com/NuimanLP/srisurart-pos-flutter"
-readonly RUNNER_NAME="mob04-demo"
-readonly RUNNER_LABELS="srisurart-demo-deploy"
+readonly RUNNER_NAME="${RUNNER_NAME:-mob04-demo}"
+readonly RUNNER_LABELS="${RUNNER_LABELS:-srisurart-demo-deploy}"
+
+case "$(uname -m)" in
+  x86_64) readonly RUNNER_ARCH="x64" ;;
+  aarch64) readonly RUNNER_ARCH="arm64" ;;
+  *)
+    echo "Error: unsupported CPU architecture '$(uname -m)' (only x86_64 and aarch64)." >&2
+    exit 1
+    ;;
+esac
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this script must be run as root (or with sudo)." >&2
@@ -30,7 +48,7 @@ RUNNER_SHA256="${3:-}"
 if [[ -z "$TOKEN" || -z "$RUNNER_VER" || ! "$RUNNER_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
   echo "Error: registration token, runner version and runner sha256 (64 lowercase hex) are all required." >&2
   echo "Usage: sudo $0 <REGISTRATION_TOKEN> <RUNNER_VERSION> <RUNNER_SHA256>" >&2
-  echo "Version + sha256: Settings -> Actions -> Runners -> New self-hosted runner (Linux x64)" >&2
+  echo "Version + sha256: Settings -> Actions -> Runners -> New self-hosted runner (Linux ${RUNNER_ARCH})" >&2
   echo "Generate token at: GitHub Repo -> Settings -> Actions -> Runners -> New self-hosted runner" >&2
   echo "or via CLI: gh api -X POST repos/NuimanLP/srisurart-pos-flutter/actions/runners/registration-token --jq .token" >&2
   exit 1
@@ -41,7 +59,7 @@ echo " Starting mob04 self-hosted runner setup (#67 cd.2-run)"
 echo " Target repository: $REPO_URL"
 echo " Runner name:       $RUNNER_NAME"
 echo " Runner labels:     $RUNNER_LABELS"
-echo " Runner version:    $RUNNER_VER"
+echo " Runner version:    $RUNNER_VER (linux-${RUNNER_ARCH})"
 echo "================================================================="
 
 # 1. Prerequisites check & installation
@@ -135,7 +153,7 @@ RUNNER_DIR="$RUNNER_HOME/actions-runner"
 mkdir -p "$RUNNER_DIR"
 chown -R gha-runner:gha-runner "$RUNNER_DIR"
 
-RUNNER_ARCHIVE="actions-runner-linux-x64-${RUNNER_VER}.tar.gz"
+RUNNER_ARCHIVE="actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VER}.tar.gz"
 DOWNLOAD_URL="https://github.com/actions/runner/releases/download/v${RUNNER_VER}/${RUNNER_ARCHIVE}"
 
 sudo -u gha-runner bash -c '
