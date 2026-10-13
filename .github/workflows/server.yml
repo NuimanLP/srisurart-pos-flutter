@@ -104,6 +104,7 @@ jobs:
               # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
               - 'deploy/scripts/healthcheck-ping.sh'
+              - 'deploy/scripts/host-setup.sh'
               - 'deploy/scripts/measure-container-rss.sh'
               - 'deploy/scripts/test/**'
               # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
@@ -371,6 +372,9 @@ jobs:
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
+      # Host installer: never formats, one fstab line after re-runs, Tailscale /32 without SNAT.
+      - name: host-setup.sh tests (fixture root + stubbed lsblk/findmnt/tailscale)
+        run: deploy/scripts/test/host-setup.test.sh
       # deploy.yml copies deploy/prometheus/ to the VM and only warns if Prometheus then fails, so
       # check it here: alone (as on the VM, scrape.d/ absent) and with the local overlay's jobs.
       # Same pinned image as deploy/compose/monitoring.yml — bump both together.

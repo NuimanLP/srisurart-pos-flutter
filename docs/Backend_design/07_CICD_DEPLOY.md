@@ -360,6 +360,24 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 
 ## 6. การ deploy (Ansible) — ทำอะไรทีละขั้น
 
+**`host-setup.sh` (ก่อน `provision.yml`, 2026-10-13):** `sudo deploy/scripts/host-setup.sh` รันบนเครื่องเป้าหมายครั้งเดียว
+ก่อน playbook · ไม่เรียก Ansible · พิมพ์ผลตรวจเป็น `key=value` (OS, arch จาก `dpkg --print-architecture`, ระดับ x86-64 v1/v2+,
+page size, รุ่นบอร์ด, RAM, boot disk) · รับเฉพาะ Ubuntu (26.04 LTS แนะนำ, 24.04 LTS สำรอง) — Debian ได้แต่เตือนว่ายังไม่ทดสอบ,
+OS อื่น / arch ที่ไม่ใช่ amd64/arm64 / page size ≠ 4096 (Raspberry Pi OS บน Pi 5 ใช้ 16K, Redis/jemalloc พัง) = ปฏิเสธ ·
+RAM < 7168 MiB = เตือน · **profile `vm` (`mob04`) = รายงานอย่างเดียว ไม่เขียนอะไร** (ยกเว้น `--tailscale`) ·
+**profile `pi5`:** `--data-disk boot` (คงไว้บน microSD — เตือนเรื่องการสึกของ SD) หรือดิสก์ USB/NVMe / partition ที่มี **ext4 อยู่แล้ว**
+(ไม่ส่ง flag + มี TTY = เมนูเลือก, ไม่มี TTY = exit 2) → mount ที่ `/srv/pos-data` ด้วย UUID (`nofail`, `/etc/fstab` สำรองไว้ที่
+`/etc/fstab.pos-bak` ครั้งเดียว) · `/etc/docker/daemon.json` = `data-root` `/srv/pos-data/docker` + ปิด containerd-snapshotter
+(image + layer ออกจาก SD ด้วย) · drop-in `docker.service.d/10-pos-data.conf` `RequiresMountsFor=/srv/pos-data` — ดิสก์หาย Docker
+ไม่ start บนโฟลเดอร์เปล่าใน SD · 🔴 **สคริปต์ไม่ format / partition / wipe อะไรเลย** — ดิสก์ที่ไม่ใช่ ext4 ถูกปฏิเสธพร้อม**พิมพ์**คำสั่ง
+(`sfdisk` + `mkfs.ext4 -L pos-data`) ระบุรุ่น/serial/ขนาดให้เจ้าของตรวจแล้วรันเอง · ปฏิเสธถ้า `daemon.json` มีเนื้อหาอื่น หรือ
+`/var/lib/docker/volumes` มี volume แล้ว (ต้องรันก่อน `provision.yml`/deploy แรก) · backup ยังอยู่ `/opt/pos/backups` บน boot disk
+(คนละอุปกรณ์กับ pgdata — ตั้งใจ) · `--tailscale [--lan-ip IP] [--ts-hostname NAME]` = ติดตั้งจาก apt repo ที่ลงลายเซ็นของ Tailscale +
+`ip_forward` แล้ว `tailscale up --advertise-routes=<ip>/32 --advertise-tags=tag:pos-server --snat-subnet-routes=false` (login อยู่แล้ว
+= `tailscale set` แก้ route แทน) — ไม่เคยรับ auth key (`docs/research/tailscale-remote-access-plan-2026-10-13.md`) ·
+`--dry-run` พิมพ์ทุก action ไม่เขียนอะไร · test: `deploy/scripts/test/host-setup.test.sh` (job `nginx-check`) · ลำดับ:
+`host-setup.sh` → `provision.yml` (เป็น `cloud`) → `setup-mob04-runner.sh`
+
 `deploy/ansible/` มี 2 playbook, idempotent ทั้งคู่ (รันซ้ำได้ ไม่เปลี่ยนอะไรถ้าตรงอยู่แล้ว):
 
 **`provision.yml`** (เครื่องเปล่า → พร้อม deploy): ติด Docker Engine + compose plugin · สร้าง user
