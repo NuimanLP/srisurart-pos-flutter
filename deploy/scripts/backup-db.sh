@@ -436,10 +436,17 @@ write_freshness_gauge() {
     echo "::warning::$dir does not exist -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it creates the directory)." >&2
     return
   fi
-  tmp="$(mktemp "$dir/.pos_backup.prom.XXXXXX")"
-  printf '# HELP pos_backup_last_success_timestamp_seconds Unix time of the last nightly backup-db.sh run that exited 0.\n# TYPE pos_backup_last_success_timestamp_seconds gauge\npos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" > "$tmp"
-  chmod 0644 "$tmp"
-  mv "$tmp" "$dir/pos_backup.prom"
+  # The backup is already complete here: a gauge that cannot be written (directory not writable by
+  # this user, disk full) must warn, never turn a good backup into a non-zero exit under `set -e`.
+  if ! tmp="$(mktemp "$dir/.pos_backup.prom.XXXXXX" 2>/dev/null)"; then
+    echo "::warning::cannot write in $dir -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it owns the directory)." >&2
+    return
+  fi
+  if ! { printf '# HELP pos_backup_last_success_timestamp_seconds Unix time of the last nightly backup-db.sh run that exited 0.\n# TYPE pos_backup_last_success_timestamp_seconds gauge\npos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" >"$tmp" &&
+    chmod 0644 "$tmp" && mv "$tmp" "$dir/pos_backup.prom"; }; then
+    rm -f "$tmp"
+    echo "::warning::writing $dir/pos_backup.prom failed -- the backup freshness gauge was not updated, so Grafana's \"backup stale\" alert may fire." >&2
+  fi
 }
 
 case "$OFFSITE_STATE" in

@@ -889,6 +889,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   `error`, Gatus config loads, and the Gatus amd64 binary is `GOAMD64=v1` (mob04 = qemu64). 🔴 Gatus runs on the host
   it watches: a dead host pages nobody until a second host (Pi 5) exists — documented, not claimed. Owner steps on
   `mob04` (Discord egress `curl -v https://discord.com/api/v10/gateway`, webhook, `DEMO_ENV_FILE`, provision) in 07 §10.5.
+  🔴 A webhook send that fails at the network level puts the **full webhook URL (token) in `docker logs gatus`** (Go
+  error text) — never paste those logs unredacted; leaked = rotate the webhook. No rule is `for: 0s` (Error state
+  honours `for`; each deploy recreates Prometheus).
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly

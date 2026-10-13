@@ -1113,6 +1113,10 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
 * **webhook เป็นความลับ** — อยู่ใน `/opt/pos/.env` (ผ่าน `DEMO_ENV_FILE`) เท่านั้น · ไม่ตั้ง = Grafana/Gatus ได้ placeholder
   `http://127.0.0.1:9/…` จาก `monitoring.yml` (Grafana boot ไม่ขึ้นถ้า URL ของ Discord contact point ว่าง) → ประเมิน rule ปกติ
   แต่ส่งไม่ถึงใคร + `provision.yml` เตือน (เงียบแต่ซื่อสัตย์ เหมือน offsite backup ที่ยังไม่ตั้ง)
+* 🔴 **ส่งไม่ออกระดับ network (DNS/TLS/FortiGate) = URL เต็มของ webhook (มี token) อยู่ใน `docker logs` ของ `gatus`** — Gatus log
+  `err.Error()` ของ Go ซึ่งมี URL ทั้งเส้น (Grafana ก็อาจทำแบบเดียวกัน) · ห้ามวาง log ของ `gatus`/`grafana` ลง chat/ticket/PR โดยไม่ตัด
+  URL ออก · ถ้าหลุด = ลบ webhook ใน Discord แล้วสร้างใหม่ (rotate) · ค่า placeholder ไม่ใช่ความลับ
+* ไม่มี rule ไหน `for: 0s` — state `Error` ก็นับ `for` และทุก deploy recreate Prometheus: rule ที่ไม่มี pending จะส่ง DatasourceError ทุกครั้งที่ประเมินพลาดรอบเดียว
 * ใน `pos-alerts.yml`: `$ALERT_DISCORD_WEBHOOK` ถูกแทนค่าจาก env ของ Grafana · `$` ตัวจริงเขียน `$$` · annotation
   **ไม่ถูกแทนค่า** (CI ตรวจ) — ห้ามใส่ความลับ · **payload มีแค่ชื่อ rule/endpoint, label (job/instance = ชื่อ container) และ
   summary — ห้ามมีข้อมูล tenant/ลูกค้า/บิล** · ลบ rule จากไฟล์ไม่ได้ลบใน Grafana — ใส่ uid ใต้ `deleteRules:` หนึ่ง release

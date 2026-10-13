@@ -13,6 +13,8 @@
 #
 # Every rule: query A (Prometheus, instant) → C (threshold). `for:` is at least 2m and 5m for
 # anything a rolling deploy can trip (each api is recreated in turn, well under 5 minutes).
+# Never `for: 0s`: execErrState Error honours `for`, and every deploy recreates Prometheus — a
+# rule with no pending period would page a DatasourceError on one failed evaluation.
 apiVersion: 1
 
 contactPoints:
@@ -204,7 +206,7 @@ groups:
               conditions: [{ evaluator: { type: gt, params: [1] } }]
         noDataState: OK
         execErrState: Error
-        for: 0s
+        for: 2m
         labels: { severity: critical }
         annotations:
           summary: 'api instance {{ $labels.instance }} restarted more than once in 15 minutes.'
@@ -280,7 +282,7 @@ groups:
               conditions: [{ evaluator: { type: gt, params: [93600] } }]
         noDataState: Alerting
         execErrState: Error
-        for: 0s
+        for: 2m
         labels: { severity: critical }
         annotations:
           summary: 'No green nightly backup in the last 26 hours — read /opt/pos/backups/backup-cron.log.'

@@ -207,6 +207,21 @@ mkdir -p "$D"
 run_backup "$D" 0
 check "missing textfile dir still exits 0" test "$rc" -eq 0
 check "missing textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+# A textfile dir this user cannot write in (created by hand as root): the backup is still green.
+# Skipped where chmod does not stop the owner writing (root, Git Bash on Windows).
+RO="$WORK/textfile-ro"
+mkdir -p "$RO"
+chmod 0555 "$RO"
+if ! (: >"$RO/.probe") 2>/dev/null; then
+  D="$WORK/gauge-rodir"
+  mkdir -p "$D"
+  TEXTFILE_DIR="$RO" run_backup "$D" 0
+  check "unwritable textfile dir still exits 0" test "$rc" -eq 0
+  check "unwritable textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+else
+  echo "skip - unwritable textfile dir (this user can write through 0555)"
+fi
+chmod 0755 "$RO"
 
 # 4. the real mob04 path: compose lists a postgres service, `exec` fails -> same guarantees.
 cat > "$STUBS/docker" <<'STUB'
