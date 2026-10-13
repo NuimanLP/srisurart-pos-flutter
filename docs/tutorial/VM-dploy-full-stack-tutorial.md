@@ -321,7 +321,9 @@ test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SEC
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
 ห้ามมี `ALLOW_DEV_SECRETS`, `IMAGE_TAG`, ค่า `dev-only-*` · **ห้าม `export DEMO_ENV_FILE`** — ใส่นำหน้าคำสั่ง provision คำสั่งเดียว (§2.5)
 
-**คีย์ไม่บังคับ `ALERT_DISCORD_WEBHOOK`** (Grafana alerting + Gatus → Discord, `07_CICD_DEPLOY.md §10.5`, 2026-10-13) — รูปแบบ `https://discord.com/api/webhooks/<id>/<token>` · **เป็นความลับ** (ใครมี URL ก็โพสต์เข้าช่องได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ alert ทุกตัวยังประเมินปกติแต่ส่งไม่ถึงใคร · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์ · 🔴 ก่อนเปิดใช้ ตรวจว่า VM ออกไป Discord ผ่าน FortiGate ได้: `curl -v https://discord.com/api/v10/gateway` (HTTP 200 และ issuer ของใบ **ไม่ใช่** FortiGate) · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 — ลบออกจาก `DEMO_ENV_FILE` ได้
+**คีย์ไม่บังคับ `ALERT_DISCORD_WEBHOOK`** (Grafana alerting + Gatus → Discord, `07_CICD_DEPLOY.md §10.5`, 2026-10-13) — รูปแบบ `https://discord.com/api/webhooks/<id>/<token>` · **เป็นความลับ** (ใครมี URL ก็โพสต์เข้าช่องได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ alert ทุกตัวยังประเมินปกติแต่ส่งไม่ถึงใคร · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์ · 🔴 ก่อนเปิดใช้ ตรวจว่า VM ออกไป Discord ผ่าน FortiGate ได้: `curl -v https://discord.com/api/v10/gateway` (HTTP 200 และ issuer ของใบ **ไม่ใช่** FortiGate) · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 — ลบออกจาก `DEMO_ENV_FILE` ได้ ·
+🔴 **ก่อนแก้ไฟล์ secrets ทุกครั้ง ทำ §2.5 ② (เทียบ hash กับ `/opt/pos/.env` บน VM) ก่อน** — ไฟล์ local ที่เก่ากว่าของจริง = provision เขียน
+รหัส DB/etcd ผิดทับ แล้วทั้ง deploy และ rollback พัง · ลำดับเต็มของ release แรกที่มี alerting: §2.6
 
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
@@ -490,7 +492,7 @@ authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `mea
 ⚠️ **UFW ไม่ได้กรองพอร์ตที่ container publish** — Docker ใส่กฎใน nat table ก่อน UFW (docs.docker.com/engine/network/packet-filtering-firewalls/) ·
 พอร์ตที่ต้องอยู่ในเครื่องต้อง bind `127.0.0.1:` ใน compose (แบบ 9090/3000/3100/3200 วันนี้) — ห้ามพึ่ง `ufw deny`
 
-🔴 **heartbeat ติดตั้งบน `mob04` แล้ว 2026-10-04 (ด้วยมือ, `07 §7b`)** — CD deploy ไม่อัปเดตให้: แก้สคริปต์แล้วต้องรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (`07_CICD_DEPLOY.md` §7b) · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
+~~heartbeat Healthchecks.io~~ ปลดแล้ว 2026-10-13 — `provision.yml` ลบ cron + `/opt/pos/scripts/healthcheck-ping.sh` เอง · 🔴 ก่อน provision ครั้งแรกหลังปลด ขอให้**เจ้าของบัญชี Healthchecks.io** (ไม่ใช่บัญชีของทีม) pause/ลบ check ก่อน — ไม่งั้นมันแจ้งเตือนไปหาเขา (ลำดับเต็ม §2.6)
 
 ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
 ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·
@@ -594,6 +596,42 @@ PLATFORM_ADMINS=1
 > เฉพาะไฟล์ที่ provision **ก่อน #500** เขียนและยังไม่ถูกเขียนใหม่: บรรทัดสุดท้ายไม่มี newline → ใคร append ด้วยมือต้องเติมบรรทัดว่างก่อน
 > ไม่งั้นคีย์ใหม่ไปต่อท้ายบรรทัดสุดท้าย · ไม่ว่าไฟล์รุ่นไหน ตรวจด้วย `grep -c '^KEY='` เสมอ (`grep -c KEY` ไม่มี `^` ยังนับเจอคีย์ที่ติดท้ายบรรทัดอื่น
 > แต่ Compose บอกว่าขาด)
+
+### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
+
+ต้นทางคือ `07_CICD_DEPLOY.md` §10.5 — ที่นี่คือคำสั่ง · 🔴 **ห้ามรัน `provision.yml` ก่อน merge**: ก่อน merge `origin/main` ยังเป็น playbook เก่า
+(ลง cron heartbeat กลับ, ไม่สร้าง `/opt/pos/node-textfile`, ลง `backup-db.sh` เก่า)
+
+1. VM: `df -h /` ต่ำกว่า 85% · `curl -v https://discord.com/api/v10/gateway` = HTTP 200 และ issuer **ไม่ใช่** FortiGate
+2. ขอให้เจ้าของบัญชี Healthchecks.io pause/ลบ check — จดชื่อไว้ใน handoff
+3. §2.5 ② เทียบ hash ของ `$SECRETS_FILE` กับ `/opt/pos/.env` — **ไม่ตรง = หยุด** · ตรงแล้วจึงแก้ไฟล์: ลบ `HEALTHCHECKS_PING_URL`, เพิ่ม `ALERT_DISCORD_WEBHOOK`
+4. host key ตรึงแล้ว (§1.4) และเครื่องที่รันมี collection ที่ `provision.yml` ใช้ (`ansible.posix.authorized_key`):
+
+```bash
+ansible-galaxy collection list ansible.posix
+```
+
+   (Windows: `ans ansible-galaxy collection list ansible.posix`) · ไม่มี = `ansible-galaxy collection install ansible.posix`
+5. merge `develop` → `main` (merge commit) → *Deploy (demo)* **รอ approve — ยังไม่กด** · cancel twin ที่ skip/รอ (07 §7)
+6. ระหว่างที่รอ: worktree สะอาดของ `origin/main` ที่**ดึงหลัง merge** (§3 ข้อ 4) → §2.5 ③ + ④ (`cloud`, ห้าม `--diff`) → ตรวจ:
+
+```bash
+ssh mob04 'sudo -n crontab -l -u deploy; ls -ld /opt/pos/node-textfile; ls /opt/pos/scripts'
+```
+
+   ✅ ไม่มีบรรทัด heartbeat · `drwxr-xr-x` · ไม่มี `healthcheck-ping.sh` · และ `sha256sum` ของ `backup-db.sh` สองฝั่งตรงกัน (§2.5 หัวข้อ)
+7. **seed gauge** (ไม่ทำ = rule "Nightly backup stale" แดง 2 นาทีหลัง deploy จนถึง backup 03:00):
+
+```bash
+ssh mob04 'sudo -n -u deploy env -i HOME=/home/deploy PATH=/usr/bin:/bin /opt/pos/scripts/backup-db.sh /opt/pos/backups; echo rc=$?; ls -l /opt/pos/node-textfile/pos_backup.prom'
+```
+
+   ✅ `rc=0` และมีไฟล์ `pos_backup.prom` · (ทางเลือก: ซ้อม pre-migrate dump ด้วย `BACKUP_VOLUMES=0` ลง `/opt/pos/backups-pre-migrate` — ไม่แตะ gauge)
+8. runner online → **approve** → ตรวจ §4 + `.current_sha` · log ของ run ต้องไม่มี `WARNING: /opt/pos/node-textfile …` (pre-flight ของ `deploy.yml`)
+   · tunnel `3300` → Gatus เขียวทุกตัว (platform-ui = 403 คือปกติ) · Grafana: 10 rule ไม่มี `Error`, "Nightly backup stale" = Normal ·
+   Contact points → `discord` → **Test** เข้าช่อง · แล้ว cancel run ที่ยังรอค้าง
+
+**PDPA:** dump ใน `/opt/pos/backups-pre-migrate` มีข้อมูลลูกค้าทั้งร้าน — backup กลางคืนลบที่เกิน 30 วันให้ · อยู่บนดิสก์ VM เดียว · ระยะเก็บ = owner ตัดสิน
 
 ---
 
@@ -1143,6 +1181,18 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansib
 
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
 `pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ `workflow_dispatch` พิสูจน์แล้ว · **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
+
+🔴 **rollback ไป SHA ก่อน release alerting (2026-10-13)** — `deploy.yml` ของ release เก่าไม่รู้จัก Gatus: container `gatus` ค้างรันต่อ (ยังส่ง Discord),
+node-exporter กลับไปไม่มี textfile collector, Prometheus ไม่มี job `gatus`, และ Grafana **ไม่ลบ** rule ที่ provision จากไฟล์ทั้งที่ไฟล์ถูกลบ →
+"Gatus down" + "Nightly backup stale" แจ้งทุก 4 ชม. · เก็บกวาดหลัง rollback (ในนาม `deploy`; ขั้นเต็ม 07 §7 แถว "rollback ข้าม release alerting"):
+
+```bash
+ssh mob04-deploy 'docker ps -a --filter label=com.docker.compose.service=gatus --format "{{.Names}}"'
+```
+
+แล้ว `docker rm -f <ชื่อนั้น>` · จากนั้นเขียน `/opt/pos/deploy/grafana/provisioning/alerting/rollback-delete-rules.yml` (`apiVersion: 1` +
+`deleteRules:` ครบ 10 uid ใน `pos-alerts.yml`, `orgId: 1`) แล้ว restart container grafana · ห้ามลบผ่าน provisioning API (Grafana 11.2 ปฏิเสธ rule ที่ provenance
+= `file`) · deploy ไปข้างหน้าครั้งถัดไปลบไฟล์นั้นเองและ provision rule กลับครบ
 
 ### 6.3 CD อัตโนมัติ
 

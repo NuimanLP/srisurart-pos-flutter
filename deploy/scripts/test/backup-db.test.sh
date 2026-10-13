@@ -32,6 +32,7 @@ check() { # description, command...
 rc=0
 run_backup() { # dir, fail-flag, [images dir], [sale photos dir] ; sets rc
   env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG -u BACKUP_VOLUMES \
+    -u BACKUP_PRE_MIGRATE_KEEP_DAYS ${BACKUP_PRE_MIGRATE_KEEP_DAYS:+"BACKUP_PRE_MIGRATE_KEEP_DAYS=$BACKUP_PRE_MIGRATE_KEEP_DAYS"} \
     PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
     BACKUP_TEXTFILE_DIR="${TEXTFILE_DIR:-$WORK/no-textfile-dir}" ${BACKUP_VOLUMES:+"BACKUP_VOLUMES=$BACKUP_VOLUMES"} \
     PRODUCT_IMAGES_DIR="${3:-}" SALE_PHOTOS_DIR="${4:-}" \
@@ -325,5 +326,33 @@ STUB_CALLS="$WORK/dbonly_vm.calls" BACKUP_VOLUMES=0 run_backup "$D" 0
 check "BACKUP_VOLUMES=0 on the compose path exits 0 with an unreachable worker" test "$rc" -eq 0
 check "BACKUP_VOLUMES=0 on the compose path writes the dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "BACKUP_VOLUMES=0 never execs into nginx or the worker" test -z "$(grep -E 'exec -T (nginx|worker)' "$WORK/dbonly_vm.calls")"
+
+# 9. the nightly run also ages out $APP_DIR/backups-pre-migrate (default 30 days): top level only,
+# only this script's file names; a BACKUP_VOLUMES=0 (pre-migrate) run never prunes it from outside.
+printf '#!/bin/sh\nexit 0\n' > "$STUBS/docker" # neutral stub again (section 8 replaced it)
+A="$WORK/app9"
+PM="$A/backups-pre-migrate"
+mkdir -p "$A/backups" "$PM/nested"
+seed_pre_migrate() {
+  touch -t 202001010000 "$PM/pos_backup_old.sql.gz" "$PM/pos_backup_old.sql.gz.sha256" \
+    "$PM/pos_backup_old.sql.gz.partial" "$PM/nested/pos_backup_deep.sql.gz" "$PM/notes.txt"
+  touch "$PM/pos_backup_new.sql.gz" "$PM/pos_backup_new.sql.gz.sha256"
+}
+seed_pre_migrate
+APP_DIR="$A" BACKUP_VOLUMES=0 run_backup "$WORK/app9_other" 0
+check "BACKUP_VOLUMES=0 run exits 0" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 run leaves pre-migrate dumps to their own run" test -e "$PM/pos_backup_old.sql.gz"
+APP_DIR="$A" run_backup "$A/backups" 0
+check "nightly run exits 0" test "$rc" -eq 0
+check "nightly run prunes a pre-migrate dump older than 30 days" test ! -e "$PM/pos_backup_old.sql.gz"
+check "nightly run prunes its sha256 sidecar and stale .partial" \
+  test ! -e "$PM/pos_backup_old.sql.gz.sha256" -a ! -e "$PM/pos_backup_old.sql.gz.partial"
+check "nightly run keeps a fresh pre-migrate dump + sidecar" \
+  test -e "$PM/pos_backup_new.sql.gz" -a -e "$PM/pos_backup_new.sql.gz.sha256"
+check "nightly run never descends below backups-pre-migrate" test -e "$PM/nested/pos_backup_deep.sql.gz"
+check "nightly run never removes a file it did not write" test -e "$PM/notes.txt"
+seed_pre_migrate
+APP_DIR="$A" BACKUP_PRE_MIGRATE_KEEP_DAYS=0 run_backup "$A/backups" 0
+check "BACKUP_PRE_MIGRATE_KEEP_DAYS=0 disables the pre-migrate prune" test -e "$PM/pos_backup_old.sql.gz"
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

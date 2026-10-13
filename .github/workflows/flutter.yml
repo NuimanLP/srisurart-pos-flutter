@@ -319,8 +319,10 @@ jobs:
       # release. Fix by bumping the busybox digest in deploy/web.Dockerfile, never an ignore file
       # (ADR-0013). Honest limit: busybox ships no package database, so Trivy finds no OS packages
       # to match CVEs against; this scan covers whatever it can identify in the image (and would
-      # start covering OS packages the day the base changes to a distro image).
-      - name: Trivy — web image CVEs (blocks the push)
+      # start covering OS packages the day the base changes to a distro image). What is scanned is
+      # the single-arch linux/amd64 image built above; the push below is a separate buildx rebuild
+      # of the same COPY-only Dockerfile and build/web, and its linux/arm64 half is never scanned.
+      - name: Trivy — web image CVEs (amd64 build; a finding stops the job before the push)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           # The trivy binary is pinned too, not left to the action (trivy-action supply-chain

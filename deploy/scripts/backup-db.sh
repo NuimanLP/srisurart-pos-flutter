@@ -21,6 +21,8 @@
 #                        0 = database dump only (the pre-migration dump deploy.yml takes before
 #                        `migrate`: a migration changes the schema, never those files, so the
 #                        archives would only slow the deploy down). Anything but 0 means 1.
+#   BACKUP_PRE_MIGRATE_KEEP_DAYS  Days a nightly run keeps $APP_DIR/backups-pre-migrate dumps
+#                        (default: 30; see "Pre-migrate dumps" near the end).
 #   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
 #                        `sale-photos` volume (tests, a bare host). Unset on the VM.
 #   BACKUP_TEXTFILE_DIR  node-exporter textfile directory for the backup freshness gauge
@@ -414,6 +416,20 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
   # A `.partial` is only ever left by a SIGKILL'd run (the EXIT trap covers every other exit). It is
   # never a backup, has no offsite copy to confirm, so prune it by age in both modes.
   find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+fi
+
+# --- Pre-migrate dumps (deploy.yml, BACKUP_VOLUMES=0) ------------------------------------------
+# deploy.yml's pre-migrate run prunes its own directory, but only when a later deploy has a
+# migration — months can pass between those, and the dumps hold customer data (PDPA). So the
+# nightly run (never a BACKUP_VOLUMES=0 run, which already prunes that directory as its own
+# BACKUP_DIR) also removes pre-migrate dumps older than BACKUP_PRE_MIGRATE_KEEP_DAYS (default 30):
+# only that one sibling directory, only its top level (-maxdepth 1), only this script's file names.
+PRE_MIGRATE_DIR="$APP_DIR/backups-pre-migrate"
+PRE_MIGRATE_KEEP_DAYS="${BACKUP_PRE_MIGRATE_KEEP_DAYS:-30}"
+if [[ "${BACKUP_VOLUMES:-1}" != 0 && "$PRE_MIGRATE_KEEP_DAYS" -gt 0 && -d "$PRE_MIGRATE_DIR" ]] &&
+  [[ "$(cd "$PRE_MIGRATE_DIR" && pwd -P)" != "$(cd "$BACKUP_DIR" && pwd -P)" ]]; then
+  echo "Pruning pre-migrate dumps older than $PRE_MIGRATE_KEEP_DAYS days in $PRE_MIGRATE_DIR..."
+  find "$PRE_MIGRATE_DIR" -maxdepth 1 -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_backup_*.sql.gz.partial" \) -mtime +"$PRE_MIGRATE_KEEP_DAYS" -exec rm -f {} +
 fi
 
 if [[ "$IMAGES_STATE" == failed || "$SALE_PHOTOS_STATE" == failed ]]; then

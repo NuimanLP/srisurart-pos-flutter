@@ -7,7 +7,7 @@
 #   uv pip compile req.in --generate-hashes --python-version 3.12 \
 #     --python-platform x86_64-manylinux_2_28 --exclude-newer 2026-09-29T00:00:00Z --no-header \
 #     -o lint-requirements.txt
-# then put this header back on top. Python 3.12 = ubuntu-24.04's system python3, which the job uses.
+# then put this header back on top. Python 3.12 = what the job pins with actions/setup-python.
 ansible-compat==26.9.0 \
     --hash=sha256:6756ba0adee1a07d609ede35483fc563b9838df25ec70e57378ae8b564f185cf \
     --hash=sha256:e101649196e4fffc810c3f9f4f185107cc1e5be0ef26d38ad9c4abfa22b0b183
@@ -21,7 +21,7 @@ ansible-core==2.21.4 \
 ansible-lint==26.9.0 \
     --hash=sha256:4d01903fca9c42f7ce2b366ea5503d0701a27b3c6fdf684276a72888eea57f50 \
     --hash=sha256:cb3265888f30815de0dcf0964d34768b45c98bb4361eea7eb42c0342e81b51b4
-    # via -r C:/Users/nuima/AppData/Local/Temp/claude/D--Beestation-Sri-POS-Flutter--claude-worktrees-musing-mirzakhani-f4b941/e577ad71-1602-48e2-bc24-c3005e1c53d6/scratchpad/wp2/req.in
+    # via -r req.in
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32

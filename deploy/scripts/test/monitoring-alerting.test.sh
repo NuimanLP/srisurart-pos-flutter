@@ -6,8 +6,8 @@
 #   * Grafana is healthy and provisioned every rule in pos-alerts.yml, the Discord contact point
 #     and the policy that routes to it; annotations reach Grafana un-interpolated;
 #   * after one evaluation no rule has health "error" (bad PromQL / datasource uid / expression);
-#   * Gatus loads its config (every endpoint shows up in /api/v1/endpoints/statuses) and
-#     Prometheus scrapes it (up{job="gatus"} == 1);
+#   * Gatus loads its config (every endpoint shows up in /api/v1/endpoints/statuses), its
+#     grafana + prometheus checks pass, and Prometheus scrapes it (up{job="gatus"} == 1);
 #   * the amd64 Gatus binary is GOAMD64=v1 (mob04 is a qemu64 CPU, below x86-64-v2);
 #   * deploy/gatus-ca/pos-ca.crt is still a byte copy of frontend/assets/certs/pos-ca.crt.
 # No webhook is set, so the placeholder in monitoring.yml is what boots (nothing is ever sent).
@@ -132,6 +132,14 @@ expected_endpoints="$(grep -c '^  - name: ' "$GATUS_CFG")"
 statuses_ok() { curl -sf "$GATUS/api/v1/endpoints/statuses" | jq -e --argjson n "$expected_endpoints" 'length == $n'; }
 check "gatus loads its config ($expected_endpoints endpoints in /api/v1/endpoints/statuses)" \
   wait_for 90 "gatus statuses" statuses_ok
+# Of the endpoints Gatus watches, only grafana and prometheus run in this test; their conditions must
+# pass against the real services (catches a wrong status/path in config.yaml for them).
+monitoring_green() {
+  curl -sf "$GATUS/api/v1/endpoints/statuses" | jq -e '
+    [.[] | select(.group == "monitoring")] | length == 2
+    and all(.[]; (.results | length) > 0 and .results[-1].success == true)'
+}
+check "gatus reports grafana + prometheus healthy" wait_for 90 "gatus monitoring endpoints green" monitoring_green
 gatus_scraped() { curl -sf "$PROM/api/v1/query" --data-urlencode 'query=up{job="gatus"}' | jq -e '.data.result[0].value[1] == "1"'; }
 check "prometheus scrapes gatus (up{job=\"gatus\"} == 1)" wait_for 60 "gatus scrape" gatus_scraped
 

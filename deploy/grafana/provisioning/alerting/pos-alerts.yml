@@ -13,8 +13,9 @@
 #
 # Every rule: query A (Prometheus, instant) → C (threshold). `for:` is at least 2m and 5m for
 # anything a rolling deploy can trip (each api is recreated in turn, well under 5 minutes).
-# Never `for: 0s`: execErrState Error honours `for`, and every deploy recreates Prometheus — a
-# rule with no pending period would page a DatasourceError on one failed evaluation.
+# Every rule sets execErrState: Alerting, never Error: in Grafana 11.2 Error skips the pending
+# period (one failed evaluation = an immediate DatasourceError page), and every deploy recreates
+# Prometheus. Alerting waits for `for:`. Never `for: 0s` either, for the same reason.
 apiVersion: 1
 
 contactPoints:
@@ -61,7 +62,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: lt, params: [1] } }]
         noDataState: Alerting
-        execErrState: Error
+        execErrState: Alerting
         for: 5m
         labels: { severity: critical }
         annotations:
@@ -83,7 +84,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: lt, params: [1] } }]
         noDataState: Alerting
-        execErrState: Error
+        execErrState: Alerting
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -105,7 +106,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: lt, params: [1] } }]
         noDataState: Alerting
-        execErrState: Error
+        execErrState: Alerting
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -134,7 +135,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [0.05] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 5m
         labels: { severity: critical }
         annotations:
@@ -150,7 +151,9 @@ groups:
             model:
               refId: A
               instant: true
-              expr: 'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))'
+              expr: >-
+                histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+                and on() (sum(rate(http_requests_total[5m])) > 0.05)
           - refId: C
             datasourceUid: __expr__
             model:
@@ -159,7 +162,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [1] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 10m
         labels: { severity: warning }
         annotations:
@@ -181,7 +184,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [0] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 2m
         labels: { severity: warning }
         annotations:
@@ -205,7 +208,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [1] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 2m
         labels: { severity: critical }
         annotations:
@@ -235,7 +238,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [0.85] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 10m
         labels: { severity: critical }
         annotations:
@@ -257,7 +260,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: lt, params: [0.1] } }]
         noDataState: OK
-        execErrState: Error
+        execErrState: Alerting
         for: 10m
         labels: { severity: warning }
         annotations:
@@ -281,7 +284,7 @@ groups:
               expression: A
               conditions: [{ evaluator: { type: gt, params: [93600] } }]
         noDataState: Alerting
-        execErrState: Error
+        execErrState: Alerting
         for: 2m
         labels: { severity: critical }
         annotations:

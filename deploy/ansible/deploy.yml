@@ -16,7 +16,9 @@
 #    Prometheus/Grafana recreate below)
 # 8. Verifies overall deployment health via GET /health/ready through Nginx
 # 9. Records deployed SHA in /opt/pos/.current_sha
-# 10. Copies the monitoring config, brings up the overlay and probes it on loopback. Steps 2-9 never
+# 10. Warns when provision.yml has not prepared this release (node-textfile/ missing, or the installed
+#     backup-db.sh differs from this release's), copies the monitoring config, brings up the overlay
+#     and probes it on loopback. Steps 2-9 never
 #     load monitoring.yml, so a monitoring image pull, config copy or missing GRAFANA_ADMIN_PASSWORD
 #     cannot block a POS release; a failure in step 10 only warns (07 §6). With
 #     enable_monitoring=false it removes monitoring containers left from an earlier deploy instead.
@@ -548,6 +550,42 @@
     - name: Monitoring overlay
       when: enable_monitoring | bool
       block:
+        # Pre-flight, warn-only (07 §10.5): Grafana's "backup stale" rule (noData = Alerting) pages
+        # 2 minutes after this deploy unless provision.yml has created node-textfile/ and installed
+        # the backup-db.sh that writes the gauge — a CD deploy updates neither. Never fails the
+        # deploy; a stat error lands in the rescue below like any other monitoring failure.
+        - name: Check the node-exporter textfile directory provision.yml creates
+          ansible.builtin.stat:
+            path: "{{ app_dir }}/node-textfile"
+          register: textfile_dir
+
+        - name: Checksum the installed backup-db.sh
+          ansible.builtin.stat:
+            path: "{{ app_dir }}/scripts/backup-db.sh"
+            checksum_algorithm: sha256
+          register: installed_backup_script
+
+        - name: Checksum this release's backup-db.sh
+          ansible.builtin.stat:
+            path: "{{ repo_root }}/deploy/scripts/backup-db.sh"
+            checksum_algorithm: sha256
+          delegate_to: localhost
+          register: repo_backup_script
+
+        - name: Warn that provision.yml has not been run for this release
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: {{ app_dir }}/node-textfile is
+              {{ 'present' if textfile_dir.stat.isdir | default(false) else 'MISSING' }} and
+              {{ app_dir }}/scripts/backup-db.sh
+              {{ 'matches' if installed_backup_script.stat.checksum | default('') == repo_backup_script.stat.checksum | default('-')
+              else 'is MISSING or DIFFERS from' }} this release's copy. Grafana's "backup stale" alert
+              will fire until provision.yml is run (as cloud, from a clean origin/main) and backup-db.sh
+              has run once — 07_CICD_DEPLOY.md §10.5. The POS release itself is unaffected.
+          when: >-
+            not (textfile_dir.stat.isdir | default(false))
+            or installed_backup_script.stat.checksum | default('') != repo_backup_script.stat.checksum | default('-')
+
         - name: Copy monitoring overlay Compose configuration
           ansible.builtin.copy:
             src: "{{ repo_root }}/deploy/compose/monitoring.yml"
