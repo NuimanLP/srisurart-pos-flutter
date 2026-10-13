@@ -55,14 +55,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$profile" in auto|vm|pi5) ;; *) usage ;; esac
-[ -z "$data_disk" ] || [[ "$data_disk" =~ ^(boot|/dev/[A-Za-z0-9/_-]+)$ ]] || usage
+[ -z "$data_disk" ] || [[ "$data_disk" =~ ^(boot|/dev/[A-Za-z0-9/_.:-]+)$ ]] || usage
 { [ -z "$lan_ip$ts_hostname" ] || [ "$tailscale" = 1 ]; } || usage
 [ "$dry" = 1 ] || [ "$(id -u)" = 0 ] || die "run as root (sudo), or use --dry-run"
 
 # ---------- detect ----------
 # shellcheck source=/dev/null
 IFS='|' read -r os_id os_version codename < <(. "$R/etc/os-release" && echo "${ID:-}|${VERSION_ID:-}|${VERSION_CODENAME:-}")
-arch="${HOST_SETUP_ARCH:-$(dpkg --print-architecture)}"
+arch="${HOST_SETUP_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 page_size="$(getconf PAGESIZE)"
 model="$(tr -d '\0' < "$R/proc/device-tree/model" 2>/dev/null || true)"
 mem_mib=$(( $(awk '/^MemTotal:/ {print $2}' "$R/proc/meminfo") / 1024 ))
@@ -74,9 +74,11 @@ if [ "$arch" = amd64 ]; then
   for f in cx16 lahf_lm popcnt sse4_1 sse4_2 ssse3; do [[ "$flags" == *" $f "* ]] || v2=0; done
   [ "$v2" = 1 ] && x86_level=v2+
 fi
-boot_source="$(findmnt -no SOURCE /)"
+# Tolerant here (the vm report must not die on an odd root); setup_storage refuses an empty boot_disk.
+boot_source="$(findmnt -no SOURCE / || true)"
 boot_source="${boot_source%%[*}"
-boot_disk="$(lsblk -s -prno NAME,TYPE "$boot_source" | awk '$2 == "disk" {print $1; exit}')"
+boot_disk=""
+[ -z "$boot_source" ] || boot_disk="$(lsblk -s -prno NAME,TYPE "$boot_source" 2>/dev/null | awk '$2 == "disk" {print $1; exit}' || true)"
 is_pi5=0
 [[ "$model" == *"Raspberry Pi 5"* ]] && is_pi5=1
 [ "$profile" = auto ] && { if [ "$is_pi5" = 1 ]; then profile=pi5; else profile=vm; fi; }
@@ -127,6 +129,7 @@ candidates() {
 }
 
 setup_storage() {
+  [ -n "$boot_disk" ] || die "cannot tell which disk holds / (source '$boot_source') — refusing to pick a data disk"
   if [ -z "$data_disk" ]; then
     [ -t 0 ] || { echo "no --data-disk given and no TTY for the menu — pass --data-disk boot|/dev/..." >&2; exit 2; }
     local list=() i=1 c
@@ -135,7 +138,9 @@ setup_storage() {
     echo "  0) boot — keep it on the boot disk $boot_disk (no changes)"
     for c in "${list[@]}"; do echo "  $i) $(info "$c")"; i=$((i + 1)); done
     read -r -p "choice: " c
-    [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -le "${#list[@]}" ] || { echo "invalid choice" >&2; exit 2; }
+    [[ "$c" =~ ^[0-9]{1,3}$ ]] || { echo "invalid choice" >&2; exit 2; }
+    c=$((10#$c)) # "00"/"08": base 10, never octal, never index -1
+    [ "$c" -le "${#list[@]}" ] || { echo "invalid choice" >&2; exit 2; }
     if [ "$c" = 0 ]; then data_disk=boot; else data_disk="${list[$((c - 1))]}"; fi
   fi
   echo "data_disk=$data_disk"
@@ -154,6 +159,7 @@ setup_storage() {
     part) disk="$(lsblk -s -prno NAME,TYPE "$data_disk" | awk '$2 == "disk" {print $1; exit}')" ;;
     *) die "$data_disk is a '$type', not a disk or partition" ;;
   esac
+  data_disk="$(col NAME "$data_disk")" # canonical /dev/sdX even for a /dev/disk/by-* link
   [ "$disk" != "$boot_disk" ] || die "$data_disk is on the boot disk $boot_disk — use --data-disk boot for that"
   excluded "$disk" && die "$disk is in use (mounted elsewhere, swap, LVM or RAID): $(info "$disk")"
   [ "$(col ROTA "$disk")" = 1 ] &&
@@ -182,7 +188,7 @@ setup_storage() {
         echo "  lsblk $disk    # read the new partition's name (e.g. sda1, nvme0n1p1)"
         echo "  sudo mkfs.ext4 -L pos-data <that partition>"
       fi
-      echo "then re-run: sudo $0 --profile pi5 --data-disk $disk"
+      echo "then re-run: sudo $0 --profile pi5 --data-disk $data_disk"
     } >&2
     exit 1
   fi
@@ -203,14 +209,29 @@ $DAEMON_JSON"
   if grep -E "^[^#]*[[:space:]]${DATA}[[:space:]]" "$R/etc/fstab" 2>/dev/null | grep -vxF "$line" >/dev/null; then
     die "/etc/fstab already mounts $DATA differently — fix it by hand"
   fi
+  if findmnt -n "$DATA" >/dev/null 2>&1 && [ "$(findmnt -no UUID "$DATA")" != "$uuid" ]; then
+    die "$DATA is already mounted from another filesystem — unmount it first"
+  fi
 
   echo "using $part (UUID=$uuid) on $(info "$disk")"
   run mkdir -p "$R$DATA"
-  [ -e "$R/etc/fstab.pos-bak" ] || run cp "$R/etc/fstab" "$R/etc/fstab.pos-bak"
-  if ! grep -qxF "$line" "$R/etc/fstab"; then
-    if [ "$dry" = 1 ]; then echo "DRY-RUN: append to /etc/fstab: $line"; else echo "$line" >> "$R/etc/fstab"; fi
+  # fstab: build the new file beside it, verify THAT, then swap it in — a failed verify leaves
+  # /etc/fstab untouched. Newline-safe: a last line without a newline would swallow the new entry.
+  local fstab="$R/etc/fstab"
+  if ! grep -qxF "$line" "$fstab"; then
+    if [ "$dry" = 1 ]; then
+      echo "DRY-RUN: append to /etc/fstab: $line"
+    else
+      cp -p "$fstab" "$fstab.pos-new"
+      [ -z "$(tail -c1 "$fstab.pos-new")" ] || echo >> "$fstab.pos-new"
+      echo "$line" >> "$fstab.pos-new"
+      findmnt --verify --tab-file "$fstab.pos-new" ||
+        { rm -f "$fstab.pos-new"; die "findmnt --verify rejects /etc/fstab + '$line' — /etc/fstab left unchanged"; }
+      [ -e "$fstab.pos-bak" ] || cp -p "$fstab" "$fstab.pos-bak"
+      mv "$fstab.pos-new" "$fstab"
+    fi
   fi
-  run findmnt --verify --tab-file "$R/etc/fstab"
+  run systemctl daemon-reload # systemd re-reads fstab before the mount
   findmnt -n "$DATA" >/dev/null 2>&1 || run mount "$DATA"
   if [ "$dry" = 0 ] && [ "$(findmnt -no UUID "$DATA")" != "$uuid" ]; then
     die "$DATA is not mounted from UUID=$uuid after mount"
@@ -226,9 +247,13 @@ $DAEMON_JSON"
 
 # ---------- tailscale ----------
 setup_tailscale() {
-  local base="https://pkgs.tailscale.com/stable/$os_id/$codename"
-  curl -fsI "$base.noarmor.gpg" >/dev/null ||
-    die "Tailscale has no apt repo for $os_id/$codename ($base.noarmor.gpg) — check tailscale.com/download/linux"
+  local base="https://pkgs.tailscale.com/stable/$os_id/$codename" installed=0
+  # shellcheck disable=SC2016 # ${Status} is a dpkg-query format field, not a shell expansion
+  [ "$(dpkg-query -W -f='${Status}' tailscale 2>/dev/null || true)" = "install ok installed" ] && installed=1
+  if [ "$installed" = 0 ]; then
+    curl -fsI "$base.noarmor.gpg" >/dev/null ||
+      die "Tailscale has no apt repo for $os_id/$codename ($base.noarmor.gpg) — check tailscale.com/download/linux"
+  fi
   if [ -z "$lan_ip" ]; then
     lan_ip="$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i + 1); exit}}')"
   fi
@@ -236,15 +261,32 @@ setup_tailscale() {
   [[ "$lan_ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || ok=0
   for o in "${BASH_REMATCH[@]:1}"; do [ "$o" -le 255 ] || ok=0; done
   [ "$ok" = 1 ] || die "LAN IP '$lan_ip' is not an IPv4 address — pass --lan-ip"
+  # 100.64.0.0/10 is Tailscale's own range: advertising it would route the tailnet into itself.
+  if [ "${BASH_REMATCH[1]}" = 100 ] && [ "${BASH_REMATCH[2]}" -ge 64 ] && [ "${BASH_REMATCH[2]}" -le 127 ]; then
+    die "LAN IP '$lan_ip' is a Tailscale (100.64/10) address, not the LAN — pass --lan-ip"
+  fi
   ts_hostname="${ts_hostname:-$(hostname)-pos}"
   [[ "$ts_hostname" =~ ^[A-Za-z0-9-]+$ ]] || die "Tailscale hostname '$ts_hostname' must be letters, digits and '-'"
 
-  run mkdir -p "$R/usr/share/keyrings" "$R/etc/apt/sources.list.d"
-  run curl -fsSL "$base.noarmor.gpg" -o "$R/usr/share/keyrings/tailscale-archive-keyring.gpg"
-  run curl -fsSL "$base.tailscale-keyring.list" -o "$R/etc/apt/sources.list.d/tailscale.list"
-  run apt-get update
-  run apt-get install -y tailscale
-  put /etc/sysctl.d/99-tailscale.conf 'net.ipv4.ip_forward = 1'
+  if [ "$installed" = 1 ]; then
+    # mob04: installed by hand — no repo rewrite, no apt-get (an install would upgrade + restart tailscaled).
+    echo "tailscale package already installed — repo and package left as they are"
+  else
+    run mkdir -p "$R/usr/share/keyrings" "$R/etc/apt/sources.list.d"
+    run curl -fsSL "$base.noarmor.gpg" -o "$R/usr/share/keyrings/tailscale-archive-keyring.gpg"
+    run curl -fsSL "$base.tailscale-keyring.list" -o "$R/etc/apt/sources.list.d/tailscale.list"
+    run apt-get update
+    run apt-get install -y tailscale
+  fi
+  local sc=/etc/sysctl.d/99-tailscale.conf
+  if ! grep -Eq '^[[:space:]]*net\.ipv4\.ip_forward[[:space:]]*=[[:space:]]*1[[:space:]]*$' "$R$sc" 2>/dev/null; then
+    if [ -s "$R$sc" ]; then # keep whatever else it holds (e.g. an IPv6 forwarding line)
+      if [ "$dry" = 1 ]; then echo "DRY-RUN: append to $sc: net.ipv4.ip_forward = 1"
+      else { [ -z "$(tail -c1 "$R$sc")" ] || echo; echo 'net.ipv4.ip_forward = 1'; } >> "$R$sc"; fi
+    else
+      put "$sc" 'net.ipv4.ip_forward = 1'
+    fi
+  fi
   run sysctl -p "$R/etc/sysctl.d/99-tailscale.conf"
 
   cat <<EOF

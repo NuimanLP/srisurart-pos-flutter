@@ -26,6 +26,7 @@ stub sysctl 'echo "sysctl $*" >> "$STUB_LOG"'
 stub apt-get 'echo "apt-get $*" >> "$STUB_LOG"'
 stub systemctl 'echo "systemctl $*" >> "$STUB_LOG"; [ "$1" != is-active ] || [ "${STUB_DOCKER_ACTIVE:-1}" = 1 ]'
 stub tailscale 'echo "tailscale $*" >> "$STUB_LOG"; [ "$1" != status ] || [ "${STUB_TS_LOGGEDIN:-0}" = 1 ]'
+stub dpkg-query '[ "${STUB_TS_INSTALLED:-0}" = 1 ] && printf "install ok installed" || exit 1'
 for t in mkfs.ext4 sfdisk wipefs dd; do stub "$t" "echo \"$t \$*\" >> \"\$DANGER_LOG\""; done
 # curl: -o FILE creates it; -fsI fails when STUB_CURL_404=1.
 stub curl 'echo "curl $*" >> "$STUB_LOG"
@@ -36,7 +37,8 @@ stub findmnt 'echo "findmnt $*" >> "$STUB_LOG"
 case "$*" in
   "-no SOURCE /") cat "$HOST_SETUP_ROOT/rootsrc" ;;
   "-no UUID /srv/pos-data") echo "${STUB_DATA_UUID:-}" ;;
-  "-n /srv/pos-data") exit 1 ;;
+  "-n /srv/pos-data") [ "${STUB_DATA_MOUNTED:-0}" = 1 ] ;;
+  --verify*) [ "${STUB_VERIFY_FAIL:-0}" != 1 ] ;;
 esac'
 # lsblk over $HOST_SETUP_ROOT/lsblk.txt: NAME PARENT TYPE FSTYPE MOUNTPOINT UUID SIZE TRAN ROTA SERIAL MODEL...
 # ('-' = empty). Modes: no device = top level (-d: disks only); -d dev = that row; -s dev = row +
@@ -190,13 +192,15 @@ run "$PI" STUB_ARCH=arm64 -- --data-disk /dev/nvme0n1
 check "LVM member disk: refused" test "$rc" -eq 1
 
 # 4. ext4 partition: mounted by UUID, one fstab line after two runs, daemon.json + drop-in.
-for _ in 1 2; do run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda; done
+run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
+check "ext4: new fstab verified before it is installed" logged 'findmnt --verify --tab-file '"$PI"'/etc/fstab.pos-new'
+check "ext4: no .pos-new left behind" test ! -e "$PI/etc/fstab.pos-new"
+run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
 check "ext4: exits 0 (second run)" test "$rc" -eq 0
 check "ext4: fstab line exactly once" test "$(grep -cxF 'UUID=data-uuid-1 /srv/pos-data ext4 defaults,noatime,nofail 0 2' "$PI/etc/fstab")" = 1
 check "ext4: fstab backed up" grep -q '^/dev/mmcblk0p2' "$PI/etc/fstab.pos-bak"
 check "ext4: daemon.json content" test "$(cat "$PI/etc/docker/daemon.json")" = '{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}'
 check "ext4: drop-in content" test "$(cat "$PI/etc/systemd/system/docker.service.d/10-pos-data.conf")" = "$(printf '[Unit]\nRequiresMountsFor=/srv/pos-data')"
-check "ext4: fstab verified" logged 'findmnt --verify'
 check "ext4: mounted" logged 'mount /srv/pos-data'
 check "ext4: docker restarted (was active)" logged 'systemctl restart docker'
 check "ext4: HDD warning (ROTA=1)" has '27 W'
@@ -208,12 +212,35 @@ run "$PW" STUB_ARCH=arm64 STUB_DATA_UUID=wrong -- --data-disk /dev/nvme1n1
 check "mount not from the expected UUID: refused" test "$rc" -eq 1 -a -n "$(grep 'not mounted from UUID=nvme-uuid' <<<"$out")"
 check "mount not from the expected UUID: no daemon.json" test ! -e "$PW/etc/docker/daemon.json"
 
+# fstab safety: a failed verify leaves fstab as it was; a last line without a newline is not glued to ours.
+PV="$(mkroot pv ubuntu 26.04 resolute "$PI5" 8000000 '' "$PI_DISKS" /dev/mmcblk0p2)"
+run "$PV" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 STUB_VERIFY_FAIL=1 -- --data-disk /dev/sda
+check "verify fails: refused" test "$rc" -eq 1 -a -n "$(grep 'left unchanged' <<<"$out")"
+check "verify fails: fstab, daemon.json, drop-in untouched" test -z "$(written "$PV")"
+check "verify fails: nothing mounted" test -z "$(grep '^mount' "$STUB_LOG")"
+printf '# fstab\n/dev/mmcblk0p2 / ext4 defaults 0 1' > "$PV/etc/fstab"
+run "$PV" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
+check "no trailing newline: root line intact" grep -qx '/dev/mmcblk0p2 / ext4 defaults 0 1' "$PV/etc/fstab"
+check "no trailing newline: our line on its own" grep -qx 'UUID=data-uuid-1 /srv/pos-data ext4 defaults,noatime,nofail 0 2' "$PV/etc/fstab"
+PM="$(mkroot pm ubuntu 26.04 resolute "$PI5" 8000000 '' "$PI_DISKS" /dev/mmcblk0p2)"
+run "$PM" STUB_ARCH=arm64 STUB_DATA_MOUNTED=1 STUB_DATA_UUID=other -- --data-disk /dev/sda
+check "/srv/pos-data already mounted from another fs: refused" test "$rc" -eq 1 -a -n "$(grep 'already mounted' <<<"$out")"
+check "/srv/pos-data already mounted from another fs: nothing written" test -z "$(written "$PM")"
+PR="$(mkroot pr ubuntu 26.04 resolute "$PI5" 8000000 '' "$PI_DISKS" /dev/root)"
+run "$PR" STUB_ARCH=arm64 -- --data-disk /dev/sda
+check "boot disk unknown: pi5 refused" test "$rc" -eq 1 -a -n "$(grep 'which disk holds' <<<"$out")"
+VR="$(mkroot vr ubuntu 26.04 resolute '' 8000000 "$QEMU64" "$VM_DISKS" /dev/root)"
+run "$VR" STUB_ARCH=amd64 --
+check "boot disk unknown: vm report still exits 0" test "$rc" -eq 0
+
 # 5. non-ext4: refused, commands printed with model/serial, nothing formatted.
 P2="$(mkroot p2 ubuntu 26.04 resolute "$PI5" 8000000 '' "$PI_DISKS" /dev/mmcblk0p2)"
 run "$P2" STUB_ARCH=arm64 -- --data-disk /dev/sdb
 check "exfat: refused" test "$rc" -eq 1
 check "exfat: prints mkfs for the existing partition" has 'sudo mkfs.ext4 -L pos-data /dev/sdb1'
 check "exfat: names model + serial" has 'SanDisk'
+run "$P2" STUB_ARCH=arm64 -- --data-disk /dev/sdb1
+check "exfat partition named: re-run hint names the partition" has '--data-disk /dev/sdb1'
 run "$P2" STUB_ARCH=arm64 -- --data-disk /dev/sdc
 check "blank disk: refused" test "$rc" -eq 1
 check "blank disk: prints sfdisk gpt" has "sudo sfdisk --wipe always /dev/sdc"
@@ -251,6 +278,21 @@ check "ts debian: bookworm repo" logged 'https://pkgs.tailscale.com/stable/debia
 check "ts: --lan-ip used" logged '--advertise-routes=10.0.0.5/32'
 run "$VM" STUB_ARCH=amd64 STUB_TS_LOGGEDIN=1 -- --tailscale
 check "ts logged in: set, not up" test -n "$(grep 'tailscale set --advertise-routes=192.168.1.50/32 --snat-subnet-routes=false' "$STUB_LOG")" -a -z "$(grep 'tailscale up' "$STUB_LOG")"
+# mob04 as it is: installed by hand, logged in, sysctl file already there → only `tailscale set`.
+MB="$(mkroot mb ubuntu 26.04 resolute '' 8000000 "$QEMU64" "$VM_DISKS" /dev/vda1)"
+mkdir -p "$MB/etc/sysctl.d"
+printf 'net.ipv4.ip_forward = 1\nnet.ipv6.conf.all.forwarding = 1\n' > "$MB/etc/sysctl.d/99-tailscale.conf"
+snap "$MB" > "$MB.snap"
+run "$MB" STUB_ARCH=amd64 STUB_TS_INSTALLED=1 STUB_TS_LOGGEDIN=1 -- --tailscale --lan-ip 172.30.58.20
+check "mob04 ts: exits 0" test "$rc" -eq 0
+check "mob04 ts: no curl, no apt-get" test -z "$(grep -E '^(curl|apt-get)' "$STUB_LOG")"
+check "mob04 ts: writes nothing (repo, keyring, sysctl kept)" test -z "$(written "$MB")"
+check "mob04 ts: only set, never up" test -n "$(grep -x 'tailscale set --advertise-routes=172.30.58.20/32 --snat-subnet-routes=false' "$STUB_LOG")" -a -z "$(grep 'tailscale up' "$STUB_LOG")"
+printf 'net.ipv6.conf.all.forwarding = 1' > "$MB/etc/sysctl.d/99-tailscale.conf"
+run "$MB" STUB_ARCH=amd64 STUB_TS_INSTALLED=1 STUB_TS_LOGGEDIN=1 -- --tailscale --lan-ip 172.30.58.20
+check "ts sysctl: ipv4 line appended, other lines kept" test "$(cat "$MB/etc/sysctl.d/99-tailscale.conf")" = "$(printf 'net.ipv6.conf.all.forwarding = 1\nnet.ipv4.ip_forward = 1')"
+run "$VM" STUB_ARCH=amd64 -- --tailscale --lan-ip 100.101.102.103
+check "ts: tailnet 100.64/10 address refused as lan ip" test "$rc" -eq 1
 run "$VM" STUB_ARCH=amd64 -- --tailscale --lan-ip 300.1.1.1
 check "ts: invalid lan ip refused" test "$rc" -eq 1
 run "$VM" STUB_ARCH=amd64 STUB_CURL_404=1 -- --tailscale
