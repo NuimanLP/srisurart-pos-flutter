@@ -72,7 +72,7 @@
 **รวมประมาณ ฿10,000–20,000** (ขึ้นกับราคา Pi 8 GB และ SSD ณ วันซื้อ — ช่วงกว้างเพราะราคาผันผวน) · ควร **ซื้อชุดเดียวที่ร้านไทยมีในสต็อก** แล้ว re-quote ก่อนสั่ง ·
 อย่าลืม: ต้องมี Pi เครื่องที่สอง/ชิ้นส่วนสำรองหรือไม่? (คำถามเจ้าของข้อ 8) — Pi ตัวเดียวพัง = ร้านหยุด ไม่มี hot spare
 
-**บอร์ดที่ต้องมีเวอร์ชัน EEPROM ใหม่พอ:** Canonical ระบุ Pi 5 + Ubuntu 24.04 ต้อง boot EEPROM ≥ 2025-02-11
+**บอร์ดที่ต้องมีเวอร์ชัน EEPROM ใหม่พอ:** Canonical ระบุ Pi 5 + Ubuntu **26.04** ต้อง boot EEPROM ≥ 2025-02-11 (24.04 ไม่มีขั้นต่ำ; EEPROM ≤ 2024-09-23 boot 26.04 ไม่ขึ้นเลย — แก้ 2026-10-13 ตามรีวิว, ดู `docs/tutorial/pi5-full-stack-tutorial.md`)
 ([Ubuntu on Raspberry Pi docs](https://ubuntu.com/hardware/docs/boards/how-to/ubuntu_supported/raspberry-pi/)) — ตรวจด้วย `rpi-eeprom-update`
 
 ---
