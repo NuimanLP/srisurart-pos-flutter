@@ -26,12 +26,16 @@ name: Server CI
 # GHCR. It answers #44's open image-scan question by fixing the image (server/Dockerfile:
 # base pinned by digest, `apk upgrade`, npm/npx deleted from the runtime stage) rather than
 # by suppressing findings; ADR-0013 forbids a .trivyignore anywhere in this repo. No deploy.
+# Multi-arch (2026-10-13): build-image is a matrix (amd64 + arm64, native runners) pushing
+# `<sha>-<arch>`; job "publish-image" then writes `<sha>` + `main` as a two-arch manifest list
+# (07 §3). On a server PR the two legs build + smoke + sharp-check without pushing.
 #
 # #39: path filtering no longer happens at the trigger level (a frontend-only PR must
 # still produce a green, always-reported server-ci-status, or it can never satisfy a
 # required check — CLAUDE.md "Known trap"). "lint"/"audit"/"unit" are gated per-job on the
 # `changes` job instead: a PR by path, a push to `main` or `develop` runs every job unless it is
-# docs-only (deploy/scripts/push-changes-kind.sh); build-image (GHCR) stays main-only.
+# docs-only (deploy/scripts/push-changes-kind.sh); the GHCR push (build-image's push step +
+# publish-image) stays main-only.
 # "integration" is never gated on server path (see its comment): it carries the cross-tenant
 # isolation tests in test/security.e2e-spec.ts, which run on every PR regardless of what changed.
 
@@ -41,8 +45,9 @@ permissions:
 on:
   push:
     # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
-    # be red together. A push publishes to GHCR only from main: build-image and the
-    # status job's image check are gated on refs/heads/main, and deploy.yml only reacts to main.
+    # be red together. A push publishes to GHCR only from main: build-image's push steps,
+    # publish-image and the status job's image checks are gated on refs/heads/main (a server PR
+    # builds the two image legs without pushing), and deploy.yml only reacts to main.
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
@@ -100,11 +105,13 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
-              # backup-db.sh, healthcheck-ping.sh, measure-container-rss.sh + their tests run in the
+              # backup-db.sh, healthcheck-ping.sh, measure-container-rss.sh, verify-ghcr-tags.sh + their tests run in the
               # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
               - 'deploy/scripts/healthcheck-ping.sh'
+              - 'deploy/scripts/host-setup.sh'
               - 'deploy/scripts/measure-container-rss.sh'
+              - 'deploy/scripts/verify-ghcr-tags.sh'
               - 'deploy/scripts/test/**'
               # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
               - 'deploy/prometheus/**'
@@ -371,6 +378,13 @@ jobs:
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
+      # Host installer: never formats, one fstab line after re-runs, Tailscale /32 without SNAT.
+      - name: host-setup.sh tests (fixture root + stubbed lsblk/findmnt/tailscale)
+        run: deploy/scripts/test/host-setup.test.sh
+      # deploy.yml's release check: 404 = not yet (1), registry error = red (2), and with a platform
+      # arg the tag's manifest list must hold that platform (legacy single image = amd64 only).
+      - name: verify-ghcr-tags.sh tests (stubbed curl)
+        run: deploy/scripts/test/verify-ghcr-tags.test.sh
       # deploy.yml copies deploy/prometheus/ to the VM and only warns if Prometheus then fails, so
       # check it here: alone (as on the VM, scrape.d/ absent) and with the local overlay's jobs.
       # Same pinned image as deploy/compose/monitoring.yml — bump both together.
@@ -440,16 +454,34 @@ jobs:
         run: docker compose down -v
 
   build-image:
-    name: server image → GHCR
-    runs-on: ubuntu-latest
+    name: server image (${{ matrix.arch }})
+    # Two native legs, one per CPU architecture (multi-arch, 2026-10-13): amd64 for mob04, arm64 for
+    # a Raspberry Pi 5. Each leg builds, smokes and sharp-checks its own image; on main it also
+    # Trivy-scans it and pushes ONLY `<sha>-<arch>`. The deployable `<sha>` and `main` tags are made
+    # by publish-image below, from both legs — so a release exists for both CPUs or for neither.
+    # On a pull_request that touches server/ the legs run too, without Trivy/login/push: the PR
+    # itself proves the image still builds and runs on both architectures before it reaches main.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     needs: [secrets, lint, audit, unit, ci-guards, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.ci-guards.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
-    # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
-    # the app must never be allowed to hang for the 6-hour default.
-    timeout-minutes: 20
+    # On a PR, lint/audit/unit are skipped unless server paths changed, so a frontend-only PR
+    # builds no image. ci-guards runs on a PR only when workflows/deploy scripts/migrations
+    # changed (`changes.ci`), so a PR touching server/src alone has it `skipped` — accepted on a
+    # PR only, or such a PR would never build the two legs. On main every gate must succeed.
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && (needs.ci-guards.result == 'success' || (github.event_name == 'pull_request' && needs.ci-guards.result == 'skipped')) && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    # docker build + a scan + a push; the libvips compile dominates. `docker run` of the app must
+    # never be allowed to hang for the 6-hour default.
+    timeout-minutes: 30
     permissions:
       # The file-level `permissions:` block above *replaces* the defaults rather than adding
       # to them, so packages would be `none` without this job-level block and the push would
@@ -461,21 +493,30 @@ jobs:
       # so the owner is spelled out rather than lowercased in an extra shell step. A fork
       # would have to change this line — it cannot push into this namespace anyway.
       IMAGE: ghcr.io/nuimanlp/srisurart-pos-server
-    # Level 3 (#61). Runs only after every gate job above is green (an `if:` without a status
-    # function implies success() over `needs`), so a red build pushes nothing. There is still
-    # NO deploy: the production host is undecided until before q4 (03_ARCHITECTURE.md §8).
+      # Per-arch tag. Never deployed directly: deploy.yml and Ansible name `<sha>` only.
+      TAG: ${{ github.sha }}-${{ matrix.arch }}
+    # Level 3 (#61). Runs only after every gate job above is green, so a red build pushes nothing.
     # #39: this job is a `needs:` of server-ci-status below; it is never itself a required
     # check (07 §4).
     steps:
       - uses: actions/checkout@v5
+        with:
+          # This job also runs PR code (the Dockerfile) with packages: write; nothing here needs
+          # the token in .git/config.
+          persist-credentials: false
 
-      - name: docker build (tagged with the commit)
+      - name: docker build (tagged with the commit + arch)
         # GIT_SHA is baked in so GET /platform/system can say which commit is running (#443):
         # the container cannot read the VM's /opt/pos/.current_sha. The tag is the same SHA,
         # so a rollback (which re-runs an older tag) reports the older commit — truthfully.
-        run: docker build --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$GITHUB_SHA" .
+        # Native build on this leg's runner (no QEMU). --load keeps the single image in the local
+        # store as before; no provenance/SBOM attestations, so the pushed `<sha>-<arch>` is one
+        # plain image manifest and publish-image's index lists exactly two platforms.
+        run: >-
+          docker buildx build --load --provenance=false --sbom=false
+          --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$TAG" .
 
-      - name: smoke — every entrypoint compose runs is present, and the image starts
+      - name: smoke — right CPU arch, every entrypoint compose runs is present, and the image starts
         # docker-compose.yml runs main.js, worker.js, bull-board.js and db/migrate.js
         # from this one image, so a build that emits only main.js must not ship. npm and
         # npx are deleted from the runtime stage, so assert they are gone from PATH and
@@ -483,8 +524,15 @@ jobs:
         # Then: no datastores here (booting against them is the integration job) — with
         # no env the entrypoint executes far enough to fail its own required-env check,
         # which proves node, dist/ and the pruned node_modules are intact.
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          docker run --rm --entrypoint sh "$IMAGE:$GITHUB_SHA" -c '
+          got=$(docker image inspect --format '{{.Architecture}}' "$IMAGE:$TAG")
+          if [[ "$got" != "$ARCH" ]]; then
+            echo "::error::image architecture is '$got', expected '$ARCH'"
+            exit 1
+          fi
+          docker run --rm --entrypoint sh "$IMAGE:$TAG" -c '
             for f in main.js worker.js bull-board.js db/migrate.js; do
               [ -f "dist/$f" ] || { echo "dist/$f is missing from the image"; exit 1; }
             done
@@ -492,7 +540,7 @@ jobs:
             if [ -n "$(ls -A /usr/local/lib/node_modules)" ]; then
               echo "/usr/local/lib/node_modules is not empty:"; ls -A /usr/local/lib/node_modules; exit 1
             fi'
-          if out=$(docker run --rm "$IMAGE:$GITHUB_SHA" 2>&1); then
+          if out=$(docker run --rm "$IMAGE:$TAG" 2>&1); then
             echo "::error::image exited 0 with no DATABASE_URL set; expected a fast config failure"
             exit 1
           fi
@@ -503,6 +551,7 @@ jobs:
           fi
 
       - name: sharp on a baseline x86-64 CPU (blocks the push)
+        if: matrix.arch == 'amd64'
         # mob04 is a "QEMU Virtual CPU version 2.5+" (= qemu64: no SSSE3/SSE4/POPCNT, below
         # x86-64-v2). sharp's prebuilt binaries need v2, so ac9d4dd's api never got healthy there
         # and rolled back (2026-10-10) while every check here was green on the runner's modern
@@ -512,41 +561,101 @@ jobs:
         # dies with "Illegal instruction" here.) qemu is added to this throwaway container only.
         run: |
           docker run --rm --user root -v "$PWD/docker/sharp-check:/check:ro" \
-            --entrypoint sh "$IMAGE:$GITHUB_SHA" -c \
+            --entrypoint sh "$IMAGE:$TAG" -c \
             'apk add --no-cache -q qemu-x86_64 && qemu-x86_64 -cpu qemu64 /usr/local/bin/node /check/check.cjs'
 
+      - name: sharp on a Raspberry Pi 5 CPU model (cortex-a76, blocks the push)
+        if: matrix.arch == 'arm64'
+        # Same lesson as the qemu64 step: the arm64 runner's CPU (Neoverse, Armv9) is newer than a
+        # Pi 5's Cortex-A76 (Armv8.2), so a native run could pass with instructions the Pi lacks.
+        # User-mode QEMU with `-cpu cortex-a76` runs the same pipeline on the Pi's CPU model.
+        run: |
+          docker run --rm --user root -v "$PWD/docker/sharp-check:/check:ro" \
+            --entrypoint sh "$IMAGE:$TAG" -c \
+            'apk add --no-cache -q qemu-aarch64 && qemu-aarch64 -cpu cortex-a76 /usr/local/bin/node /check/check.cjs'
+
       - name: Trivy — image CVEs (blocks the push)
+        if: github.ref == 'refs/heads/main'
         # Deliberately before the login and the push: a fixable HIGH/CRITICAL means the
         # registry gains no tag for this commit. Fix it by bumping the base digest in
-        # server/Dockerfile — never by an ignore file (ADR-0013).
+        # server/Dockerfile — never by an ignore file (ADR-0013). Release-only, as before:
+        # a PR leg does not scan (the `audit` job covers the lockfile + Dockerfile on PRs).
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
 
+      - uses: docker/login-action@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: push <sha>-<arch> only
+        if: github.ref == 'refs/heads/main'
+        # Only the per-arch tag. `<sha>` (what a deploy pins) and `main` are published by
+        # publish-image once BOTH legs have pushed, so a half-built release is never deployable.
+        run: docker push "$IMAGE:$TAG"
+
+  publish-image:
+    name: server image → GHCR (<sha> + main, amd64 + arm64)
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    # Main only, exactly like the old single-arch push: no `<sha>` or `main` tag from a PR, a
+    # develop push or a branch dispatch. A skipped publish on a main code push is red in
+    # server-ci-status (the #184 trap: no `<sha>` tag = every Deploy run skips while green).
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-image.result == 'success' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/nuimanlp/srisurart-pos-server
+    # No checkout, so `server/` does not exist.
+    defaults:
+      run:
+        working-directory: .
+    steps:
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: push <sha> and main
+      - name: push <sha> and main as a two-arch manifest list
         # <sha> is what a deploy pins and what a rollback names; `main` is the convenience
         # tag that always points at the newest green commit. Pushed from this public repo
         # by GITHUB_TOKEN, the package is linked to it and public from the first push —
         # verified with an anonymous pull 2026-09-10 (07 §7); no manual visibility step.
+        # The index only points at the two images the legs pushed — nothing is rebuilt; a
+        # `docker pull` on mob04 (amd64) still gets the very image the amd64 leg tested.
+        run: >-
+          docker buildx imagetools create
+          -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:main"
+          "$IMAGE:$GITHUB_SHA-amd64" "$IMAGE:$GITHUB_SHA-arm64"
+
+      - name: assert <sha> and main hold linux/amd64 and linux/arm64
         run: |
-          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
-          docker push "$IMAGE:$GITHUB_SHA"
-          docker push "$IMAGE:main"
+          for ref in "$IMAGE:$GITHUB_SHA" "$IMAGE:main"; do
+            platforms=$(docker buildx imagetools inspect --raw "$ref" \
+              | jq -r '.manifests[]?.platform | "\(.os)/\(.architecture)"')
+            for want in linux/amd64 linux/arm64; do
+              if ! grep -qx "$want" <<<"$platforms"; then
+                echo "::error::$ref has no $want image (has: $(paste -sd' ' - <<<"$platforms"))"
+                exit 1
+              fi
+            done
+            echo "$ref: $(paste -sd' ' - <<<"$platforms")"
+          done
 
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, nginx-check]
+    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, publish-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -574,6 +683,7 @@ jobs:
             "${{ needs.ci-guards.result }}" \
             "${{ needs.integration.result }}" \
             "${{ needs.build-image.result }}" \
+            "${{ needs.publish-image.result }}" \
             "${{ needs.nginx-check.result }}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "::error::a required server job did not succeed: $result"
@@ -594,5 +704,11 @@ jobs:
           # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
             echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
+            exit 1
+          fi
+          # Same for the multi-arch publish: without it `<sha>` never reaches GHCR, and every Deploy
+          # run skips while reporting success.
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.publish-image.result }}" != "success" ]]; then
+            echo "::error::publish-image did not run on a main push: ${{ needs.publish-image.result }}"
             exit 1
           fi

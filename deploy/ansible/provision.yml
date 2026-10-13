@@ -1,10 +1,12 @@
 ---
 # Provisioning Playbook for Srisurart POS Demo VM (ADR-0013, 07_CICD_DEPLOY.md §6).
-# Prepares a clean Ubuntu/Debian VM for automated deployment:
+# Prepares a clean Ubuntu/Debian VM (or a Raspberry Pi 5 on Ubuntu Server) for automated deployment:
 # - Installs Docker Engine + Docker Compose plugin
 # - Creates 'deploy' user with docker group membership & SSH authorized keys
 # - Configures UFW firewall (allows 22/80/443, denies all other incoming)
 # - Sets up /opt/pos/ application directory structure and initial .env (mode 0600)
+# Run deploy/scripts/host-setup.sh on the host first (OS/arch checks; on a Pi 5 the data disk).
+# Docker's apt repo follows the distribution: linux/ubuntu on Ubuntu (mob04), linux/debian otherwise.
 
 - name: Provision Srisurart POS Demo VM
   hosts: all
@@ -37,7 +39,7 @@
 
     - name: Download Docker official GPG key
       ansible.builtin.get_url:
-        url: "https://download.docker.com/linux/ubuntu/gpg"
+        url: "https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }}/gpg"
         dest: /etc/apt/keyrings/docker.asc
         mode: "0644"
         force: false
@@ -46,7 +48,7 @@
       ansible.builtin.copy:
         # apt wants the Debian arch name (amd64/arm64); ansible_architecture is the kernel's
         # (x86_64/aarch64), which matches no package list — docker-ce is then "not available".
-        content: "deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable\n"
+        content: "deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }} {{ ansible_distribution_release }} stable\n"
         dest: /etc/apt/sources.list.d/docker.list
         mode: "0644"
 
