@@ -176,7 +176,7 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   no Pi is in service, `mob04` stays production, and Pi deploys are not wired into CD —
   [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md),
   [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
-- **Tailscale** remote access to `mob04` is a plan (subnet router, no VPN client) —
+- **Tailscale** remote access to `mob04` (2026-10-13): subnet router for `172.30.58.20/32` only, SNAT off, no faculty VPN client needed —
   [`tailscale-remote-access-plan-2026-10-13.md`](docs/research/tailscale-remote-access-plan-2026-10-13.md).
 - **DevOps bundle, parked in `develop`** (not released): Semgrep SAST gate, DB dump before pending migrations,
   Grafana alerting to Discord + Gatus replacing the Healthchecks.io heartbeat, ansible-lint, Trivy config/web-image
