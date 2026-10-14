@@ -12,10 +12,13 @@ React + `localStorage` page; it was rewritten as an offline-first Flutter app (S
 counter PC), and is now being extended into a multi-tenant platform so more than one shop can
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
-> **Status (2026-10-08):** development is frozen for the course submission (owner decision,
-> 2026-10-07) — only fixes the owner asks for. The latest release is `main` `6a38c87`
-> (PR #669), deployed to the demo VM `mob04`. Detail:
-> [`session-2026-10-08-suppliers-not-pulled.md`](docs/handoff_log/session-2026-10-08-suppliers-not-pulled.md).
+> **Status (2026-10-14):** the course-submission freeze ended on 2026-10-10 and normal development
+> resumed. The last code release is `main` `5c7f210` (PR #714, 2026-10-13: multi-arch images), deployed
+> to the demo VM `mob04`; `main` head `62e3688` adds docs only. `develop` is ahead with a **parked**
+> DevOps bundle (Semgrep SAST gate, pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint,
+> SSH host-key checks) that is not released and not on `mob04`. No Raspberry Pi is in service.
+> Detail: [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
+> [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
 
 ---
 
@@ -41,7 +44,7 @@ run on it. **The shop still runs the offline build — nothing has been cut over
 | | |
 |---|---|
 | **Client** | Flutter 3.44.3 / Dart SDK `^3.12.2` — Android, iOS, Web |
-| **Local store** | Drift (SQLite) — 26 tables, schema version 13 |
+| **Local store** | Drift (SQLite) — 27 tables, schema version 15 |
 | **State / routing** | `flutter_bloc` 9.x, `go_router` 17.x |
 | **Backend** | NestJS, PostgreSQL 16, Redis 7 (×2), BullMQ, Nginx 1.29, etcd 3.6 |
 | **Tenancy** | One database, many tenants, PostgreSQL Row-Level Security forced on every tenant-scoped table |
@@ -91,7 +94,7 @@ Thirteen screens plus a login route. Twelve are reachable from the navigation ra
 | Screen | Route | What the shop does there |
 |---|---|---|
 | ขายสินค้า — Checkout | `/` | Ring up a sale: cart, receipt, low-stock warning, park a sale, save as quote, mechanic credit with an explicit over-limit override |
-| สินค้า/สต็อก — Products | `/products` | Catalogue and stock levels, barcode label printing, stock valuation, supplier links |
+| สินค้า/สต็อก — Products | `/products` | Catalogue and stock levels, product pictures (owner-only), camera barcode scan, barcode label printing, stock valuation, a supplier-first tab with one-click PO |
 | สั่งซื้อ — Purchase orders | `/purchase-orders` | Raise a PO and receive stock against it (weighted-average cost) |
 | ค้นหารุ่น — Vehicle search | `/vehicle-search` | Find parts by vehicle model |
 | ลูกค้า — Customers | `/customers` | Customer records, spend and loyalty points |
@@ -99,7 +102,7 @@ Thirteen screens plus a login route. Twelve are reachable from the navigation ra
 | คืนสินค้า — Returns | `/returns` | Returns and credit notes, with an over-refund guard |
 | ใบเสนอราคา — Quotes | `/quotes` | Create, filter, duplicate, convert to a sale, export CSV, A4 preview |
 | รายงาน — Reports | `/reports` | KPIs, top products, sales by category |
-| ตั้งค่า — Settings | `/settings` | Shop settings, snapshot export/import, CSV export; on the API build the owner restores a backup into the server (below) |
+| ตั้งค่า — Settings | `/settings` | Shop settings, whole-screen zoom up to 3x, QR payment accounts, snapshot export/import, CSV export; on the API build the owner restores a backup into the server (below) |
 | ลิ้นชัก — Cash drawer | `/cash-drawer` | Open/close a shift, cash in/out, closing report |
 | รอเจ้าของ — Owner review | `/owner-review` | Owner clears items the till flagged for approval |
 | Devices | `/devices` | Enrol and retire shop terminals |
@@ -153,6 +156,33 @@ visible offline), and add/edit/delete go online to `POST`/`PATCH`/`DELETE /api/v
 with an `Idempotency-Key`, writing Drift only from the server's reply. The offline build is
 unchanged. Detail: [`session-2026-10-08-suppliers-not-pulled.md`](docs/handoff_log/session-2026-10-08-suppliers-not-pulled.md).
 
+### Added since 2026-10-08
+
+Short list; the handoff logs hold the detail. All of it is on `main` and deployed unless noted.
+
+- **Product images** (owner-only, one per product, ZIP owner backup) —
+  [`session-2026-10-10-product-images.md`](docs/handoff_log/session-2026-10-10-product-images.md).
+- **QR payment accounts** (up to 5) and a PromptPay QR with the amount at checkout —
+  [`session-2026-10-10-qr-payment-accounts.md`](docs/handoff_log/session-2026-10-10-qr-payment-accounts.md).
+- **Whole-screen zoom** up to 3x for elderly users —
+  [`session-2026-10-11-ui-zoom.md`](docs/handoff_log/session-2026-10-11-ui-zoom.md); UI/UX polish of every screen —
+  [`session-2026-10-12-ui-ux-polish.md`](docs/handoff_log/session-2026-10-12-ui-ux-polish.md).
+- **Camera barcode scan** and **sale photo evidence** (optional, after payment, online-only; design in
+  [`10_SALE_PHOTO_EVIDENCE.md`](docs/Backend_design/10_SALE_PHOTO_EVIDENCE.md)) —
+  [`session-2026-10-12-photo-evidence-barcode.md`](docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md).
+- **Supplier-first Suppliers tab**, built-in camera and photo reorder —
+  [`session-2026-10-13-camera-suppliers.md`](docs/handoff_log/session-2026-10-13-camera-suppliers.md).
+- **Multi-arch (amd64 + arm64) images** and a `host-setup.sh` for a Raspberry Pi 5 host. This is groundwork only:
+  no Pi is in service, `mob04` stays production, and Pi deploys are not wired into CD —
+  [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md),
+  [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
+- **Tailscale** remote access to `mob04` is a plan (subnet router, no VPN client) —
+  [`tailscale-remote-access-plan-2026-10-13.md`](docs/research/tailscale-remote-access-plan-2026-10-13.md).
+- **DevOps bundle, parked in `develop`** (not released): Semgrep SAST gate, DB dump before pending migrations,
+  Grafana alerting to Discord + Gatus replacing the Healthchecks.io heartbeat, ansible-lint, Trivy config/web-image
+  scan, SSH host-key verification —
+  [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
+
 ---
 
 ## Architecture
@@ -187,8 +217,9 @@ The API is served under `/api/v1` (health and metrics are deliberately unprefixe
 | Branch | What it is |
 |---|---|
 | `main` | Release line — Flutter client + NestJS backend + CI/CD; every code push is deployed after a manual approval |
-| `develop` | Integration branch — every work PR targets it; it reaches `main` by merge commit only, enforced by a repository ruleset (a squash would drop the deploy rollback floor `bedd328` off `main`) |
+| `develop` | Integration branch — every work PR targets it (`gh pr create --base develop`); it reaches `main` by merge commit only, enforced by a repository ruleset (a squash would drop the deploy rollback floor `bedd328` off `main`) |
 | `POC_sample_offline_first` | Frozen snapshot of the offline-first, Drift-only build the shop runs today |
+| `devops-improvements`, `feat/owner-import` | Kept as worked examples of the workflow: an integration branch and a feature branch, each merged into `develop` through a PR |
 
 ---
 
@@ -203,8 +234,8 @@ frontend/                  Flutter app
   test/                    120 test files — repositories, migrations, API contract, route smoke
   web/                     sqlite3.wasm + drift_worker.js (versions pinned, CI-enforced)
 server/                    NestJS backend
-  src/db/migrations/       23 TypeORM migrations (schema, RLS, role timeouts, sync columns,
-                           UUID entity ids) — the schema's source of truth, 29 tables
+  src/db/migrations/       26 TypeORM migrations (schema, RLS, role timeouts, sync columns,
+                           UUID entity ids) — the schema's source of truth, 31 tables
   src/common/              the tenancy and transaction seam
   test/                    61 e2e specs against real Postgres and Redis
 deploy/
@@ -399,8 +430,8 @@ builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Ba
 > **Status:** the pipeline has run end to end since **2026-09-30** — first real runner deploy
 > `e50f4fa` ([handoff](docs/handoff_log/session-2026-09-30-first-runner-deploy.md)), with a
 > `workflow_dispatch` rollback and an automatic rollback after a failed readiness check both
-> proven on real runs the same day. The latest release on `mob04` is `6a38c87` (PR #669,
-> 2026-10-08, deploy run `37708387535`, Ansible `failed=0`). **A green `Deploy (demo)` run is
+> proven on real runs the same day. The latest release on `mob04` is `5c7f210` (PR #714,
+> 2026-10-13, deploy run `38393626652`; images are now amd64 + arm64). `develop` is ahead with parked DevOps changes (see Status above). **A green `Deploy (demo)` run is
 > not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
 > run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
 
@@ -430,14 +461,14 @@ before approving, and restart the runner service on the VM.
 Nginx serves `index.html` and `flutter_bootstrap.js` with `Cache-Control: no-cache`, and the
 per-release entry point `main.<sha>.dart.js` as `immutable`. A tab that was already open keeps
 running the old build until it is reloaded — before concluding a fix "did not work", check
-the `main.<sha>.dart.js` name in DevTools → Sources (this is what happened after `6a38c87`).
+the `main.<sha>.dart.js` name in DevTools → Sources (this is what happened after `6a38c87` on 2026-10-08).
 
 ### Android APK
 
 `.github/workflows/android-apk.yml` is manual (`workflow_dispatch`) and runs on `main` only. It
 builds the API build only (`USE_API_WRITES=true`, pointed at `mob04`), signs it with the
 project's stable key from the `ANDROID_KEYSTORE_B64` secret so each new APK installs over the
-old one, and publishes it as a prerelease `apk-<shortsha>`. The latest is `apk-6a38c87`.
+old one, and publishes it as a prerelease `apk-<shortsha>`. Current builds are listed on the repository Releases page.
 Losing the keystore means no APK can upgrade in place. Detail: `07_CICD_DEPLOY.md` §2b.
 
 ### Operations
@@ -462,8 +493,8 @@ and that work is parked (#363), so a dead VM disk still loses every tenant. A gr
 `backup-cron.log` therefore does not prove a backup left the machine. Note that a CD deploy
 does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
 
-Uptime: `healthcheck-ping.sh` pings an external heartbeat every 5 minutes from cron
-(installed on `mob04` 2026-10-04).
+Uptime: on `mob04` today, `healthcheck-ping.sh` pings an external heartbeat every 5 minutes from cron
+(installed 2026-10-04). On `develop` (parked, unreleased) it is replaced by Gatus plus Grafana alerts to Discord.
 
 ---
 
@@ -583,7 +614,7 @@ enforced at the till, and a single writer device per shop — built and merged; 
 hub ticket is closed except the cutover (#231): the shop itself has not moved off the offline
 build. The offline build is not being abandoned; it is being made to coexist with a server.
 
-**Later.** Thermal printer, cash-drawer kick and barcode scanning need physical shop access.
+**Later.** Thermal printer and cash-drawer kick need physical shop access (camera barcode scan now exists; a real-device trial is still open).
 Offsite backup copies (#363, parked) and PDPA retention rules are not wired.
 
 ---
