@@ -15,6 +15,7 @@ import { ShiftsService } from '../shifts/shifts.service.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { JOB_SALE_CREATED, QUEUE_SALE_POST } from '../queue/queue.constants.js';
 import type { CreateSale, SaleLine, SaleWrite } from './sales.dto.js';
+import { QR_PAYMENT_METHOD } from '../payment-accounts/payment-accounts.rules.js';
 
 /** Who is ringing the bill up — read from the token, never from the body. */
 export interface SaleActor {
@@ -36,6 +37,11 @@ export interface CreateSaleResult {
    * own idea of the open drawer is a cache — so it comes back here (#82).
    */
   shiftId: string | null;
+  /**
+   * The QR account the bill was paid into, as stored (contract §3): null for every
+   * non-`โอน/QR` bill, and for a replayed offline bill whose account this shop does not have.
+   */
+  paymentAccountId: string | null;
   /** Every product this bill touched, so the client patches its cache without a re-read. */
   products: { id: string; stock: number }[];
   /**
@@ -243,6 +249,12 @@ export class SalesService {
       actor.deviceId,
     );
 
+    // A plain read, no lock: accounts are only ever soft-deleted, so the row cannot vanish
+    // before the insert below, whose FK check takes `FOR KEY SHARE` on it — after the
+    // product and counter locks, which keeps the documented lock order. Before them, so a
+    // `400 PAYMENT_ACCOUNT_NOT_FOUND` holds no mechanic or product row.
+    const paymentAccountId = await this.resolvePaymentAccount(manager, tenantId, dto);
+
     // Mechanic before products, always: a bill refused for the credit limit must not
     // be holding product locks while it rolls back, and the check and the balance
     // update below have to sit under one lock or two credit bills can both pass.
@@ -273,6 +285,7 @@ export class SalesService {
       receiptNo,
       pointsGranted,
       shiftId,
+      paymentAccountId,
     );
     const items = await this.insertLines(manager, tenantId, dto, locked);
     const movements = await this.insertMovements(
@@ -366,6 +379,7 @@ export class SalesService {
       pointsGranted,
       date,
       shiftId,
+      paymentAccountId,
       // Deliberately no `offlineOk`: it has no storage in phase 1, and a field the
       // server invents is a field the client will eventually trust.
       products: demands.map((d) => ({
@@ -378,6 +392,35 @@ export class SalesService {
       mechanicAfter,
       customerAfter,
     };
+  }
+
+  /**
+   * The account to store on the bill (contract §3). A soft-deleted account of this shop is
+   * accepted — the counter may have chosen it before the owner deleted it. Online, an id
+   * this shop has no row for (unknown, or another shop's: RLS hides it) is
+   * `400 PAYMENT_ACCOUNT_NOT_FOUND`; on a `/sync/push` replay (`soldOffline`) the bill was
+   * already paid, so the id is dropped to null instead of refusing it.
+   */
+  private async resolvePaymentAccount(
+    manager: EntityManager,
+    tenantId: string,
+    dto: SaleWrite,
+  ): Promise<string | null> {
+    // The parsers already guarantee this; kept so the CHECK can never be the one to refuse.
+    if (dto.paymentAccountId === null || dto.paymentMethod !== QR_PAYMENT_METHOD) return null;
+    const rows = (await manager.query(
+      `SELECT 1 FROM payment_accounts WHERE tenant_id = $1::uuid AND id = $2`,
+      [tenantId, dto.paymentAccountId],
+    )) as unknown[];
+    if (rows.length > 0) return dto.paymentAccountId;
+    if (dto.soldOffline) return null;
+    throw new HttpException(
+      {
+        code: 'PAYMENT_ACCOUNT_NOT_FOUND',
+        message: 'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่',
+      },
+      HttpStatus.BAD_REQUEST,
+    );
   }
 
   /**
@@ -635,7 +678,8 @@ export class SalesService {
     dto: Pick<SaleWrite, 'id' | 'totalSatang' | 'soldOffline'> & { items?: SaleLine[] },
   ): Promise<CreateSaleResult | null> {
     const rows = (await manager.query(
-      `SELECT receipt_no, total, points_granted, date, voided, shift_id, customer_id, mechanic_id
+      `SELECT receipt_no, total, points_granted, date, voided, shift_id, customer_id, mechanic_id,
+              payment_account_id
          FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, dto.id],
     )) as {
@@ -645,6 +689,7 @@ export class SalesService {
       date: Date;
       voided: boolean;
       shift_id: string | null;
+      payment_account_id: string | null;
       customer_id: string | null;
       mechanic_id: string | null;
     }[];
@@ -739,6 +784,7 @@ export class SalesService {
       pointsGranted: rows[0].points_granted,
       date: rows[0].date.toISOString(),
       shiftId: rows[0].shift_id,
+      paymentAccountId: rows[0].payment_account_id,
       products: productIds
         .filter((id) => stockById.has(id))
         .map((id) => ({ id, stock: stockById.get(id)! })),
@@ -766,6 +812,7 @@ export class SalesService {
     receiptNo: string,
     pointsGranted: number,
     shiftId: string | null,
+    paymentAccountId: string | null,
   ): Promise<string> {
     const soldOffline = dto.soldOffline === true;
     const dateVal = dto.date
@@ -779,8 +826,8 @@ export class SalesService {
         `INSERT INTO sales (
          tenant_id, id, receipt_no, subtotal, discount, total, payment_method,
          customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta,
-         points_granted, user_id, device_id, shift_id, sold_offline, date)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16, $17, COALESCE($18::timestamptz, now()))
+         points_granted, user_id, device_id, shift_id, sold_offline, date, payment_account_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16, $17, COALESCE($18::timestamptz, now()), $19)
        RETURNING date`,
         [
           tenantId,
@@ -803,6 +850,7 @@ export class SalesService {
           shiftId,
           soldOffline,
           dateVal,
+          paymentAccountId,
         ],
       ),
     )) as { date: Date }[];

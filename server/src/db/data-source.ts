@@ -22,6 +22,9 @@ import { PlatformAdminPasswordChangedAt1788652804600 } from './migrations/178865
 import { ReviewItemQuoteConflict1788652804700 } from './migrations/1788652804700-ReviewItemQuoteConflict.js';
 import { ReviewItemDrawerOverdrawnOffline1788652804800 } from './migrations/1788652804800-ReviewItemDrawerOverdrawnOffline.js';
 import { EntityIdsToUuid1788652804900 } from './migrations/1788652804900-EntityIdsToUuid.js';
+import { PaymentAccounts1788652805000 } from './migrations/1788652805000-PaymentAccounts.js';
+import { ProductImageKey1788652805100 } from './migrations/1788652805100-ProductImageKey.js';
+import { SalePhotos1788652805200 } from './migrations/1788652805200-SalePhotos.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -48,6 +51,9 @@ export const MIGRATIONS = [
   ReviewItemQuoteConflict1788652804700,
   ReviewItemDrawerOverdrawnOffline1788652804800,
   EntityIdsToUuid1788652804900,
+  PaymentAccounts1788652805000,
+  ProductImageKey1788652805100,
+  SalePhotos1788652805200,
 ];
 
 /**

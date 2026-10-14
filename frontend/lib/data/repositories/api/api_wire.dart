@@ -301,6 +301,10 @@ class PendingWrites {
         (p) => p.write.id == id && DateTime.now().difference(p.at) < _ttl,
       );
 
+  /// Whether any attempt is still parked (neither closed nor past its TTL).
+  bool get anyParked =>
+      _open.values.any((p) => DateTime.now().difference(p.at) < _ttl);
+
   /// Close the attempt only if [e] is a verdict. A 5xx or a 429 leaves it
   /// parked, which is the entire point of this class — see [isVerdict].
   void closeIfVerdict(PendingWrite write, ApiException e) {

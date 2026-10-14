@@ -24,6 +24,8 @@ import { ShiftsModule } from './shifts/shifts.module.js';
 import { CustomersModule } from './customers/customers.module.js';
 import { MechanicsModule } from './mechanics/mechanics.module.js';
 import { SettingsModule } from './settings/settings.module.js';
+import { PaymentAccountsModule } from './payment-accounts/payment-accounts.module.js';
+import { SalePhotosModule } from './sale-photos/sale-photos.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import {
   QueueModule,
@@ -92,6 +94,8 @@ export class AppModule implements NestModule {
         CustomersModule,
         MechanicsModule,
         SettingsModule,
+        PaymentAccountsModule,
+        SalePhotosModule,
         ReportsModule,
         QueueModule,
         QuotesModule,

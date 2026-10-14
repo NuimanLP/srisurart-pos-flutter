@@ -14,24 +14,31 @@ name: Server CI
 # *image* is scanned in "build-image" instead, where a finding can still stop a release.
 # Job "unit" also runs the coverage ratchet (server/coverage-baseline.json, 2026-10-03).
 # Job "ci-guards" (2026-10-03): migrations are append-only vs the PR base, actionlint over the
-# workflows, shellcheck over deploy/scripts — pinned binaries, gated on the `ci` paths.
+# workflows, shellcheck over deploy/scripts, ansible-lint over deploy/ansible — pinned, gated on the `ci` paths.
 # "integration" also replays docs/Backend_design/fixtures/client-requests/ (what the Flutter
 # client really sends, recorded by frontend/test/contract/) through the real app
 # (test/client-request-fixtures.e2e-spec.ts): a 400/401/5xx or a missing route fails it.
 # Job "secrets" (2026-10-01) runs gitleaks over the commits each PR/push adds — repo-wide,
 # never path-gated, so it lives here, feeding the always-required server-ci-status.
+# Job "sast" (2026-10-13) runs Semgrep (pinned image + pinned rules commit) over the whole repo,
+# also never path-gated; any ERROR-severity result fails it. Third-party actions are pinned by
+# commit SHA (`# vX` comment = the tag it was resolved from).
 #
 # Job "build-image" (#61 ci.4, extending #40) is the release half: on a green build of main
 # it builds the server image, smoke-runs it, Trivy-scans it and — only then — pushes it to
 # GHCR. It answers #44's open image-scan question by fixing the image (server/Dockerfile:
 # base pinned by digest, `apk upgrade`, npm/npx deleted from the runtime stage) rather than
 # by suppressing findings; ADR-0013 forbids a .trivyignore anywhere in this repo. No deploy.
+# Multi-arch (2026-10-13): build-image is a matrix (amd64 + arm64, native runners) pushing
+# `<sha>-<arch>`; job "publish-image" then writes `<sha>` + `main` as a two-arch manifest list
+# (07 §3). On a server PR the two legs build + smoke + sharp-check without pushing.
 #
 # #39: path filtering no longer happens at the trigger level (a frontend-only PR must
 # still produce a green, always-reported server-ci-status, or it can never satisfy a
 # required check — CLAUDE.md "Known trap"). "lint"/"audit"/"unit" are gated per-job on the
 # `changes` job instead: a PR by path, a push to `main` or `develop` runs every job unless it is
-# docs-only (deploy/scripts/push-changes-kind.sh); build-image (GHCR) stays main-only.
+# docs-only (deploy/scripts/push-changes-kind.sh); the GHCR push (build-image's push step +
+# publish-image) stays main-only.
 # "integration" is never gated on server path (see its comment): it carries the cross-tenant
 # isolation tests in test/security.e2e-spec.ts, which run on every PR regardless of what changed.
 
@@ -41,8 +48,9 @@ permissions:
 on:
   push:
     # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
-    # be red together. A push publishes to GHCR only from main: build-image and the
-    # status job's image check are gated on refs/heads/main, and deploy.yml only reacts to main.
+    # be red together. A push publishes to GHCR only from main: build-image's push steps,
+    # publish-image and the status job's image checks are gated on refs/heads/main (a server PR
+    # builds the two image legs without pushing), and deploy.yml only reacts to main.
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
@@ -91,7 +99,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: deploy/scripts/push-changes-kind.sh
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         # PR only — on a push its 'false' string would win the `||` below over the push step.
         if: github.event_name == 'pull_request'
@@ -100,23 +108,35 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
-              # backup-db.sh, healthcheck-ping.sh, measure-container-rss.sh + their tests run in the
+              # backup-db.sh, measure-container-rss.sh, verify-ghcr-tags.sh + their tests run in the
               # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
-              - 'deploy/scripts/healthcheck-ping.sh'
+              - 'deploy/scripts/host-setup.sh'
               - 'deploy/scripts/measure-container-rss.sh'
+              - 'deploy/scripts/verify-ghcr-tags.sh'
               - 'deploy/scripts/test/**'
               # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
               - 'deploy/prometheus/**'
               - 'deploy/prometheus-local/**'
+              # monitoring-alerting.test.sh in the nginx-check job boots these from monitoring.yml.
+              - 'deploy/compose/monitoring.yml'
+              - 'deploy/grafana/**'
+              - 'deploy/gatus/**'
+              - 'deploy/gatus-ca/**'
+              # the test checks deploy/gatus-ca/pos-ca.crt is still a copy of this file.
+              - 'frontend/assets/certs/pos-ca.crt'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
               # test/owner-import*.ts import the file the app's backup button saves.
               - 'frontend/test/fixtures/app_export_*.json'
+              # Trivy config scan of the web image's Dockerfile in the audit job.
+              - 'deploy/web.Dockerfile'
             ci:
               - '.github/workflows/**'
               - 'deploy/scripts/**'
               - 'server/src/db/migrations/**'
+              # ansible-lint (deploy.yml, provision.yml, ansible.cfg, .ansible-lint, its requirements).
+              - 'deploy/ansible/**'
 
   secrets:
     name: secret scan (gitleaks)
@@ -196,6 +216,125 @@ jobs:
             --ignore-gitleaks-allow --config "$cfg" --gitleaks-ignore-path "$gl" \
             --log-opts="$range" .
 
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    # Like `secrets`: NOT gated on `changes` — workflows, Dockerfiles, compose files and nginx
+    # configs are scanned too, and a finding can land in any path. server-ci-status demands
+    # `success` (a skip does not count), and build-image needs it on main.
+    # Engine: the semgrep image pinned by digest, run with --metrics=off (no upload, no login).
+    # Rules: semgrep/semgrep-rules at a pinned commit — only the folders that match this repo's
+    # code (TS/JS, Dockerfiles, GitHub Actions, compose, nginx); no p/secrets (gitleaks covers
+    # it). Gate: any result of severity ERROR fails the job. WARNING/INFO go to the SARIF upload
+    # only. A false positive is silenced inline as `nosemgrep: rule-id -- reason`; a marker with
+    # no rule id or no reason fails the job, and so does a .semgrepignore below the repo root
+    # (Semgrep honours nested ones; only the root file is swapped for the base copy on a PR).
+    # Bump image + rules by hand, each version
+    # at least two weeks old, together with the 07_CICD_DEPLOY.md §2c row.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # SARIF upload to code scanning only; the gate never depends on it.
+      security-events: write
+    defaults:
+      run:
+        working-directory: .
+    env:
+      SEMGREP_IMAGE: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+      SEMGREP_RULES_SHA: a84ff9cc2453ca91d581380de4b8b3f272f6f4be
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: fetch the pinned semgrep-rules commit
+        run: |
+          rules="$RUNNER_TEMP/semgrep-rules"
+          git init -q "$rules"
+          git -C "$rules" fetch -q --depth 1 https://github.com/semgrep/semgrep-rules.git "$SEMGREP_RULES_SHA"
+          git -C "$rules" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$rules" rev-parse HEAD)" = "$SEMGREP_RULES_SHA"
+      - name: .semgrepignore from the trusted commit (PR base), like the gitleaks allowlists
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # A PR must not be able to ignore its own new code. Absent on the base → the PR's copy
+          # is removed and Semgrep falls back to its built-in default ignores.
+          git fetch -q --depth 1 origin "$PR_BASE"
+          if git cat-file -e "$PR_BASE:.semgrepignore" 2>/dev/null; then
+            git show "$PR_BASE:.semgrepignore" > .semgrepignore
+          else
+            rm -f .semgrepignore
+          fi
+      - name: only the root .semgrepignore; every Semgrep suppression names a rule id and a reason
+        run: |
+          # Semgrep also honours a .semgrepignore in any subdirectory (like .gitignore), and the
+          # step above only swaps the root one for the base copy — so a nested one would let a PR
+          # hide its own code. Only the root file is allowed, on every event.
+          if nested=$(find . -path ./.git -prune -o -name .semgrepignore ! -path ./.semgrepignore -print | grep .); then
+            echo "::error::.semgrepignore is allowed only at the repo root:"
+            echo "$nested"
+            exit 1
+          fi
+          # Allowed: `nosemgrep: rule-id -- reason` (one rule id, lower case). Semgrep matches the
+          # marker case-insensitively and also accepts it without the trailing "grep", so the
+          # search does too:
+          # any other use in a non-Markdown file fails; Markdown only documents the convention.
+          # The marker is split ('no''sem…') on the next line only so this check does not match itself.
+          if bad=$(git grep -nIi 'no''sem' -- . ':(exclude)*.md' | grep -vE 'no''semgrep: [A-Za-z0-9_.-]+ -- [^ ]'); then
+            echo "::error::Semgrep suppression without 'nosemgrep: rule-id -- reason':"
+            echo "$bad"
+            exit 1
+          fi
+      - name: semgrep scan (JSON + SARIF)
+        run: |
+          out="$RUNNER_TEMP/semgrep-out"
+          mkdir -p "$out"
+          # Run as the runner's own uid so git sees the checkout as safe and Semgrep scans the
+          # tracked files only; HOME=/tmp because that uid has no home in the image.
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src" -v "$RUNNER_TEMP/semgrep-rules:/rules:ro" -v "$out:/out" -w /src \
+            "$SEMGREP_IMAGE" semgrep scan --metrics=off --disable-version-check \
+            --config /rules/typescript --config /rules/javascript --config /rules/dockerfile \
+            --config /rules/yaml/github-actions --config /rules/yaml/docker-compose/security \
+            --config /rules/generic/nginx/security \
+            --json-output=/out/semgrep.json --sarif-output=/out/semgrep.sarif .
+      - name: gate — fail on any ERROR-severity result
+        run: |
+          json="$RUNNER_TEMP/semgrep-out/semgrep.json"
+          jq -r '.results | group_by(.extra.severity)[] | "\(.[0].extra.severity): \(length)"' "$json"
+          errors=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' "$json")
+          if [[ "$errors" != 0 ]]; then
+            jq -r '.results[] | select(.extra.severity == "ERROR")
+              | "::error file=\(.path),line=\(.start.line)::\(.check_id): \(.extra.message | gsub("\n"; " "))"' "$json"
+            exit 1
+          fi
+          echo "no ERROR-severity Semgrep findings"
+      - name: surface Semgrep scan errors and skipped files (warning only, never fails)
+        run: |
+          json="$RUNNER_TEMP/semgrep-out/semgrep.json"
+          nerr=$(jq '(.errors // []) | length' "$json")
+          nskip=$(jq '(.paths.skipped // []) | length' "$json")
+          echo "Semgrep scan errors: $nerr, skipped files: $nskip"
+          if [[ "$nerr" != 0 ]]; then
+            jq -r '(.errors // [])[] | "  \(.type | if type == "array" then .[0] else (. // "error") end) \(.path // "-")\(if (.spans // [])[0] then ":\(.spans[0].start.line)" else "" end)"' "$json" | sort | uniq -c | head -20
+          fi
+          if [[ "$nskip" != 0 ]]; then
+            jq -r '(.paths.skipped // [])[] | "  skipped \(.path) (\(.reason // "?"))"' "$json" | head -20
+          fi
+          if [[ "$nerr" != 0 || "$nskip" != 0 ]]; then
+            echo "::warning::Semgrep could not fully scan: $nerr scan error(s), $nskip skipped file(s) - those files are not covered by the gate (see the log above)"
+          fi
+      - name: upload SARIF (code scanning; never decides the gate)
+        # Not on fork PRs (their token cannot write security events). continue-on-error: the
+        # gate step above is the verdict; code scanning is a view of the same results.
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/semgrep-out/semgrep.sarif
+          category: semgrep
+
   lint:
     name: lint + typecheck
     runs-on: ubuntu-latest
@@ -237,13 +376,29 @@ jobs:
       # entry in package.json when the vulnerable package is transitive (see multer).
       - run: pnpm audit --audit-level=high
       - name: Trivy — lockfile CVEs + Dockerfile misconfig
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The trivy binary is pinned too (= this action version's default), not left to the
+          # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
+          version: v0.70.0
           scan-type: fs
           scan-ref: server
           scanners: vuln,misconfig
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          exit-code: '1'
+      # The web image's Dockerfile lives outside server/, so the fs scan above never sees it.
+      # Config (misconfiguration) checks only; Trivy has no checks for Compose files, so
+      # deploy/compose/ is deliberately not scanned here (a scan with no checks proves nothing).
+      - name: Trivy — web image Dockerfile misconfig (deploy/web.Dockerfile)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          # The trivy binary is pinned too, not left to the action (trivy-action supply-chain
+          # incident 2026-03-19, CVE-2026-33634). Same version as the other Trivy steps.
+          version: v0.70.0
+          scan-type: config
+          scan-ref: deploy/web.Dockerfile
+          severity: HIGH,CRITICAL
           exit-code: '1'
 
   unit:
@@ -268,7 +423,7 @@ jobs:
       - run: pnpm test:coverage
 
   ci-guards:
-    name: ci guards (migrations immutable, actionlint, shellcheck)
+    name: ci guards (migrations immutable, actionlint, shellcheck, ansible-lint)
     runs-on: ubuntu-latest
     needs: [changes]
     # Same gate shape as lint/audit/unit (see the comment there), on the `ci` paths.
@@ -283,6 +438,10 @@ jobs:
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
       SHELLCHECK_VERSION: 0.11.0
       SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+      # The one collection the playbooks use (ansible.posix.authorized_key in provision.yml), as
+      # Galaxy's own tarball + the sha256 Galaxy publishes for it. ansible-lint runs offline.
+      ANSIBLE_POSIX_VERSION: 2.2.2
+      ANSIBLE_POSIX_SHA256: 00a58c5d804c9adc99c3c3dc1b9f2246f4bb5f7337941440e0956f0e31c3b82b
     steps:
       - uses: actions/checkout@v5
         with:
@@ -320,6 +479,44 @@ jobs:
         run: |
           shopt -s globstar nullglob
           shellcheck deploy/scripts/**/*.sh
+      # ansible-lint, profile `production` (deploy/ansible/.ansible-lint). Every package is pinned by
+      # sha256 (deploy/ansible/lint-requirements.txt, `--require-hashes`), wheels only, no resolver.
+      # The wheels are compiled for CPython 3.12, so the interpreter is pinned here instead of
+      # trusting whatever python3 ubuntu-latest ships next. `cache: pip` keeps the wheels between
+      # runs (keyed on lint-requirements.txt) — a cache hit is still hash-checked by pip.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: deploy/ansible/lint-requirements.txt
+      # Galaxy's tarball cached by version + sha256; a hit is still verified below.
+      - name: cache ansible.posix tarball
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/galaxy/ansible-posix.tgz
+          key: ansible-posix-${{ env.ANSIBLE_POSIX_VERSION }}-${{ env.ANSIBLE_POSIX_SHA256 }}
+      - name: install ansible-lint (pinned, hash-checked) + ansible.posix (sha256-verified)
+        run: |
+          python -m venv "$RUNNER_TEMP/ansible-lint"
+          "$RUNNER_TEMP/ansible-lint/bin/pip" install --quiet --require-hashes --no-deps \
+            --only-binary :all: -r deploy/ansible/lint-requirements.txt
+          mkdir -p "$RUNNER_TEMP/galaxy"
+          if [ ! -f "$RUNNER_TEMP/galaxy/ansible-posix.tgz" ]; then
+            curl -sSfL -o "$RUNNER_TEMP/galaxy/ansible-posix.tgz" \
+              "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-posix-${ANSIBLE_POSIX_VERSION}.tar.gz"
+          fi
+          cp "$RUNNER_TEMP/galaxy/ansible-posix.tgz" "$RUNNER_TEMP/ansible-posix.tgz"
+          echo "${ANSIBLE_POSIX_SHA256}  $RUNNER_TEMP/ansible-posix.tgz" | sha256sum -c -
+          "$RUNNER_TEMP/ansible-lint/bin/ansible-galaxy" collection install --offline \
+            -p "$RUNNER_TEMP/collections" "$RUNNER_TEMP/ansible-posix.tgz"
+          echo "$RUNNER_TEMP/ansible-lint/bin" >> "$GITHUB_PATH"
+      - name: ansible-lint (deploy/ansible, profile production)
+        working-directory: deploy/ansible
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+        run: |
+          ansible-lint --version
+          ansible-lint
 
   nginx-check:
     name: nginx config check (nginx -t)
@@ -345,6 +542,11 @@ jobs:
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
             nginx:1.29-alpine nginx -t
+      # Product images (contract §2/§4): /img/ serves exactly /img/<uuid>/<32 hex>_{t,p}.webp from
+      # the volume with the immutable headers and refuses everything else; only the two import
+      # locations take a body past 10m. Runs the real nginx image against the real nginx.conf.
+      - name: nginx /img/ + import body-limit behaviour (nginx-img.test.sh)
+        run: deploy/scripts/test/nginx-img.test.sh
       # #443 PR4: the platform-ui dashboard is also nginx, and its config needs `proxy_ssl_trusted_
       # certificate` (a real, readable PEM) to test clean — reuse the throwaway ca.crt above.
       - name: test platform-ui nginx configuration (nginx -t)
@@ -360,12 +562,16 @@ jobs:
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh
-      # Uptime heartbeat: right ping on success/failure, URL never printed, unset = warning only.
-      - name: healthcheck-ping.sh tests (stubbed curl)
-        run: deploy/scripts/test/healthcheck-ping.test.sh
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
+      # Host installer: never formats, one fstab line after re-runs, Tailscale /32 without SNAT.
+      - name: host-setup.sh tests (fixture root + stubbed lsblk/findmnt/tailscale)
+        run: deploy/scripts/test/host-setup.test.sh
+      # deploy.yml's release check: 404 = not yet (1), registry error = red (2), and with a platform
+      # arg the tag's manifest list must hold that platform (legacy single image = amd64 only).
+      - name: verify-ghcr-tags.sh tests (stubbed curl)
+        run: deploy/scripts/test/verify-ghcr-tags.test.sh
       # deploy.yml copies deploy/prometheus/ to the VM and only warns if Prometheus then fails, so
       # check it here: alone (as on the VM, scrape.d/ absent) and with the local overlay's jobs.
       # Same pinned image as deploy/compose/monitoring.yml — bump both together.
@@ -379,6 +585,12 @@ jobs:
             check config /etc/prometheus/prometheus.yml
           docker run --rm --entrypoint promtool -v "$cfg" -v "$overlay" "$PROM_IMAGE" \
             check config /etc/prometheus/prometheus.yml
+      # Alerting + uptime (07 §10.5): boots prometheus + grafana + gatus from monitoring.yml's pinned
+      # digests on a throwaway compose project — provisioned rules load and evaluate without
+      # error, Gatus parses its config, its binary is GOAMD64=v1 (mob04 = qemu64), CA copy matches.
+      - name: Grafana alerting + Gatus boot test (monitoring-alerting.test.sh)
+        timeout-minutes: 10
+        run: deploy/scripts/test/monitoring-alerting.test.sh
       - name: cleanup temporary files
         if: always()
         run: rm -rf .tmp-nginx
@@ -435,16 +647,34 @@ jobs:
         run: docker compose down -v
 
   build-image:
-    name: server image → GHCR
-    runs-on: ubuntu-latest
-    needs: [secrets, lint, audit, unit, ci-guards, integration, nginx-check]
+    name: server image (${{ matrix.arch }})
+    # Two native legs, one per CPU architecture (multi-arch, 2026-10-13): amd64 for mob04, arm64 for
+    # a Raspberry Pi 5. Each leg builds, smokes and sharp-checks its own image; on main it also
+    # Trivy-scans it and pushes ONLY `<sha>-<arch>`. The deployable `<sha>` and `main` tags are made
+    # by publish-image below, from both legs — so a release exists for both CPUs or for neither.
+    # On a pull_request that touches server/ the legs run too, without Trivy/login/push: the PR
+    # itself proves the image still builds and runs on both architectures before it reaches main.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    needs: [secrets, sast, lint, audit, unit, ci-guards, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.ci-guards.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
-    # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
-    # the app must never be allowed to hang for the 6-hour default.
-    timeout-minutes: 20
+    # On a PR, lint/audit/unit are skipped unless server paths changed, so a frontend-only PR
+    # builds no image. ci-guards runs on a PR only when workflows/deploy scripts/migrations
+    # changed (`changes.ci`), so a PR touching server/src alone has it `skipped` — accepted on a
+    # PR only, or such a PR would never build the two legs. On main every gate must succeed.
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && needs.secrets.result == 'success' && needs.sast.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && (needs.ci-guards.result == 'success' || (github.event_name == 'pull_request' && needs.ci-guards.result == 'skipped')) && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    # docker build + a scan + a push; the libvips compile dominates. `docker run` of the app must
+    # never be allowed to hang for the 6-hour default.
+    timeout-minutes: 30
     permissions:
       # The file-level `permissions:` block above *replaces* the defaults rather than adding
       # to them, so packages would be `none` without this job-level block and the push would
@@ -456,21 +686,30 @@ jobs:
       # so the owner is spelled out rather than lowercased in an extra shell step. A fork
       # would have to change this line — it cannot push into this namespace anyway.
       IMAGE: ghcr.io/nuimanlp/srisurart-pos-server
-    # Level 3 (#61). Runs only after every gate job above is green (an `if:` without a status
-    # function implies success() over `needs`), so a red build pushes nothing. There is still
-    # NO deploy: the production host is undecided until before q4 (03_ARCHITECTURE.md §8).
+      # Per-arch tag. Never deployed directly: deploy.yml and Ansible name `<sha>` only.
+      TAG: ${{ github.sha }}-${{ matrix.arch }}
+    # Level 3 (#61). Runs only after every gate job above is green, so a red build pushes nothing.
     # #39: this job is a `needs:` of server-ci-status below; it is never itself a required
     # check (07 §4).
     steps:
       - uses: actions/checkout@v5
+        with:
+          # This job also runs PR code (the Dockerfile) with packages: write; nothing here needs
+          # the token in .git/config.
+          persist-credentials: false
 
-      - name: docker build (tagged with the commit)
+      - name: docker build (tagged with the commit + arch)
         # GIT_SHA is baked in so GET /platform/system can say which commit is running (#443):
         # the container cannot read the VM's /opt/pos/.current_sha. The tag is the same SHA,
         # so a rollback (which re-runs an older tag) reports the older commit — truthfully.
-        run: docker build --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$GITHUB_SHA" .
+        # Native build on this leg's runner (no QEMU). --load keeps the single image in the local
+        # store as before; no provenance/SBOM attestations, so the pushed `<sha>-<arch>` is one
+        # plain image manifest and publish-image's index lists exactly two platforms.
+        run: >-
+          docker buildx build --load --provenance=false --sbom=false
+          --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$TAG" .
 
-      - name: smoke — every entrypoint compose runs is present, and the image starts
+      - name: smoke — right CPU arch, every entrypoint compose runs is present, and the image starts
         # docker-compose.yml runs main.js, worker.js, bull-board.js and db/migrate.js
         # from this one image, so a build that emits only main.js must not ship. npm and
         # npx are deleted from the runtime stage, so assert they are gone from PATH and
@@ -478,8 +717,15 @@ jobs:
         # Then: no datastores here (booting against them is the integration job) — with
         # no env the entrypoint executes far enough to fail its own required-env check,
         # which proves node, dist/ and the pruned node_modules are intact.
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          docker run --rm --entrypoint sh "$IMAGE:$GITHUB_SHA" -c '
+          got=$(docker image inspect --format '{{.Architecture}}' "$IMAGE:$TAG")
+          if [[ "$got" != "$ARCH" ]]; then
+            echo "::error::image architecture is '$got', expected '$ARCH'"
+            exit 1
+          fi
+          docker run --rm --entrypoint sh "$IMAGE:$TAG" -c '
             for f in main.js worker.js bull-board.js db/migrate.js; do
               [ -f "dist/$f" ] || { echo "dist/$f is missing from the image"; exit 1; }
             done
@@ -487,7 +733,7 @@ jobs:
             if [ -n "$(ls -A /usr/local/lib/node_modules)" ]; then
               echo "/usr/local/lib/node_modules is not empty:"; ls -A /usr/local/lib/node_modules; exit 1
             fi'
-          if out=$(docker run --rm "$IMAGE:$GITHUB_SHA" 2>&1); then
+          if out=$(docker run --rm "$IMAGE:$TAG" 2>&1); then
             echo "::error::image exited 0 with no DATABASE_URL set; expected a fast config failure"
             exit 1
           fi
@@ -497,38 +743,115 @@ jobs:
             exit 1
           fi
 
+      - name: sharp on a baseline x86-64 CPU (blocks the push)
+        if: matrix.arch == 'amd64'
+        # mob04 is a "QEMU Virtual CPU version 2.5+" (= qemu64: no SSSE3/SSE4/POPCNT, below
+        # x86-64-v2). sharp's prebuilt binaries need v2, so ac9d4dd's api never got healthy there
+        # and rolled back (2026-10-10) while every check here was green on the runner's modern
+        # CPU. server/Dockerfile now compiles libvips + sharp for baseline x86-64; this runs the
+        # real product-image pipeline from dist/ under user-mode QEMU with that same CPU model,
+        # and fails if any prebuilt @img/sharp-* package is back in the image. (A prebuilt sharp
+        # dies with "Illegal instruction" here.) qemu is added to this throwaway container only.
+        run: |
+          docker run --rm --user root -v "$PWD/docker/sharp-check:/check:ro" \
+            --entrypoint sh "$IMAGE:$TAG" -c \
+            'apk add --no-cache -q qemu-x86_64 && qemu-x86_64 -cpu qemu64 /usr/local/bin/node /check/check.cjs'
+
+      - name: sharp on a Raspberry Pi 5 CPU model (cortex-a76, blocks the push)
+        if: matrix.arch == 'arm64'
+        # Same lesson as the qemu64 step: the arm64 runner's CPU (Neoverse, Armv9) is newer than a
+        # Pi 5's Cortex-A76 (Armv8.2), so a native run could pass with instructions the Pi lacks.
+        # User-mode QEMU with `-cpu cortex-a76` runs the same pipeline on the Pi's CPU model.
+        run: |
+          docker run --rm --user root -v "$PWD/docker/sharp-check:/check:ro" \
+            --entrypoint sh "$IMAGE:$TAG" -c \
+            'apk add --no-cache -q qemu-aarch64 && qemu-aarch64 -cpu cortex-a76 /usr/local/bin/node /check/check.cjs'
+
       - name: Trivy — image CVEs (blocks the push)
+        if: github.ref == 'refs/heads/main'
         # Deliberately before the login and the push: a fixable HIGH/CRITICAL means the
         # registry gains no tag for this commit. Fix it by bumping the base digest in
-        # server/Dockerfile — never by an ignore file (ADR-0013).
-        uses: aquasecurity/trivy-action@v0.36.0
+        # server/Dockerfile — never by an ignore file (ADR-0013). Release-only, as before:
+        # a PR leg does not scan (the `audit` job covers the lockfile + Dockerfile on PRs).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # The trivy binary is pinned too (= this action version's default), not left to the
+          # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
+          version: v0.70.0
           scan-type: image
-          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        if: github.ref == 'refs/heads/main'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: push <sha> and main
+      - name: push <sha>-<arch> only
+        if: github.ref == 'refs/heads/main'
+        # Only the per-arch tag. `<sha>` (what a deploy pins) and `main` are published by
+        # publish-image once BOTH legs have pushed, so a half-built release is never deployable.
+        run: docker push "$IMAGE:$TAG"
+
+  publish-image:
+    name: server image → GHCR (<sha> + main, amd64 + arm64)
+    runs-on: ubuntu-latest
+    needs: [build-image]
+    # Main only, exactly like the old single-arch push: no `<sha>` or `main` tag from a PR, a
+    # develop push or a branch dispatch. A skipped publish on a main code push is red in
+    # server-ci-status (the #184 trap: no `<sha>` tag = every Deploy run skips while green).
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-image.result == 'success' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/nuimanlp/srisurart-pos-server
+    # No checkout, so `server/` does not exist.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: push <sha> and main as a two-arch manifest list
         # <sha> is what a deploy pins and what a rollback names; `main` is the convenience
         # tag that always points at the newest green commit. Pushed from this public repo
         # by GITHUB_TOKEN, the package is linked to it and public from the first push —
         # verified with an anonymous pull 2026-09-10 (07 §7); no manual visibility step.
+        # The index only points at the two images the legs pushed — nothing is rebuilt; a
+        # `docker pull` on mob04 (amd64) still gets the very image the amd64 leg tested.
+        run: >-
+          docker buildx imagetools create
+          -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:main"
+          "$IMAGE:$GITHUB_SHA-amd64" "$IMAGE:$GITHUB_SHA-arm64"
+
+      - name: assert <sha> and main hold linux/amd64 and linux/arm64
         run: |
-          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
-          docker push "$IMAGE:$GITHUB_SHA"
-          docker push "$IMAGE:main"
+          for ref in "$IMAGE:$GITHUB_SHA" "$IMAGE:main"; do
+            platforms=$(docker buildx imagetools inspect --raw "$ref" \
+              | jq -r '.manifests[]?.platform | "\(.os)/\(.architecture)"')
+            for want in linux/amd64 linux/arm64; do
+              if ! grep -qx "$want" <<<"$platforms"; then
+                echo "::error::$ref has no $want image (has: $(paste -sd' ' - <<<"$platforms"))"
+                exit 1
+              fi
+            done
+            echo "$ref: $(paste -sd' ' - <<<"$platforms")"
+          done
 
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, nginx-check]
+    needs: [changes, secrets, sast, lint, audit, unit, ci-guards, integration, build-image, publish-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -556,6 +879,7 @@ jobs:
             "${{ needs.ci-guards.result }}" \
             "${{ needs.integration.result }}" \
             "${{ needs.build-image.result }}" \
+            "${{ needs.publish-image.result }}" \
             "${{ needs.nginx-check.result }}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "::error::a required server job did not succeed: $result"
@@ -567,6 +891,11 @@ jobs:
             echo "::error::secret scan (gitleaks) did not succeed: ${{ needs.secrets.result }}"
             exit 1
           fi
+          # Same for SAST: never path-gated, so only `success` passes.
+          if [[ "${{ needs.sast.result }}" != "success" ]]; then
+            echo "::error::SAST (Semgrep) did not succeed: ${{ needs.sast.result }}"
+            exit 1
+          fi
           # On a push, `changes` must have classified it (true = code, false = docs only).
           if [[ "${{ github.event_name }}" == "push" && "${{ needs.changes.outputs.server }}" != "true" && "${{ needs.changes.outputs.server }}" != "false" ]]; then
             echo "::error::push was not classified by the changes job: '${{ needs.changes.outputs.server }}'"
@@ -574,7 +903,13 @@ jobs:
           fi
           # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
           # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
             echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
+            exit 1
+          fi
+          # Same for the multi-arch publish: without it `<sha>` never reaches GHCR, and every Deploy
+          # run skips while reporting success.
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.publish-image.result }}" != "success" ]]; then
+            echo "::error::publish-image did not run on a main push: ${{ needs.publish-image.result }}"
             exit 1
           fi

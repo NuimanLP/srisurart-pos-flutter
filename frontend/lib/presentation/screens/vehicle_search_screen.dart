@@ -99,6 +99,15 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
   void _copy(String partNo) {
     Clipboard.setData(ClipboardData(text: partNo));
+    // Say it worked — the button gave no sign before.
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('คัดลอกรหัส $partNo แล้ว'), // owner-ratified 2026-10-12
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   @override
@@ -154,7 +163,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 3),
           Text(
             'พิมพ์รุ่นรถเพื่อดูอะไหล่ที่ใช้ได้ทั้งหมด',
-            style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
+            style: TextStyle(fontSize: 14, color: AppColors.steelBlue),
           ),
         ],
       ),
@@ -169,12 +178,14 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         controller: _controller,
         autofocus: true,
         onChanged: (v) => setState(() => _query = v),
+        textInputAction: TextInputAction.search,
         style: const TextStyle(fontSize: 18),
         decoration: InputDecoration(
           hintText: 'เช่น Toyota Hilux, Honda Civic, Isuzu D-Max...',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _query.isNotEmpty
               ? IconButton(
+                  tooltip: 'ล้างคำค้นหา',
                   icon: const Icon(Icons.close, size: 18),
                   onPressed: () => _setQuery(''),
                 )
@@ -199,8 +210,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         'รุ่นยอดนิยม:',
         style: TextStyle(
           fontWeight: FontWeight.w700,
-          fontSize: 12,
-          letterSpacing: 1.2,
+          fontSize: 13,
           color: AppColors.steelBlue,
         ),
       ),
@@ -274,7 +284,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               v,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
-                fontSize: 13,
+                fontSize: 14,
                 color: active ? AppColors.orange : AppColors.steelBlue,
               ),
             ),
@@ -332,8 +342,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
               child: RichText(
+                textScaler: MediaQuery.textScalerOf(context),
                 text: TextSpan(
-                  style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
+                  style: TextStyle(fontSize: 14, color: AppColors.steelBlue),
                   children: [
                     const TextSpan(text: 'พบ '),
                     TextSpan(
@@ -420,10 +431,10 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         p.partNo,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          color: AppColors.gray400,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.orange,
                         ),
                       ),
                     ),
@@ -458,7 +469,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     child: Text(
                       stockLabel,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: stockColor,
                       ),
@@ -499,7 +510,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: catColor,
                     ),
@@ -510,7 +521,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               Expanded(
                 child: Text(
                   p.brand,
-                  style: TextStyle(fontSize: 12, color: AppColors.gray400),
+                  style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
                 ),
               ),
               OutlinedButton(
@@ -531,7 +542,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 ),
                 child: const Text(
                   '📋 คัดลอกรหัส',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 13),
                 ),
               ),
             ],
@@ -545,7 +556,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   /// inside [text] in an orange-tinted span.
   Widget _highlight(BuildContext context, String text, String q) {
     final baseStyle = TextStyle(
-      fontSize: 12,
+      fontSize: 13,
       height: 1.5,
       color: AppColors.steelBlue,
     );
@@ -567,6 +578,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     // readable in both themes.
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return RichText(
+      textScaler: MediaQuery.textScalerOf(context),
       text: TextSpan(
         style: baseStyle,
         children: [

@@ -1,10 +1,15 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { mkdir, rename, rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import type { Logger } from 'pino';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { DataSource, type EntityManager } from 'typeorm';
@@ -19,9 +24,19 @@ import {
 } from '../queue/queue.constants.js';
 import { AuditService } from './audit.service.js';
 import { buildTenantSnapshot } from '../backup/tenant-snapshot.js';
-import { preImportExportPath, writeExportFile } from '../backup/export-file.js';
+import { importZipPath, preImportExportPath } from '../backup/export-file.js';
+import {
+  forEachZipImage,
+  inspectSnapshotZip,
+  snapshotImageKeys,
+  writeExportZip,
+} from '../backup/snapshot-zip.js';
+import { LOGGER } from '../infra/logger.provider.js';
+import { processProductImage } from '../product-images/image-pipeline.js';
+import { productImages } from '../product-images/image-store.js';
 import { DOC_NUMBER_REGEX, DOC_PREFIX, type DocType } from '../documents/doc-number.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
+import { QR_PAYMENT_METHOD } from '../payment-accounts/payment-accounts.rules.js';
 import {
   describeBadDate,
   describeClamp,
@@ -29,7 +44,9 @@ import {
   planClampViolations,
   planBadIds,
   describeBadId,
+  describePaymentAccountViolation,
   planDuplicateDocNumbers,
+  planPaymentAccountViolations,
   planUnparseableDates,
 } from './snapshot-preflight.js';
 import { countTombstones, fieldId, planTombstones, TombstonePlan, TOMBSTONE_MARK } from './snapshot-tombstones.js';
@@ -60,6 +77,8 @@ export class SnapshotPayload {
   /** Parked bills: each element is the cart blob itself. */
   sa_parked?: Array<Record<string, unknown>>;
   sa_settings?: Record<string, unknown>;
+  /** QR payment accounts (contract §3), soft-deleted ones included; image as plain base64. */
+  sa_payment_accounts?: Array<Record<string, unknown>>;
   __meta?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -71,7 +90,10 @@ export interface ImportJobResult {
   droppedSuppliers: number;
   /** `replace`: the shop's data was deleted first (owner, `POST /backup/import?mode=replace`). */
   mode?: 'empty-only' | 'replace';
-  /** Rows deleted per table, replace mode only. */
+  /**
+   * Rows deleted per table: replace mode; in either mode `payment_accounts` only when the
+   * file's non-empty `sa_payment_accounts` replaced accounts the shop already had.
+   */
   deleted?: Record<string, number>;
   /** The copy of the replaced data, written before the delete (replace mode only). */
   preImportExport?: { file: string; sizeBytes: number; sha256: string };
@@ -83,6 +105,24 @@ export interface ImportJobResult {
    * later under that number would start its series at 0001 again.
    */
   docCounterSkippedDevices?: number[];
+  /**
+   * A ZIP import's images (contract §4): `imported` passed the sharp pipeline and were
+   * written; `missing` = keys products named that the ZIP had no image for; `rejected` = images
+   * sharp refused. A product whose image is missing or rejected imports with no image.
+   */
+  images?: ImportedImageCounts;
+}
+
+export interface ImportedImageCounts {
+  imported: number;
+  missing: number;
+  rejected: number;
+}
+
+/** A ZIP import's images, written before the transaction: file key → stored key. */
+interface ImportedImages {
+  keys: Map<string, string>;
+  counts: ImportedImageCounts;
 }
 
 export interface ImportJobStatus extends Partial<ImportJobResult> {
@@ -103,7 +143,10 @@ export type ImportRequester = { platformAdminId: string } | { userId: string };
 /**
  * Replace mode deletes, children first, everything the snapshot owns plus the review items
  * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
- * file's `sa_settings` overwrites it), idempotency_keys and doc_counters (see `writeSnapshot`).
+ * file's `sa_settings` overwrites it), payment_accounts (like settings: replaced only by a file
+ * whose `sa_payment_accounts` is non-empty, step 3.5c), idempotency_keys and doc_counters (see
+ * `writeSnapshot`), and sale_photos (10_SALE_PHOTO_EVIDENCE.md §0 C: no FK to `sales`, so a bill
+ * the file brings back under the same id finds its photos again).
  */
 const REPLACED_TABLES = [
   'owner_review_items',
@@ -203,6 +246,7 @@ export class TenantImportService {
     private readonly auditService: AuditService,
     private readonly cache: TenantCache,
     @InjectQueue(QUEUE_TENANT_IMPORT) private readonly importQueue: Queue,
+    @Optional() @Inject(LOGGER) private readonly logger?: Logger,
   ) {}
 
   // ── §9 step 2: pre-flight — reads the snapshot (+ one existence check), writes nothing ──
@@ -291,6 +335,15 @@ export class TenantImportService {
       throw new BadRequestException(`Pre-flight failed: values needing a clamp are refused instead — ${clampViolations.map(describeClamp).join('; ')}`);
     }
 
+    // QR payment accounts: judged by the API's own rules, and the shop-wide ones (one
+    // default, five active) — the table's CHECKs and default index would otherwise 500.
+    const accountViolations = planPaymentAccountViolations(snapshot);
+    if (accountViolations.length > 0) {
+      throw new BadRequestException(
+        `Pre-flight failed: invalid payment accounts — ${accountViolations.map(describePaymentAccountViolation).join('; ')}`,
+      );
+    }
+
     // #238: references to rows the shop hard-deleted become soft-deleted tombstones. A
     // reference no tombstone can be named for — or a credit note with no bill — is refused
     // here, with the ids, instead of dying on a foreign key mid-transaction as a 500.
@@ -343,6 +396,7 @@ export class TenantImportService {
     plan: Preflight,
     jobId?: string,
     replace = false,
+    images?: ImportedImages,
   ): Promise<ImportJobResult> {
     const { tombstones, tombstoneCounts, droppedSuppliers } = plan;
     const droppedSupplierIds = new Set(tombstones.droppedSuppliers);
@@ -352,6 +406,7 @@ export class TenantImportService {
       tombstones: tombstoneCounts,
       droppedSuppliers,
       mode: replace ? 'replace' : 'empty-only',
+      ...(images ? { images: images.counts } : {}),
     };
 
     await this.adminDs.transaction(async (manager) => {
@@ -369,11 +424,13 @@ export class TenantImportService {
         // Pre-flight's check ran before the job waited in the queue: repeat it here.
         await this.assertNoTransactions(manager, tenantId);
       } else {
-        // The shop's way back: its current data, in the export's own shape, before any DELETE.
+        // The shop's way back: its current data, in the export's own shape (the backup ZIP, its
+        // images included — their files are only removed after this transaction commits),
+        // before any DELETE.
         if (!jobId) throw new Error('replace mode needs an import job id');
         const { snapshot: before } = await buildTenantSnapshot(manager, tenantId);
         const file = preImportExportPath(tenantId, jobId);
-        const { sizeBytes, sha256 } = await writeExportFile(file, before);
+        const { sizeBytes, sha256 } = await writeExportZip(file, before, tenantId);
         result.preImportExport = { file, sizeBytes, sha256 };
 
         const deleted: Record<string, number> = {};
@@ -442,12 +499,15 @@ export class TenantImportService {
         // soft-deleted, not live. Pre-flight already refused an unparseable value.
         const deletedAtRaw = p.deletedAt ?? p.deleted_at;
         const deletedAt = deletedAtRaw != null ? parseDate(deletedAtRaw) : null;
+        // Contract §4: only an image this job wrote from the ZIP — re-encoded, so under its
+        // recomputed key. A legacy JSON import (or a key the ZIP lacks) gets none.
+        const imageKey = (typeof p.imageKey === 'string' && images?.keys.get(p.imageKey)) || null;
 
         await manager.query(
-          `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, updated_at, deleted_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, clock_timestamp(), $13)
+          `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, image_key, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, clock_timestamp(), $14)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
-          [tenantId, id, partNo, name, nameTh, category, brand, price, cost, stock, minStock, compat, deletedAt],
+          [tenantId, id, partNo, name, nameTh, category, brand, price, cost, stock, minStock, compat, imageKey, deletedAt],
         );
       }
 
@@ -562,6 +622,51 @@ export class TenantImportService {
         );
       }
 
+      // 3.5c QR payment accounts (contract §3), before the sales that name them. Treated like
+      // `settings`: only a file whose store is a NON-EMPTY array replaces the shop's accounts,
+      // in both modes. An absent or empty store (an older export, a shop that never set one
+      // up) keeps them — an import must not silently wipe the owner's QR setup. The delete is
+      // FK-safe: empty-only mode has no bill yet (checked above), replace mode already deleted
+      // `sales`. Pre-flight already validated every row.
+      const paymentAccountIds = new Set<string>();
+      const fileAccounts = Array.isArray(snapshot.sa_payment_accounts) ? snapshot.sa_payment_accounts : [];
+      if (fileAccounts.length > 0) {
+        const rows = await manager.query(
+          `WITH d AS (DELETE FROM payment_accounts WHERE tenant_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM d`,
+          [tenantId],
+        );
+        if (replace || rows[0].n > 0) result.deleted = { ...result.deleted, payment_accounts: rows[0].n };
+        for (const a of fileAccounts) {
+          const id = String(a.id);
+          const kind = String(a.kind);
+          const imageBase64 = a.imageBase64 ?? a.image_base64;
+          const deletedAtRaw = a.deletedAt ?? a.deleted_at;
+          const deletedAt = deletedAtRaw != null ? parseDate(deletedAtRaw) : null;
+          await manager.query(
+            `INSERT INTO payment_accounts
+               (tenant_id, id, nickname, bank_code, kind, promptpay_id, image, image_mime,
+                is_default, sort_order, created_at, updated_at, deleted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, clock_timestamp(), $12)`,
+            [
+              tenantId,
+              id,
+              String(a.nickname).trim(),
+              String(a.bankCode ?? a.bank_code),
+              kind,
+              kind === 'promptpay' ? String(a.promptpayId ?? a.promptpay_id) : null,
+              kind === 'image' ? Buffer.from(String(imageBase64), 'base64') : null,
+              kind === 'image' ? String(a.imageMime ?? a.image_mime) : null,
+              // A deleted row is never the default (`DELETE /payment-accounts/:id` clears it).
+              deletedAt === null && (a.isDefault ?? a.is_default) === true,
+              Number(a.sortOrder ?? a.sort_order ?? 0),
+              parseDate(a.createdAt ?? a.created_at),
+              deletedAt,
+            ],
+          );
+          paymentAccountIds.add(id);
+        }
+      }
+
       // 3.6 Sales & SaleItems. Pre-flight already refused a negative `pointsGranted` and any
       // line `qty` that was not a positive whole number (#239 item 3).
       const sales = snapshot.sa_sales || [];
@@ -581,15 +686,23 @@ export class TenantImportService {
         const date = parseDate(s.date);
         const voided = Boolean(s.voided);
         const voidedAt = s.voidedAt ? parseDate(s.voidedAt) : null;
+        // Contract §3: an account the file does not carry is NULL, as is an account on a
+        // bill that is not `โอน/QR` (the `ck_sales_payment_account_qr` CHECK) — the bill
+        // itself is never refused for it.
+        const accountRef = fieldId(s, 'paymentAccountId', 'payment_account_id');
+        const paymentAccountId =
+          accountRef !== null && paymentAccountIds.has(accountRef) && paymentMethod === QR_PAYMENT_METHOD
+            ? accountRef
+            : null;
 
         await manager.query(
-          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta, points_granted, date, voided, voided_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta, points_granted, date, voided, voided_at, payment_account_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [
             tenantId, id, receiptNo, subtotal, discount, total, paymentMethod,
             customerId, customerName, mechanicId, mechanicName, mechanicDelta,
-            pointsGranted, date, voided, voidedAt,
+            pointsGranted, date, voided, voidedAt, paymentAccountId,
           ],
         );
 
@@ -916,6 +1029,7 @@ export class TenantImportService {
           ...(result.preImportExport ? { preImportExport: result.preImportExport } : {}),
           docCounters: result.docCounters,
           ...(result.docCounterSkippedDevices ? { docCounterSkippedDevices: result.docCounterSkippedDevices } : {}),
+          ...(result.images ? { images: result.images } : {}),
         },
         ip,
       });
@@ -1026,9 +1140,36 @@ export class TenantImportService {
   // now runs pre-flight synchronously (fast: no write, one existence SELECT) so a bad file
   // still gets an immediate 400/409, then hands the write to a worker and answers 202.
 
-  /** `POST /platform/tenants/:id/import` — pre-flight, then enqueue. Never writes itself. */
-  async createJob(tenantId: string, snapshot: SnapshotPayload, adminId: string, ip: string | undefined): Promise<{ jobId: string }> {
-    return this.enqueue(tenantId, snapshot, { platformAdminId: adminId }, ip);
+  /**
+   * `POST /platform/tenants/:id/import` — pre-flight, then enqueue. Never writes itself.
+   * `zipFile`: the uploaded backup ZIP (`zip-upload.ts`) — its data.json replaces `snapshot`;
+   * the file is moved to the job or, on any refusal, deleted.
+   */
+  async createJob(
+    tenantId: string,
+    snapshot: SnapshotPayload,
+    adminId: string,
+    ip: string | undefined,
+    zipFile?: string,
+  ): Promise<{ jobId: string }> {
+    return this.withUpload(zipFile, () =>
+      this.enqueue(tenantId, snapshot, { platformAdminId: adminId }, ip, false, undefined, zipFile),
+    );
+  }
+
+  /** An uploaded ZIP a controller refused before handing it over. */
+  async discardUpload(zipFile: string | undefined): Promise<void> {
+    if (zipFile) await rm(zipFile, { force: true });
+  }
+
+  /** Runs `fn`; if it throws, the uploaded ZIP (if any, and not yet moved to its job) goes. */
+  private async withUpload<T>(zipFile: string | undefined, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (zipFile) await rm(zipFile, { force: true });
+      throw err;
+    }
   }
 
   /**
@@ -1043,6 +1184,21 @@ export class TenantImportService {
     ip: string | undefined,
     replace?: { confirmShopName: string },
     jobId?: string,
+    zipFile?: string,
+  ): Promise<{ jobId: string }> {
+    return this.withUpload(zipFile, () =>
+      this.createOwnerJobFrom(tenantId, snapshot, userId, ip, replace, jobId, zipFile),
+    );
+  }
+
+  private async createOwnerJobFrom(
+    tenantId: string,
+    snapshot: SnapshotPayload,
+    userId: string,
+    ip: string | undefined,
+    replace: { confirmShopName: string } | undefined,
+    jobId: string | undefined,
+    zipFile: string | undefined,
   ): Promise<{ jobId: string }> {
     if (replace) {
       assertValidTenantId(tenantId);
@@ -1060,7 +1216,7 @@ export class TenantImportService {
         });
       }
     }
-    return this.enqueue(tenantId, snapshot, { userId }, ip, Boolean(replace), jobId);
+    return this.enqueue(tenantId, snapshot, { userId }, ip, Boolean(replace), jobId, zipFile);
   }
 
   private async enqueue(
@@ -1070,8 +1226,14 @@ export class TenantImportService {
     ip: string | undefined,
     replace = false,
     requestedJobId?: string,
+    zipFile?: string,
   ): Promise<{ jobId: string }> {
     assertValidTenantId(tenantId);
+    if (zipFile) {
+      // Structure checked and data.json parsed here, so a bad ZIP is a 400 before any job
+      // exists; its images are only inflated by the worker.
+      snapshot = (await inspectSnapshotZip(zipFile)).snapshot as SnapshotPayload;
+    }
     await this.preflight(tenantId, snapshot, replace);
 
     // The owner's client names its job (a UUID it minted) so that, when the upload's reply is
@@ -1114,14 +1276,28 @@ export class TenantImportService {
       throw err;
     }
 
+    // Before the job is queued: the worker reads the images from here.
+    const dest = zipFile ? importZipPath(tenantId, jobId) : undefined;
+    if (zipFile && dest) {
+      await mkdir(dirname(dest), { recursive: true });
+      await rename(zipFile, dest);
+    }
+
     const payload: TenantImportJobPayload = {
       tenantId,
       correlationId: newUuid(),
       importJobId: jobId,
       ...('userId' in requester ? { requestedByUserId: requester.userId } : {}),
       ...(replace ? { replace: true } : {}),
+      ...(zipFile ? { zip: true } : {}),
     };
-    await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
+    try {
+      await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
+    } catch (err) {
+      // No worker will ever read the moved ZIP, and `withUpload` only knows its old path.
+      if (dest) await rm(dest, { force: true });
+      throw err;
+    }
     return { jobId };
   }
 
@@ -1144,6 +1320,7 @@ export class TenantImportService {
       status: row.status,
       ...(row.result ? { tombstones: row.result.tombstones, droppedSuppliers: row.result.droppedSuppliers } : {}),
       ...(row.result?.docCounterSkippedDevices ? { docCounterSkippedDevices: row.result.docCounterSkippedDevices } : {}),
+      ...(row.result?.images ? { images: row.result.images } : {}),
       ...(row.error ? { error: row.error } : {}),
     };
   }
@@ -1174,7 +1351,7 @@ export class TenantImportService {
    * business data (#239 review, issue 2) — there is no separate `markSucceeded` step, and so
    * no gap between "the import committed" and "the row says so" for a crash to land in.
    */
-  async processJob(jobId: string, requestedByUserId?: string, replace = false): Promise<ImportJobResult> {
+  async processJob(jobId: string, requestedByUserId?: string, replace = false, zip = false): Promise<ImportJobResult> {
     const rows = await this.adminDs.query(
       `SELECT tenant_id, payload, requested_by, ip, status, result FROM import_jobs WHERE id = $1`,
       [jobId],
@@ -1196,6 +1373,7 @@ export class TenantImportService {
       // re-running would import everything a second time against data that is already there.
       // The transaction that wrote the data already recorded success in the same commit; this
       // is that recorded result, not a re-derivation.
+      if (zip) await this.removeImportZip(row.tenant_id, jobId);
       return row.result as ImportJobResult;
     }
     if (!row.payload) {
@@ -1208,6 +1386,96 @@ export class TenantImportService {
     const requester: ImportRequester = requestedByUserId
       ? { userId: requestedByUserId }
       : { platformAdminId: row.requested_by ?? '' };
-    return this.writeSnapshot(row.tenant_id, row.payload, requester, row.ip ?? undefined, plan, jobId, replace);
+    // Files older than this that no product references once the import commits are the
+    // replaced data's (or a crashed attempt's) — the sweep below removes them.
+    const startedAt = Date.now();
+    const images = zip ? await this.importImages(row.tenant_id, jobId, row.payload) : undefined;
+    let result: ImportJobResult;
+    try {
+      result = await this.writeSnapshot(
+        row.tenant_id, row.payload, requester, row.ip ?? undefined, plan, jobId, replace, images,
+      );
+    } catch (err) {
+      // Never committed: this attempt's images are orphans unless another product names them.
+      if (images) await this.dropUnreferencedImages(row.tenant_id, [...new Set(images.keys.values())]);
+      throw err;
+    }
+    await this.sweepOrphanImages(row.tenant_id, startedAt);
+    if (zip) await this.removeImportZip(row.tenant_id, jobId);
+    return result;
+  }
+
+  /**
+   * Every image the snapshot's products name, read from the job's ZIP one at a time and put
+   * through the same sharp pipeline as an upload: re-encoded (thumbnail regenerated), key
+   * recomputed, both files written. Runs before the import transaction, so the transaction
+   * holds nothing across sharp. An image sharp refuses is counted and skipped (that product
+   * imports with no image); a ZIP that is itself broken fails the job.
+   */
+  private async importImages(tenantId: string, jobId: string, snapshot: SnapshotPayload): Promise<ImportedImages> {
+    const wanted = snapshotImageKeys(snapshot);
+    const keys = new Map<string, string>();
+    let rejected = 0;
+    await forEachZipImage(importZipPath(tenantId, jobId), wanted, async (fileKey, bytes) => {
+      let image;
+      try {
+        image = await processProductImage(bytes);
+      } catch (err) {
+        if (err instanceof HttpException) {
+          rejected++;
+          return;
+        }
+        throw err;
+      }
+      await productImages.writeImageFiles(tenantId, image.key, image);
+      keys.set(fileKey, image.key);
+    });
+    return { keys, counts: { imported: keys.size, missing: wanted.length - keys.size - rejected, rejected } };
+  }
+
+  /** `keys` whose files no product of the tenant references any more are removed. */
+  private async dropUnreferencedImages(tenantId: string, keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+    try {
+      const rows = (await this.adminDs.query(
+        `SELECT DISTINCT image_key FROM products WHERE tenant_id = $1 AND image_key = ANY($2::text[])`,
+        [tenantId, keys],
+      )) as Array<{ image_key: string }>;
+      const referenced = new Set(rows.map((r) => r.image_key));
+      for (const key of keys) if (!referenced.has(key)) await productImages.removeImageFiles(tenantId, key);
+    } catch (err) {
+      this.logger?.warn({ err, tenantId }, 'import: removing unreferenced product images failed');
+    }
+  }
+
+  /**
+   * After the import commits: every image file of the tenant that no product references and
+   * that predates this job is removed — a replace import's old images, or a crashed attempt's.
+   * The mtime bound spares a file a concurrent `PUT /products/:id/image` has just written but
+   * not yet committed. Best effort, logged. 🔴 Bound to the `product-images` store by name: the
+   * `sale-photos` volume (10_SALE_PHOTO_EVIDENCE.md §0 C) survives every import, rows and files.
+   */
+  private async sweepOrphanImages(tenantId: string, before: number): Promise<void> {
+    try {
+      const rows = (await this.adminDs.query(
+        `SELECT DISTINCT image_key FROM products WHERE tenant_id = $1 AND image_key IS NOT NULL`,
+        [tenantId],
+      )) as Array<{ image_key: string }>;
+      const referenced = new Set(rows.map((r) => r.image_key));
+      for (const [key, mtimeMs] of await productImages.listImageKeys(tenantId)) {
+        if (!referenced.has(key) && mtimeMs < before) await productImages.removeImageFiles(tenantId, key);
+      }
+    } catch (err) {
+      this.logger?.warn({ err, tenantId }, 'import: orphan product image sweep failed');
+    }
+  }
+
+  /** The job's uploaded ZIP, once the job has succeeded or failed for good. Best effort. */
+  async removeImportZip(tenantId: string, jobId: string): Promise<void> {
+    try {
+      await rm(importZipPath(tenantId, jobId), { force: true });
+    } catch (err) {
+      this.logger?.warn({ err, tenantId, jobId }, 'import: removing the uploaded ZIP failed');
+    }
   }
 }

@@ -13,6 +13,7 @@ import type { Request } from 'express';
 import { PlatformAuthGuard } from './platform-auth.guard.js';
 import { clientIp } from '../common/client-ip.js';
 import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
+import { zipUploadOf } from '../backup/zip-upload.js';
 import {
   SnapshotPayload,
   TenantImportService,
@@ -43,7 +44,8 @@ export class TenantImportController {
     @Req() req: AuthenticatedRequest,
   ) {
     const ip = clientIp(req) ?? undefined;
-    return this.importService.createJob(id, body, req.platformAdmin.id, ip);
+    // Legacy JSON in `body`, or the backup ZIP streamed to disk by `app.setup.ts` (contract §4).
+    return this.importService.createJob(id, body, req.platformAdmin.id, ip, zipUploadOf(req));
   }
 
   @Get(':id/import/:jobId')

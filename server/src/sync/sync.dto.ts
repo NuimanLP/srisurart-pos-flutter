@@ -12,7 +12,12 @@ import {
   type CustomerPatch,
 } from '../people/people.dto.js';
 import { parseCreateReturn, type CreateReturn } from '../returns/returns.dto.js';
-import { parseCreateSale, parseSaleQuoteId, type CreateSale } from '../sales/sales.dto.js';
+import {
+  parseCreateSale,
+  parseSaleQuoteId,
+  replayPaymentAccountId,
+  type CreateSale,
+} from '../sales/sales.dto.js';
 import {
   parseDrawerEntry,
   parseShiftOpen,
@@ -218,7 +223,12 @@ export function parseOpPayload(op: SyncOpDto): ParsedSyncOp {
           ...env,
           type: 'sale.create',
           deviceDate: deviceDateOf(p),
-          sale: parseCreateSale(p),
+          // The account never refuses a replay (contract §3): the online parser sees no
+          // `paymentAccountId`, and the lenient reading is put back on the parsed sale.
+          sale: {
+            ...parseCreateSale({ ...p, paymentAccountId: undefined }),
+            paymentAccountId: replayPaymentAccountId(p),
+          },
           quoteId: parseSaleQuoteId(p),
         };
       case 'return.create':

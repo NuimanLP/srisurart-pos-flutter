@@ -196,8 +196,16 @@ export class IdempotencyService {
    * The endpoint is deliberately NOT folded in — `idempotency_keys.request_hash` is
    * defined as the hash of the body (01_DATABASE.md §…) — so `claim` compares the
    * stored `endpoint` column separately.
+   *
+   * A raw body (`PUT /products/:id/image`, a Buffer) is hashed as its bytes — the same key
+   * against a different image is a different request. `JSON.stringify` of a Buffer would be
+   * a ~4× larger `{"type":"Buffer","data":[…]}` string for the same answer. The `raw:` prefix
+   * keeps the two encodings from ever sharing a digest.
    */
   static requestHash(body: unknown): string {
+    if (Buffer.isBuffer(body)) {
+      return createHash('sha256').update('raw:').update(body).digest('hex');
+    }
     return createHash('sha256')
       .update(JSON.stringify(body ?? null))
       .digest('hex');

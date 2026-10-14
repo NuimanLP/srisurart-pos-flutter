@@ -192,6 +192,19 @@ describe('parseOpPayload (#619)', () => {
     });
   });
 
+  it('sale.create: paymentAccountId never refuses the replay (contract §3)', () => {
+    const sale = (extra: Record<string, unknown>) => {
+      const parsed = parse('sale.create', extra);
+      if (parsed.type !== 'sale.create') throw new Error('not a sale');
+      return parsed.sale;
+    };
+    expect(sale({ paymentMethod: 'โอน/QR', paymentAccountId: testId('pa1') }).paymentAccountId).toBe(testId('pa1'));
+    // Online these are a 400; on the replay the id is dropped and the bill goes through.
+    expect(sale({ paymentMethod: 'เงินสด', paymentAccountId: testId('pa1') }).paymentAccountId).toBeNull();
+    expect(sale({ paymentMethod: 'โอน/QR', paymentAccountId: 'not-a-uuid' }).paymentAccountId).toBeNull();
+    expect(sale({}).paymentAccountId).toBeNull();
+  });
+
   it("answers an empty id as the online route does", () => {
     // `parseSaleParty`'s `requiredUuid`.
     expect(errorOf(() => parse('sale.create', { id: '' }))).toMatchObject({ message: 'id is required' });

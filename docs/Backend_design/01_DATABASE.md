@@ -8,8 +8,8 @@
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
 > พร้อมเพิ่มตารางที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant)
-> **ฐานข้อมูลจริงวันนี้มี 29 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23):
-> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6)
+> **ฐานข้อมูลจริงวันนี้มี 31 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23, +1 เมื่อ 2026-10-10, +1 เมื่อ 2026-10-12):
+> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8) + `sale_photos` (รูปหลักฐานตอนขาย, migration `1788652805200-SalePhotos` — DDL และกติกาอยู่ที่ [`10_SALE_PHOTO_EVIDENCE.md §5.1`](10_SALE_PHOTO_EVIDENCE.md): ไม่มี FK ไป `sales`, `pos_app` ได้แค่ `SELECT, INSERT`) · `products.image_key` (รูปสินค้า, §5.8, 2026-10-10) ไม่ใช่ตารางใหม่
 > — `change_log` **ไม่สร้าง** (เคาะ 2026-09-15, #191 — ดู §5.1)
 > `platform_admins` เพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
 >
@@ -500,6 +500,7 @@ CREATE TABLE products (
   stock      INT  NOT NULL CHECK (stock >= 0),      -- ⚠️ ดู §7.1 เรื่อง strict stock
   min_stock  INT  NOT NULL DEFAULT 0,
   compat     TEXT,                                   -- รุ่นรถที่ใส่ได้ (ค้นด้วย pg_trgm)
+  image_key  TEXT CHECK (image_key IS NULL OR image_key ~ '^[0-9a-f]{32}$'),  -- (migration 1788652805100, 2026-10-10) hash ของรูป — ดู §5.8
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,                            -- soft delete (จำเป็นสำหรับ sync)
   -- ⚠️ ห้ามใส่ FK ไป categories — ของเดิม "ลบหมวด" ไม่แตะ products.category
@@ -952,7 +953,66 @@ CREATE UNIQUE INDEX uq_owner_review_items_quote_conflict ON owner_review_items (
 CREATE UNIQUE INDEX uq_owner_review_items_drawer_overdrawn_offline ON owner_review_items (tenant_id, ref_id)
   WHERE kind = 'drawer_overdrawn_offline';
 -- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น (…4200 แทน tenant_isolation_policy ของ …3002) ดู §11
+
+-- (2026-10-10 บัญชีรับเงิน QR — เจ้าของร้านขอ, migration 1788652805000) บัญชีที่ลูกค้าสแกนจ่าย: PromptPay (QR ใส่ยอดเงิน) หรือรูป QR ที่อัปโหลด
+CREATE TABLE payment_accounts (
+  tenant_id     UUID NOT NULL REFERENCES tenants(id),
+  id            UUID NOT NULL,                 -- client สร้าง (UUIDv7)
+  nickname      TEXT NOT NULL,                 -- 1–40 ตัวหลัง trim (บังคับที่ service)
+  bank_code     TEXT NOT NULL,                 -- SCB/KBANK/…/OTHER (บังคับที่ service — payment-accounts.rules.ts)
+  kind          TEXT NOT NULL,
+  promptpay_id  TEXT,                          -- ตัวเลขล้วน: เบอร์ 10 หลัก / เลขบัตร-ภาษี 13 / e-wallet 15
+  image         BYTEA,                         -- ≤ 300 KB, magic bytes ตรง mime (บังคับที่ service)
+  image_mime    TEXT,
+  is_default    BOOLEAN NOT NULL DEFAULT false,
+  sort_order    INT NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at    TIMESTAMPTZ,                   -- soft delete เท่านั้น: บิลเก่ายังอ้างถึง ชื่อเล่นยังออกรายงานได้
+  CONSTRAINT pk_payment_accounts PRIMARY KEY (tenant_id, id),
+  CONSTRAINT ck_payment_accounts_kind CHECK (kind IN ('promptpay','image')),
+  CONSTRAINT ck_payment_accounts_promptpay CHECK (kind <> 'promptpay' OR (promptpay_id IS NOT NULL AND image IS NULL)),
+  CONSTRAINT ck_payment_accounts_image CHECK (kind <> 'image' OR (image IS NOT NULL AND image_mime IS NOT NULL AND promptpay_id IS NULL)),
+  CONSTRAINT ck_payment_accounts_promptpay_digits CHECK (promptpay_id IS NULL OR promptpay_id ~ '^[0-9]+$'),
+  CONSTRAINT ck_payment_accounts_image_mime CHECK (image_mime IS NULL OR image_mime IN ('image/png','image/jpeg'))
+);
+-- ค่าเริ่มต้นได้ไม่เกินหนึ่งบัญชีต่อร้าน (แถวที่ลบแล้วไม่นับ)
+CREATE UNIQUE INDEX uq_payment_accounts_default ON payment_accounts (tenant_id) WHERE is_default AND deleted_at IS NULL;
+CREATE INDEX idx_payment_accounts_active ON payment_accounts (tenant_id, sort_order, created_at) WHERE deleted_at IS NULL;
+-- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น · pos_app ได้ SELECT/INSERT/UPDATE/DELETE
+-- เพดาน 5 บัญชีที่ยังไม่ลบต่อร้าน: บังคับใน PaymentAccountsService ใต้ pg_advisory_xact_lock ต่อร้าน (ไม่ใช่ trigger)
+
+-- บิลบันทึกว่ารับเงินเข้าบัญชีไหน (…5000)
+ALTER TABLE sales ADD COLUMN payment_account_id UUID;
+ALTER TABLE sales ADD CONSTRAINT fk_sales_payment_account
+  FOREIGN KEY (tenant_id, payment_account_id) REFERENCES payment_accounts (tenant_id, id);   -- 🔴 ไม่มี ON DELETE เลย (แถวถูก soft delete เท่านั้น; SET NULL แบบไม่ระบุคอลัมน์จะ null tenant_id ด้วย — บั๊ก …3002)
+ALTER TABLE sales ADD CONSTRAINT ck_sales_payment_account_qr
+  CHECK (payment_account_id IS NULL OR payment_method = 'โอน/QR');
 ```
+
+> **บัญชีรับเงิน QR (2026-10-10):** `POST /sales` อ่าน `payment_accounts` แบบไม่ล็อก (แถวไม่เคยถูกลบจริง) —
+> FK ตอน insert บิลจับ `FOR KEY SHARE` บนแถวบัญชี หลังล็อกสินค้า/`doc_counters` ตามลำดับเดิม · ฝั่งแก้บัญชีใช้
+> advisory lock ต่อร้าน + `UPDATE` ที่ไม่แตะคอลัมน์ key (`FOR NO KEY UPDATE`) จึงไม่ขวางบิล · export (`sa_payment_accounts`,
+> รวมรูปและแถวที่ลบแล้ว) / import (pre-flight ตรวจกติกาเดียวกับ API, บัญชีที่ไฟล์ไม่มี → บิลได้ NULL) ·
+> import (ทั้งแบบร้านว่างและ replace) ถือ `payment_accounts` แบบเดียวกับ `settings`: **แทนที่บัญชีของร้านเฉพาะเมื่อไฟล์มี `sa_payment_accounts` ที่ไม่ว่าง** —
+> ไม่มี key นี้หรือเป็น `[]` = เก็บบัญชีเดิมของร้านไว้ (ไม่ลบ) และบิลในไฟล์ที่อ้างบัญชีที่ไฟล์ไม่มี → NULL ตามเดิม · การลบไม่ชน FK เพราะแบบร้านว่างยังไม่มีบิล และ replace ลบ `sales` ไปก่อนแล้ว (review 2026-10-10)
+
+```sql
+-- (2026-10-10 รูปสินค้า — เจ้าของร้านขอ, migration 1788652805100) หนึ่งรูปต่อสินค้า
+ALTER TABLE products ADD COLUMN image_key TEXT;
+ALTER TABLE products ADD CONSTRAINT ck_products_image_key
+  CHECK (image_key IS NULL OR image_key ~ '^[0-9a-f]{32}$');
+CREATE INDEX idx_products_image_key ON products (tenant_id, image_key) WHERE image_key IS NOT NULL;
+```
+
+> **รูปสินค้า (2026-10-10):** Postgres เก็บ**แค่ key** — 32 ตัวแรกของ sha256 ของไฟล์ preview — ไบต์ของรูปอยู่ใน
+> volume `product-images` (`<tenantId>/<imageKey>_t.webp` ≤ 256 px, `_p.webp` ≤ 1024 px) ที่ Nginx เสิร์ฟตรงที่
+> `/img/…` (`02_API_SCREENS.md §3.2`) · ตั้ง/ล้าง key = bump `updated_at` แบบเดิม จึงไปกับ keyset pull
+> (`imageKey` บน wire) โดยไม่มีกติกา cursor ใหม่ — เป็นแค่อีกช่องของสินค้า ฝั่ง client จึงไม่แตะ guard สต็อกของ outbox ·
+> ไฟล์ของ key เดิมถูกลบ**หลัง commit** และเฉพาะเมื่อไม่มีสินค้าใดของร้าน (รวมที่ soft delete) อ้าง key นั้น
+> (`idx_products_image_key` ทำให้ตรวจเป็น index probe) · `pg_dump` **ไม่มีรูป** — `deploy/scripts/backup-db.sh` เก็บ
+> volume เป็น `pos_images_<ts>.tar.gz` แยกต่างหาก · backup ของร้าน (export) เป็น `.zip` ที่มีรูป และ import
+> ทั้งสองทางคำนวณ key ใหม่จากรูปที่เข้ารหัสใหม่ (`02 §3.10`) · build ออฟไลน์ (Drift) ไม่มีรูป
 
 ---
 
@@ -967,6 +1027,7 @@ CREATE UNIQUE INDEX uq_owner_review_items_drawer_overdrawn_offline ON owner_revi
 | `products` | `idx_products_search` GIN **pg_trgm** (ไม่ใช่ full-text) | ช่องค้นหาหน้า Checkout & Vehicle Search — ใต้ RLS planner ยังไม่ใช้ (#16) |
 | `products` | partial `WHERE stock <= min_stock AND deleted_at IS NULL` | LowStockAlert + รายงานของใกล้หมด |
 | `products` | `(tenant_id, updated_at)` | keyset pull (ADR-0010) |
+| `products` | `idx_products_image_key` partial `(tenant_id, image_key) WHERE image_key IS NOT NULL` | ตรวจ "ยังมีสินค้าอ้างรูปนี้ไหม" ก่อนลบไฟล์ (2026-10-10) |
 | `customers` / `mechanics` | `(tenant_id, updated_at, id)` | keyset pull (ADR-0010) |
 | `sales` | `(tenant_id, date DESC)` | หน้า Reports, ปิดกะ, ประวัติบิล |
 | `sales` | `(tenant_id, receipt_no)` UNIQUE | หน้า Returns ค้นบิลด้วยเลขที่ |

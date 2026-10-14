@@ -7,13 +7,19 @@
 // "± ปรับ" adjust action (adjustStock clamps at 0 + writes a movement); the edit
 // form strips stock + partNo exactly like the JSX.
 
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/server_error_resolver.dart';
+import '../../core/router/app_router.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/supplier_name.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/products_repository.dart';
@@ -24,12 +30,20 @@ import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../../domain/reports/net_sales.dart'
     show NetSales, PaymentGroup, TopItem, toReportLites;
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
+import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/loading_view.dart';
+import '../widgets/product_image_editor.dart';
+import '../widgets/status_chip.dart';
+import '../widgets/supplier_groups.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
+import 'purchase_orders_screen.dart' show PoPrefill;
 import 'vehicle_search_screen.dart';
+
+part 'products_suppliers_tab.part.dart';
 
 class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
@@ -62,7 +76,9 @@ class _ProductsScreenState extends State<ProductsScreen>
     return showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(24),
+        insetPadding: EdgeInsets.all(
+          MediaQuery.sizeOf(ctx).width < AppBreakpoints.compact ? 8 : 24,
+        ),
         clipBehavior: Clip.antiAlias,
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -131,6 +147,25 @@ class _ProductsScreenState extends State<ProductsScreen>
                       ],
                     ),
                   ),
+                  // A phone keeps the tab strip readable: the vehicle search
+                  // shrinks to an icon (same action, label as tooltip).
+                  if (MediaQuery.sizeOf(context).width < AppBreakpoints.compact)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8, left: 4),
+                      child: IconButton.filledTonal(
+                        tooltip: 'ค้นหาตามรุ่นรถ',
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppColors.orange.withValues(
+                            alpha: 0.1,
+                          ),
+                          foregroundColor: AppColors.orange,
+                          minimumSize: const Size(48, 48),
+                        ),
+                        onPressed: () => _openVehicleSearch(context),
+                        icon: const Icon(Icons.directions_car, size: 22),
+                      ),
+                    )
+                  else
                   Padding(
                     padding: const EdgeInsets.only(right: 16, left: 8),
                     child: FilledButton.icon(
@@ -200,6 +235,7 @@ class _StockTabState extends State<_StockTab> {
   String _filterStatus = 'All'; // All | Low | Out
   bool _showCatMgr = false;
   final _newCatCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
 
   // Bulk delete (selection mode). Selection survives filter changes on
   // purpose, so the confirm dialog always lists EVERY selected item.
@@ -221,7 +257,21 @@ class _StockTabState extends State<_StockTab> {
   @override
   void dispose() {
     _newCatCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  bool get _hasFilter =>
+      _search.isNotEmpty || _filterCat != 'All' || _filterStatus != 'All';
+
+  /// Back to the full list: the same state as a fresh tab.
+  void _clearFilters() {
+    _searchCtrl.clear();
+    setState(() {
+      _search = '';
+      _filterCat = 'All';
+      _filterStatus = 'All';
+    });
   }
 
   Future<void> _load() async {
@@ -317,6 +367,8 @@ class _StockTabState extends State<_StockTab> {
         product: p,
         categories: _categories,
         onCategoriesChanged: _load,
+        // A picture change is saved on its own, even if the form is cancelled.
+        onImageChanged: _load,
       ),
     );
     if (saved == true) await _load();
@@ -539,10 +591,21 @@ class _StockTabState extends State<_StockTab> {
         final outCount = _products.where((p) => p.stock == 0).length;
         final filtered = _filtered;
 
-        return Column(
+        return LayoutBuilder(
+          builder: (context, viewport) => Column(
           children: [
-            // toolbar
-            Container(
+            // toolbar — on a short screen (e.g. whole-screen zoom) it wraps
+            // into many rows; keep 160px for the list and let it scroll.
+            // While selecting, the bulk bar takes up to 45% of that room.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: math.max(
+                  120.0,
+                  (viewport.maxHeight - 160) * (_selecting ? 0.55 : 1),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Container(
           width: double.infinity,
           color: theme.colorScheme.surface,
           padding: const EdgeInsets.all(16),
@@ -587,12 +650,38 @@ class _StockTabState extends State<_StockTab> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       SizedBox(
-                        width: 260,
+                        // Full width on a phone: the search is the main way
+                        // to find a part in a long list.
+                        width: viewport.maxWidth < AppBreakpoints.compact
+                            ? math.max(160, viewport.maxWidth - 32)
+                            : 300,
                         child: TextField(
+                          controller: _searchCtrl,
+                          textInputAction: TextInputAction.search,
                           decoration: InputDecoration(
                             isDense: true,
                             hintText: 'ค้นหา ชื่อ / รหัส…',
                             prefixIcon: const Icon(Icons.search, size: 20),
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_search.isNotEmpty)
+                                  IconButton(
+                                    tooltip: 'ล้างคำค้นหา',
+                                    icon: const Icon(Icons.close, size: 18),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      setState(() => _search = '');
+                                    },
+                                  ),
+                                BarcodeScanButton(
+                                  onScanned: (v) {
+                                    _searchCtrl.text = v;
+                                    setState(() => _search = v);
+                                  },
+                                ),
+                              ],
+                            ),
                             filled: true,
                             fillColor: theme.colorScheme.surfaceContainerLow,
                             border: OutlineInputBorder(
@@ -633,7 +722,12 @@ class _StockTabState extends State<_StockTab> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      FilledButton.icon(
+                      // The dialog starts with every product shown here.
+                      Tooltip(
+                        message:
+                            'เลือกสินค้าที่แสดงอยู่ไว้ให้ '
+                            '(${filtered.length} รายการ)',
+                        child: FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.navyMid,
                           foregroundColor: AppColors.white,
@@ -654,6 +748,7 @@ class _StockTabState extends State<_StockTab> {
                           'พิมพ์ป้าย',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
+                      ),
                       ),
                       OutlinedButton.icon(
                         key: const Key('bulk-delete-toggle'),
@@ -721,7 +816,10 @@ class _StockTabState extends State<_StockTab> {
                       foregroundColor: theme.colorScheme.secondary,
                     ),
                     onPressed: () => setState(() => _showCatMgr = !_showCatMgr),
-                    icon: const Icon(Icons.settings, size: 18),
+                    icon: Icon(
+                      _showCatMgr ? Icons.expand_less : Icons.settings,
+                      size: 18,
+                    ),
                     label: const Text(
                       'จัดการประเภท',
                       style: TextStyle(fontWeight: FontWeight.bold),
@@ -729,21 +827,76 @@ class _StockTabState extends State<_StockTab> {
                   ),
                 ],
               ),
+              // While any filter is on, say how much of the list is hidden
+              // and offer one tap back to everything.
+              if (_hasFilter) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'แสดง ${filtered.length} จาก ${_products.length} รายการ',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    TextButton.icon(
+                      key: const Key('products-clear-filters'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.orange,
+                      ),
+                      onPressed: _clearFilters,
+                      icon: const Icon(Icons.filter_alt_off, size: 18),
+                      label: const Text('ล้างตัวกรอง'),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
+              ),
+            ),
         if (_showCatMgr) _catManagerPanel(theme, isDegraded),
         // table
         Expanded(
           child: filtered.isEmpty
               ? Center(
-                  child: Text(
-                    'ไม่พบสินค้า',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.secondary,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 40,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'ไม่พบสินค้า',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                        if (_hasFilter) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'ลองค้นด้วยคำอื่น หรือกด "ล้างตัวกรอง"',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.secondary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 )
+              : viewport.maxWidth < AppBreakpoints.compact
+              ? _cardList(theme, filtered, isDegraded)
               : Container(
                   margin: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -779,8 +932,11 @@ class _StockTabState extends State<_StockTab> {
                                   : null,
                               dataRowMinHeight: 70,
                               dataRowMaxHeight: double.infinity,
-                              horizontalMargin: 24,
-                              columnSpacing: 28,
+                              // Tighter than before so the action buttons
+                              // fit a 1280-1366 px screen without a sideways
+                              // scroll.
+                              horizontalMargin: 16,
+                              columnSpacing: 20,
                               headingTextStyle: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: theme.colorScheme.onSurface,
@@ -807,7 +963,15 @@ class _StockTabState extends State<_StockTab> {
                                 DataColumn(label: Text('')),
                               ],
                               rows: filtered
-                                  .map((p) => _buildRow(p, isDegraded))
+                                  .map(
+                                    (p) => _buildRow(
+                                      p,
+                                      isDegraded,
+                                      // Icon-only actions below this width so
+                                      // they stay on screen (labels → tooltips).
+                                      compact: constraints.maxWidth < 1500,
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ),
@@ -817,20 +981,29 @@ class _StockTabState extends State<_StockTab> {
                   ),
                 ),
         ),
-        if (_selecting) _bulkBar(theme, filtered, isDegraded),
+        if (_selecting)
+          _bulkBar(
+            theme,
+            filtered,
+            isDegraded,
+            math.max(64.0, (viewport.maxHeight - 160) * 0.45),
+          ),
       ],
-    );
+          ),
+        );
       },
     );
   }
 
-  DataRow _buildRow(ProductRow p, bool isDegraded) {
+  (String, Color) _stockStatus(ProductRow p) => switch (stockLevel(p)) {
+    StockLevel.out => ('Out of Stock', AppColors.error),
+    StockLevel.low => ('Low Stock', AppColors.warning),
+    StockLevel.ok => ('In Stock', AppColors.successLight),
+  };
+
+  DataRow _buildRow(ProductRow p, bool isDegraded, {bool compact = false}) {
     final theme = Theme.of(context);
-    final (statusLabel, statusColor) = p.stock == 0
-        ? ('Out of Stock', AppColors.error)
-        : p.stock <= p.minStock
-        ? ('Low Stock', AppColors.warning)
-        : ('In Stock', AppColors.successLight);
+    final (statusLabel, statusColor) = _stockStatus(p);
     return DataRow(
       selected: _selecting && _selected.contains(p.id),
       onSelectChanged: _selecting && !_busy
@@ -848,7 +1021,10 @@ class _StockTabState extends State<_StockTab> {
           ),
         ),
         DataCell(
-          Padding(
+          // A long name wraps instead of pushing the actions off screen.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 240),
+            child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -872,6 +1048,7 @@ class _StockTabState extends State<_StockTab> {
                 ),
               ],
             ),
+          ),
           ),
         ),
         DataCell(
@@ -922,36 +1099,43 @@ class _StockTabState extends State<_StockTab> {
             style: TextStyle(color: theme.colorScheme.secondary),
           ),
         ),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: statusColor,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                statusLabel,
-                style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
+        DataCell(_statusPill(statusLabel, statusColor)),
         DataCell(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (compact) ...[
+                  IconButton(
+                    tooltip: 'ปรับสต็อก',
+                    icon: const Icon(Icons.sync_alt, size: 20),
+                    color: AppColors.successLight,
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppColors.successLight.withValues(
+                        alpha: 0.15,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: isDegraded || _busy
+                        ? null
+                        : () => _openAdjust(p),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'แก้ไข',
+                    icon: const Icon(Icons.edit, size: 20),
+                    style: IconButton.styleFrom(
+                      side: BorderSide(color: theme.dividerColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    onPressed: isDegraded || _busy ? null : () => _openEdit(p),
+                  ),
+                ] else ...[
                 FilledButton.tonalIcon(
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.successLight.withValues(
@@ -991,6 +1175,7 @@ class _StockTabState extends State<_StockTab> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
+                ],
                 const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'พิมพ์ป้าย',
@@ -1026,23 +1211,284 @@ class _StockTabState extends State<_StockTab> {
     );
   }
 
+  /// Stock status as a tinted pill — scannable down a long list.
+  Widget _statusPill(String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// Phone layout (< [AppBreakpoints.compact]): one card per product instead
+  /// of a nine-column table that only scrolls sideways. Same data, same
+  /// actions, same selection as the table rows.
+  Widget _cardList(
+    ThemeData theme,
+    List<ProductRow> filtered,
+    bool isDegraded,
+  ) {
+    return ListView.separated(
+      key: const Key('products-card-list'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+      itemCount: filtered.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, i) =>
+          _productCard(theme, filtered[i], isDegraded),
+    );
+  }
+
+  Widget _productCard(ThemeData theme, ProductRow p, bool isDegraded) {
+    final (statusLabel, statusColor) = _stockStatus(p);
+    final picked = _selecting && _selected.contains(p.id);
+    final canPick = _selecting && !_busy;
+    final catColor = _catColor(p.category);
+    return Material(
+      color: picked
+          ? AppColors.orange.withValues(alpha: 0.08)
+          : theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: picked
+              ? AppColors.orange
+              : theme.dividerColor.withValues(alpha: 0.3),
+          width: picked ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: canPick ? () => _toggleOne(p.id, !picked) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_selecting)
+                    Checkbox(
+                      value: picked,
+                      onChanged: canPick ? (on) => _toggleOne(p.id, on) : null,
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.partNo,
+                          style: const TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          p.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (p.nameTH.isNotEmpty && p.nameTH != p.name)
+                          Text(
+                            p.nameTH,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.secondary,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Stock is the number staff look for first.
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${p.stock}',
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 26,
+                          height: 1.1,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        'ขั้นต่ำ ${p.minStock}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.secondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: catColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      p.category,
+                      style: TextStyle(
+                        color: catColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  _statusPill(statusLabel, statusColor),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.end,
+                spacing: 12,
+                children: [
+                  Text(
+                    'ทุน ${baht(p.cost)}',
+                    style: TextStyle(
+                      color: theme.colorScheme.secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    baht(p.price),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                      color: AppColors.orange,
+                    ),
+                  ),
+                ],
+              ),
+              if (!_selecting) ...[
+                const Divider(height: 20),
+                // Text buttons wrap on the left; the two icon actions stay
+                // pinned right instead of dropping onto a line of their own.
+                Row(
+                  children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton.tonalIcon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.successLight.withValues(
+                                alpha: 0.15,
+                              ),
+                              foregroundColor: AppColors.successLight,
+                              minimumSize: const Size(0, 44),
+                            ),
+                            onPressed: isDegraded || _busy
+                                ? null
+                                : () => _openAdjust(p),
+                            icon: const Icon(Icons.sync_alt, size: 18),
+                            label: const Text(
+                              'ปรับสต็อก',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 44),
+                            ),
+                            onPressed: isDegraded || _busy
+                                ? null
+                                : () => _openEdit(p),
+                            icon: const Icon(Icons.edit, size: 18),
+                            label: const Text(
+                              'แก้ไข',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          ],
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: 'พิมพ์ป้าย',
+                      icon: const Icon(Icons.print_outlined, size: 20),
+                      color: theme.colorScheme.primary,
+                      onPressed: () => _printLabels(_products, [p.id]),
+                    ),
+                    IconButton(
+                      tooltip: 'ลบ',
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      color: AppColors.error,
+                      onPressed: isDegraded || _busy
+                          ? null
+                          : () => _delete(p),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Sticky bottom bar while selecting: count, select-all-of-filtered, clear,
   /// and the destructive action (disabled offline / in flight / empty).
   Widget _bulkBar(
     ThemeData theme,
     List<ProductRow> filtered,
     bool isDegraded,
+    double maxHeight,
   ) {
     final n = _selected.length;
     final visible = filtered.map((p) => p.id).toSet();
     final hidden = _selected.where((id) => !visible.contains(id)).length;
     final allFilteredOn =
         filtered.isNotEmpty && filtered.every((p) => _selected.contains(p.id));
-    return Material(
+    // On a phone the bar wraps to several rows; cap it so it never pushes
+    // the list off screen (it scrolls instead).
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Material(
       elevation: 8,
       color: theme.colorScheme.surface,
       child: SafeArea(
         top: false,
+        child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Wrap(
@@ -1106,6 +1552,8 @@ class _StockTabState extends State<_StockTab> {
             ],
           ),
         ),
+        ),
+      ),
       ),
     );
   }
@@ -1450,10 +1898,12 @@ class _ProductEditDialog extends StatefulWidget {
   final ProductRow? product; // null = new
   final List<String> categories;
   final Future<void> Function() onCategoriesChanged;
+  final Future<void> Function() onImageChanged;
   const _ProductEditDialog({
     required this.product,
     required this.categories,
     required this.onCategoriesChanged,
+    required this.onImageChanged,
   });
 
   @override
@@ -1478,6 +1928,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   late String _category;
 
   double _taxRate = 7;
+
+  /// บันทึก was pressed once: from then on a missing required field is
+  /// marked next to the field itself (the toast still says why).
+  bool _triedSave = false;
+
+  // owner-ratified 2026-10-12
+  static const _nameHint = 'กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง';
 
   @override
   void initState() {
@@ -1581,6 +2038,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   }
 
   Future<void> _save() async {
+    if (!_triedSave) setState(() => _triedSave = true);
     final partNo = _partNo.text.trim();
     final nameTH = _nameTH.text.trim();
     // Either name is enough; `products.name` is NOT NULL and the server refuses
@@ -1657,22 +2115,57 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final partNoMissing = _triedSave && _partNo.text.trim().isEmpty;
+    final nameMissing =
+        _triedSave && productNameOrThai(_name.text, _nameTH.text).isEmpty;
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.compact;
     return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: narrow ? 12 : 40,
+        vertical: 24,
+      ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _isNew ? 'เพิ่มสินค้าใหม่' : 'แก้ไขสินค้า',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+        // Title and the บันทึก / ยกเลิก buttons stay put; only the form
+        // scrolls, so saving never needs a scroll to the bottom.
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 12, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    _isNew ? Icons.add_box_outlined : Icons.edit_note,
+                    color: AppColors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _isNew ? 'เพิ่มสินค้าใหม่' : 'แก้ไขสินค้า',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+              // The picture of an existing product (API build only).
+              if (!_isNew)
+                ProductImageEditor(
+                  product: widget.product!,
+                  onChanged: () => widget.onImageChanged(),
+                ),
               // Two columns that fill the dialog (one below 560 px): each
               // field used to be capped at 300 px, and 2 × 300 + 16 never fit
               // the 612 px content width, so every field sat alone on half a
@@ -1687,23 +2180,63 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                     runSpacing: 20,
                     children: [
                       SizedBox(
-                        width: w,
+                        width: c.maxWidth,
+                        child: _sectionTitle('ข้อมูลสินค้า'), // owner-ratified 2026-10-12
+                      ),
+                      SizedBox(
+                        width: c.maxWidth,
                         child: _field(
                           'รหัสสินค้า',
                           _partNo,
                           enabled: _isNew,
+                          required: _isNew,
+                          error: partNoMissing ? 'จำเป็นต้องกรอก' : null,
                           hint: _isNew
                               ? null
                               : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
                         ),
                       ),
+                      // Either name is enough, so the pair is marked once.
                       SizedBox(
-                        width: w,
-                        child: _field('ชื่อ (EN)', _name),
+                        width: c.maxWidth,
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: '* ',
+                                style: TextStyle(
+                                  color: AppColors.error,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              TextSpan(text: _nameHint),
+                            ],
+                          ),
+                          key: const Key('product-name-pair-label'),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: nameMissing
+                                ? AppColors.error
+                                : theme.colorScheme.secondary,
+                            fontWeight: nameMissing ? FontWeight.w700 : null,
+                          ),
+                        ),
                       ),
                       SizedBox(
                         width: w,
-                        child: _field('ชื่อ (TH)', _nameTH),
+                        child: _field(
+                          'ชื่อ (EN)',
+                          _name,
+                          // Red border only; the line above says why.
+                          error: nameMissing ? '' : null,
+                        ),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field(
+                          'ชื่อ (TH)',
+                          _nameTH,
+                          error: nameMissing ? '' : null,
+                        ),
                       ),
                       SizedBox(
                         width: w,
@@ -1714,8 +2247,17 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                         child: _categoryField(theme),
                       ),
                       SizedBox(
-                        width: w,
-                        child: _field('ใช้กับรถรุ่น', _compat),
+                        width: c.maxWidth,
+                        child: _field(
+                          'ใช้กับรถรุ่น',
+                          _compat,
+                          // owner-ratified 2026-10-12 — the vehicle search reads this text.
+                          hint: 'เช่น Toyota Hilux 2015-2020, Isuzu D-Max',
+                        ),
+                      ),
+                      SizedBox(
+                        width: c.maxWidth,
+                        child: _sectionTitle('จำนวนในคลัง'), // owner-ratified 2026-10-12
                       ),
                       SizedBox(
                         width: w,
@@ -1739,28 +2281,50 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
               ),
               const SizedBox(height: 16),
               _priceCalcBox(theme),
-              const SizedBox(height: 16),
-              Row(
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                    ),
                     onPressed: () => Navigator.of(context).pop(false),
                     child: const Text('ยกเลิก'),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton(
+                  FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.orange,
                       foregroundColor: AppColors.white,
+                      minimumSize: const Size(0, 48),
                     ),
                     onPressed: _save,
-                    child: const Text('บันทึก'),
+                    icon: const Icon(Icons.check, size: 20),
+                    label: const Text('บันทึก'),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    final theme = Theme.of(context);
+    return Text(
+      text,
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+        color: theme.colorScheme.primary,
       ),
     );
   }
@@ -1770,13 +2334,31 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     TextEditingController ctrl, {
     bool enabled = true,
     bool numeric = false,
+    bool required = false,
     String? hint,
+    String? error,
   }) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
+        Text.rich(
+          TextSpan(
+            text: label,
+            children: [
+              if (required)
+                const TextSpan(
+                  text: ' *',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+            ],
+          ),
+          style: theme.textTheme.labelMedium,
+        ),
         const SizedBox(height: 4),
         TextField(
           controller: ctrl,
@@ -1784,11 +2366,15 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
           keyboardType: numeric
               ? const TextInputType.numberWithOptions(decimal: true)
               : null,
+          // Re-check the marked fields as the user fixes them.
+          onChanged: _triedSave ? (_) => setState(() {}) : null,
           decoration: InputDecoration(
             isDense: true,
             border: const OutlineInputBorder(),
             helperText: hint,
             helperMaxLines: 2,
+            errorText: error,
+            errorMaxLines: 2,
           ),
         ),
       ],
@@ -2068,6 +2654,19 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
     super.dispose();
   }
 
+  /// A quick-step button: adds [n] to what is typed (blank counts as 0) and
+  /// writes it back with its sign, exactly as if the user had typed it.
+  void _bump(int n) {
+    final next = (int.tryParse(_delta.text) ?? 0) + n;
+    final text = next > 0 ? '+$next' : '$next';
+    setState(() {
+      _delta.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
+  }
+
   Future<void> _save() async {
     final d = int.tryParse(_delta.text);
     if (d == null) return;
@@ -2099,7 +2698,8 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
     return Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400),
-        child: Padding(
+        // Scrolls under whole-screen zoom instead of overflowing.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2171,6 +2771,9 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
               const SizedBox(height: 4),
               TextField(
                 controller: _delta,
+                // Not on a phone: the keyboard would cover the ± steps.
+                autofocus:
+                    MediaQuery.sizeOf(context).width >= AppBreakpoints.compact,
                 keyboardType: const TextInputType.numberWithOptions(
                   signed: true,
                 ),
@@ -2182,6 +2785,34 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                   border: OutlineInputBorder(),
                 ),
                 onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 8),
+              // Big ± steps: no need to type a minus sign on a phone keypad.
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final n in const [-10, -5, -1, 1, 5, 10])
+                    OutlinedButton(
+                      key: Key('adjust-step-$n'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(52, 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        foregroundColor: n < 0
+                            ? AppColors.error
+                            : AppColors.successLight,
+                      ),
+                      onPressed: () => _bump(n),
+                      child: Text(
+                        n > 0 ? '+$n' : '$n',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               Text('หมายเหตุ', style: theme.textTheme.labelMedium),
@@ -2209,23 +2840,43 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'สต็อกหลังปรับ',
-                        style: TextStyle(color: theme.colorScheme.secondary),
+                      Flexible(
+                        child: Text(
+                          'สต็อกหลังปรับ',
+                          style: TextStyle(color: theme.colorScheme.secondary),
+                        ),
                       ),
-                      Text(
-                        '$after',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: after <= p.minStock
-                              ? AppColors.warning
-                              : AppColors.successLight,
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '${p.stock} → $after',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: after <= p.minStock
+                                  ? AppColors.warning
+                                  : AppColors.successLight,
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
+                // The store clamps a manual cut at 0 — say so before saving.
+                if (d != null && p.stock + d < 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'ลดได้มากสุด ${p.stock} ชิ้น — สต็อกจะเหลือ 0', // owner-ratified 2026-10-12
+                      style: const TextStyle(
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
               ],
               const SizedBox(height: 16),
               Row(
@@ -2241,7 +2892,9 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                       backgroundColor: AppColors.orange,
                       foregroundColor: AppColors.white,
                     ),
-                    onPressed: _save,
+                    // Nothing to save until a whole number is typed (_save
+                    // would return early anyway).
+                    onPressed: d == null ? null : _save,
                     child: const Text('บันทึก'),
                   ),
                 ],
@@ -2333,8 +2986,25 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
     final garage = _calc(_garage.text);
     final taxN = _taxLabel;
 
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.compact;
+    // Side by side on a tablet/PC; one under the other on a phone, where two
+    // half-width money boxes are too narrow to read.
+    Widget pair(Widget a, Widget b, {double gap = 16}) => narrow
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [a, SizedBox(height: gap), b],
+          )
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: a),
+              SizedBox(width: gap),
+              Expanded(child: b),
+            ],
+          );
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(narrow ? 16 : 28),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 820),
@@ -2355,12 +3025,9 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
                 ),
               ),
               const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(child: _bigInput('ราคาทุน (Cost) ฿', _cost)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _bigInput('ค่าขนส่ง (Freight) ฿', _freight)),
-                ],
+              pair(
+                _bigInput('ราคาทุน (Cost) ฿', _cost),
+                _bigInput('ค่าขนส่ง (Freight) ฿', _freight),
               ),
               if (_cost.text.isNotEmpty || _freight.text.isNotEmpty) ...[
                 const SizedBox(height: 20),
@@ -2399,49 +3066,23 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
                 ),
               ],
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _bigInput(
-                      'ราคาขาย ลูกค้าทั่วไป (Retail) ฿',
-                      _retail,
-                      accent: retail == null
-                          ? null
-                          : _marginColor(retail.margin),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _bigInput(
-                      'ราคาขาย ช่าง/อู่ (Garage) ฿',
-                      _garage,
-                      accent: garage == null
-                          ? null
-                          : _marginColor(garage.margin),
-                    ),
-                  ),
-                ],
+              pair(
+                _bigInput(
+                  'ราคาขาย ลูกค้าทั่วไป (Retail) ฿',
+                  _retail,
+                  accent: retail == null ? null : _marginColor(retail.margin),
+                ),
+                _bigInput(
+                  'ราคาขาย ช่าง/อู่ (Garage) ฿',
+                  _garage,
+                  accent: garage == null ? null : _marginColor(garage.margin),
+                ),
               ),
               const SizedBox(height: 20),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _resultCard(
-                      '👤 ลูกค้าทั่วไป · Retail',
-                      retail,
-                      _retail.text,
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: _resultCard(
-                      '🔧 ช่าง/อู่ · Garage',
-                      garage,
-                      _garage.text,
-                    ),
-                  ),
-                ],
+              pair(
+                _resultCard('👤 ลูกค้าทั่วไป · Retail', retail, _retail.text),
+                _resultCard('🔧 ช่าง/อู่ · Garage', garage, _garage.text),
+                gap: 20,
               ),
               const SizedBox(height: 20),
               _formulaNote(theme, retail, taxN),
@@ -2515,12 +3156,16 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            baht(sell),
-            style: const TextStyle(
-              fontSize: 42,
-              fontWeight: FontWeight.w800,
-              height: 1,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              baht(sell),
+              style: const TextStyle(
+                fontSize: 42,
+                fontWeight: FontWeight.w800,
+                height: 1,
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -2653,571 +3298,6 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SUPPLIERS TAB
-// ─────────────────────────────────────────────────────────────────────────────
-class _SuppliersTab extends StatefulWidget {
-  const _SuppliersTab();
-  @override
-  State<_SuppliersTab> createState() => _SuppliersTabState();
-}
-
-class _SuppliersTabState extends State<_SuppliersTab> {
-  List<ProductRow> _products = [];
-  List<SupplierRow> _suppliers = [];
-  String _selectedId = '';
-  bool _loading = true;
-  bool _adding = false;
-
-  final _name = TextEditingController();
-  final _unitCost = TextEditingController();
-  final _freight = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _unitCost.dispose();
-    _freight.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final productsRepo = context.read<ProductsRepository>();
-    final suppliersRepo = context.read<SuppliersRepository>();
-    // Started together: each may wait on the network (API build).
-    final productsF = productsRepo.getAll();
-    final suppliersF = suppliersRepo.getSuppliers();
-    final products = await productsF;
-    final suppliers = await suppliersF;
-    if (!mounted) return;
-    setState(() {
-      _products = products;
-      _suppliers = suppliers;
-      if (_selectedId.isEmpty && products.isNotEmpty) {
-        _selectedId = products.first.id;
-      }
-      _loading = false;
-    });
-  }
-
-  Future<void> _refreshSuppliers() async {
-    final suppliers = await context.read<SuppliersRepository>().getSuppliers();
-    if (!mounted) return;
-    setState(() => _suppliers = suppliers);
-  }
-
-  Future<void> _add() async {
-    if (context.isDegraded) {
-      _showSupplierDegradedWarning();
-      return;
-    }
-    if (_name.text.isEmpty) return;
-    try {
-      await context.read<SuppliersRepository>().addSupplier(
-        productId: _selectedId,
-        name: _name.text,
-        unitCost: double.tryParse(_unitCost.text) ?? 0,
-        freight: double.tryParse(_freight.text) ?? 0,
-      );
-    } catch (e) {
-      _showSupplierError(e);
-      return;
-    }
-    _name.clear();
-    _unitCost.clear();
-    _freight.clear();
-    setState(() => _adding = false);
-    await _refreshSuppliers();
-  }
-
-  Future<void> _delete(String id) async {
-    if (context.isDegraded) {
-      _showSupplierDegradedWarning();
-      return;
-    }
-    try {
-      await context.read<SuppliersRepository>().deleteSupplier(id);
-    } catch (e) {
-      _showSupplierError(e);
-      return;
-    }
-    await _refreshSuppliers();
-  }
-
-  void _showSupplierError(Object e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
-    );
-  }
-
-  void _showSupplierDegradedWarning() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับซัพพลายเออร์ได้'),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const LoadingView();
-    return SyncStatusBuilder(
-      builder: (context, status, isDegraded) {
-        final theme = Theme.of(context);
-        final selected = _products.where((p) => p.id == _selectedId).firstOrNull;
-        final prodSuppliers =
-            _suppliers.where((s) => s.productId == _selectedId).toList()..sort(
-              (a, b) => (a.unitCost + a.freight).compareTo(b.unitCost + b.freight),
-            );
-        final minTotal = prodSuppliers.isEmpty
-            ? null
-            : prodSuppliers
-                  .map((s) => s.unitCost + s.freight)
-                  .reduce((a, b) => a < b ? a : b);
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // product list
-            Container(
-          width: 260,
-          color: theme.colorScheme.surfaceContainerLow,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  'เลือกสินค้า',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.secondary,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _products.length,
-                  itemBuilder: (ctx, i) {
-                    final p = _products[i];
-                    final active = p.id == _selectedId;
-                    final count = _suppliers
-                        .where((s) => s.productId == p.id)
-                        .length;
-                    return InkWell(
-                      onTap: () => setState(() {
-                        _selectedId = p.id;
-                        _adding = false;
-                      }),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: active
-                              ? theme.colorScheme.surfaceContainerHighest
-                              : null,
-                          border: Border(
-                            left: BorderSide(
-                              color: active
-                                  ? AppColors.orange
-                                  : Colors.transparent,
-                              width: 3,
-                            ),
-                            bottom: BorderSide(color: theme.dividerColor),
-                          ),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              p.partNo,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.orange,
-                              ),
-                            ),
-                            Text(
-                              '$count ซัพฯ',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.secondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // detail
-        Expanded(
-          child: selected == null
-              ? const SizedBox.shrink()
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  selected.name,
-                                  style: theme.textTheme.headlineSmall
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                                Text(
-                                  selected.partNo,
-                                  style: const TextStyle(
-                                    color: AppColors.orange,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.orange,
-                              foregroundColor: AppColors.white,
-                            ),
-                            onPressed: isDegraded
-                                ? null
-                                : () => setState(() => _adding = true),
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('เพิ่มซัพฯ'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      if (prodSuppliers.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 40),
-                          child: Center(
-                            child: Text(
-                              'ยังไม่มีซัพพลายเออร์สำหรับสินค้านี้',
-                              style: TextStyle(
-                                color: theme.colorScheme.secondary,
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        _supplierTable(theme, prodSuppliers, minTotal, isDegraded),
-                      if (_adding) ...[
-                        const SizedBox(height: 20),
-                        _addForm(theme, isDegraded),
-                      ],
-                    ],
-                  ),
-                ),
-        ),
-      ],
-    );
-      },
-    );
-  }
-
-  Widget _supplierTable(
-    ThemeData theme,
-    List<SupplierRow> rows,
-    double? minTotal,
-    bool isDegraded,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: constraints.maxWidth),
-              child: DataTable(
-                dataRowMinHeight: 70,
-                dataRowMaxHeight: double.infinity,
-                horizontalMargin: 24,
-                columnSpacing: 32,
-                headingTextStyle: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                  fontSize: 14,
-                ),
-                columns: const [
-                  DataColumn(label: Text('ชื่อซัพพลายเออร์')),
-                  DataColumn(label: Text('ทุน/ชิ้น'), numeric: true),
-                  DataColumn(label: Text('ค่าส่ง'), numeric: true),
-                  DataColumn(label: Text('รวม'), numeric: true),
-                  DataColumn(label: Text('จัดการ')),
-                ],
-                rows: rows.map((s) {
-                  final total = s.unitCost + s.freight;
-                  final isMin = total == minTotal;
-                  return DataRow(
-                    color: WidgetStateProperty.resolveWith((states) {
-                      return isMin
-                          ? AppColors.forestGreen.withValues(alpha: 0.05)
-                          : null;
-                    }),
-                    cells: [
-                      DataCell(
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                s.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              if (isMin) ...[
-                                const SizedBox(height: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.forestGreen,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    '✓ ราคาถูกสุด',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          baht(s.unitCost),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          baht(s.freight),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          baht(total),
-                          style: TextStyle(
-                            fontWeight: isMin
-                                ? FontWeight.w900
-                                : FontWeight.w700,
-                            fontSize: isMin ? 20 : 15,
-                            color: isMin
-                                ? AppColors.successLight
-                                : theme.colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: IconButton(
-                            tooltip: 'ลบ',
-                            icon: const Icon(Icons.delete_outline, size: 20),
-                            color: AppColors.error,
-                            style: IconButton.styleFrom(
-                              backgroundColor: AppColors.error.withValues(
-                                alpha: 0.1,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            onPressed: isDegraded ? null : () => _delete(s.id),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _addForm(ThemeData theme, bool isDegraded) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border.all(color: AppColors.orange.withValues(alpha: 0.5)),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.orange.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.add_business, color: AppColors.orange),
-              const SizedBox(width: 8),
-              Text(
-                'เพิ่มซัพพลายเออร์ใหม่',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.orange,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              Container(
-                constraints: const BoxConstraints(minWidth: 200, maxWidth: 300),
-                child: _formField('ชื่อซัพพลายเออร์', _name),
-              ),
-              Container(
-                constraints: const BoxConstraints(minWidth: 120, maxWidth: 160),
-                child: _formField('ราคาต่อชิ้น ฿', _unitCost, numeric: true),
-              ),
-              Container(
-                constraints: const BoxConstraints(minWidth: 120, maxWidth: 160),
-                child: _formField('ค่าส่ง ฿', _freight, numeric: true),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () => setState(() => _adding = false),
-                child: const Text(
-                  'ยกเลิก',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                ),
-                onPressed: isDegraded ? null : _add,
-                child: const Text(
-                  'บันทึก',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _formField(
-    String label,
-    TextEditingController ctrl, {
-    bool numeric = false,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: ctrl,
-          keyboardType: numeric
-              ? const TextInputType.numberWithOptions(decimal: true)
-              : null,
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
-            hintText: numeric ? '0' : '',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: AppColors.orange, width: 2),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // INVENTORY REPORTS TAB
 // ─────────────────────────────────────────────────────────────────────────────
 class _InvReportTab extends StatefulWidget {
@@ -3279,7 +3359,10 @@ class _InvReportTabState extends State<_InvReportTab> {
         Container(
           color: theme.colorScheme.surfaceContainerLow,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
+          // Four sub-tabs don't fit a phone row; scroll sideways instead.
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
             children: sub.map((s) {
               final active = _subTab == s[0];
               return Padding(
@@ -3289,6 +3372,10 @@ class _InvReportTabState extends State<_InvReportTab> {
                     foregroundColor: active
                         ? AppColors.orange
                         : theme.colorScheme.secondary,
+                    backgroundColor: active
+                        ? AppColors.orange.withValues(alpha: 0.1)
+                        : null,
+                    minimumSize: const Size(0, 44),
                   ),
                   onPressed: () => setState(() => _subTab = s[0]),
                   child: Text(
@@ -3301,10 +3388,15 @@ class _InvReportTabState extends State<_InvReportTab> {
               );
             }).toList(),
           ),
+          ),
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(
+              MediaQuery.sizeOf(context).width < AppBreakpoints.compact
+                  ? 16
+                  : 24,
+            ),
             child: _buildSub(theme),
           ),
         ),
@@ -3820,12 +3912,17 @@ class _InvReportTabState extends State<_InvReportTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: color,
+          // Shrinks to fit a third of a phone row instead of wrapping digits.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ),
           Text(
@@ -3862,12 +3959,16 @@ class _InvReportTabState extends State<_InvReportTab> {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            baht(sum),
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: color,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              baht(sum),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ),
           Text(

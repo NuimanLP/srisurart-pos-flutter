@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../data/storage/token_storage.dart';
@@ -240,6 +241,7 @@ class ApiClient {
     Uri uri, {
     Map<String, String>? headers,
     String? body,
+    List<int>? bodyBytes,
     required Future<void> abortTrigger,
   }) async {
     final request = http.AbortableRequest(method, uri, abortTrigger: abortTrigger);
@@ -248,9 +250,63 @@ class ApiClient {
     }
     if (body != null) {
       request.body = body;
+    } else if (bodyBytes != null) {
+      request.bodyBytes = bodyBytes;
     }
     final streamed = await _client.send(request);
     return http.Response.fromStream(streamed);
+  }
+
+  /// [bytes] as the raw request body under [contentType] (an image, a backup
+  /// `.zip`) — not JSON-encoded. Same envelope, refresh, timeout and error
+  /// handling as [post]; [timeout] defaults to [writeTimeout].
+  Future<dynamic> sendBytes(
+    String method,
+    String path,
+    List<int> bytes, {
+    required String contentType,
+    Map<String, String>? headers,
+    Map<String, dynamic>? queryParameters,
+    Duration? timeout,
+  }) {
+    return _sendWithRetry(
+      (abortTrigger, session) async {
+        final h = await _buildHeaders(
+          extraHeaders: {...?headers, 'Content-Type': contentType},
+          session: session,
+        );
+        return _sendAbortable(
+          method,
+          _buildUri(path, queryParameters),
+          headers: h,
+          bodyBytes: bytes,
+          abortTrigger: abortTrigger,
+        );
+      },
+      path: path,
+      skipAuth: false,
+      timeout: timeout ?? writeTimeout,
+    );
+  }
+
+  /// A `GET` whose 2xx body is a file (a backup `.zip`), returned as bytes.
+  /// A non-2xx is the usual [ApiException]. [timeout] defaults to [readTimeout].
+  Future<Uint8List> getBytes(String path, {Duration? timeout}) async {
+    final response = await _executeWithRetry(
+      (abortTrigger, session) async => _sendAbortable(
+        'GET',
+        _buildUri(path),
+        headers: await _buildHeaders(session: session),
+        abortTrigger: abortTrigger,
+      ),
+      path: path,
+      skipAuth: false,
+      timeout: timeout ?? readTimeout,
+    );
+    final status = response.statusCode;
+    if (status >= 200 && status < 300) return response.bodyBytes;
+    _handleResponse(response);
+    throw ApiException(statusCode: status, code: '');
   }
 
   Future<dynamic> _send(

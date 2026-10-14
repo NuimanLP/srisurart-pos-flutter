@@ -19,9 +19,15 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/sale_photos_repository.dart';
+import '../repositories/repository_providers.dart';
+import 'sale_photo_sheet.dart';
+import '../../data/sync/sync_facade.dart';
+import 'sync_status_builder.dart';
 import 'thai_format.dart';
 
 /// One line on the receipt. Mirrors the JS sale.items[i] fields the receipt reads.
@@ -66,7 +72,7 @@ class ReceiptData {
 /// True when an optional labelled value has something to print (null/blank → hide the line).
 bool _filled(String? v) => (v ?? '').trim().isNotEmpty;
 
-const _divider ='- - - - - - - - - - - - - - - - - - - - ';
+const _divider = '- - - - - - - - - - - - - - - - - - - - ';
 
 /// Shows the receipt modal. Returns when the user closes it.
 Future<void> showReceiptDialog(BuildContext context, ReceiptData data) {
@@ -76,9 +82,233 @@ Future<void> showReceiptDialog(BuildContext context, ReceiptData data) {
     builder: (ctx) => Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
-      child: ReceiptView(data: data),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SaleDoneBanner(data: data),
+            const SizedBox(height: 12),
+            _PhotoEvidenceButton(data: data),
+            ReceiptView(data: data),
+          ],
+        ),
+      ),
     ),
   );
+}
+
+/// The first thing the clerk needs after a sale, readable at arm's length:
+/// the change to hand back (cash), else that the sale went through.
+class _SaleDoneBanner extends StatelessWidget {
+  const _SaleDoneBanner({required this.data});
+
+  final ReceiptData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasChange = data.change > 0;
+    return Container(
+      key: const Key('receipt-sale-done'),
+      constraints: const BoxConstraints(maxWidth: 360),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.success,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle, color: Colors.white, size: 32),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 'ขายสำเร็จ': owner-ratified 2026-10-12
+                Text(
+                  hasChange ? 'เงินทอน' : 'ขายสำเร็จ',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    baht(hasChange ? data.change : data.sale.total),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 'ถ่ายรูปหลักฐานสินค้า' (owner's wording) under the banner: opens the photo
+/// sheet (10_SALE_PHOTO_EVIDENCE.md §2.1). API build only — no repository, no
+/// button. Disabled, with the reason beneath, while the app is Degraded or this
+/// bill's `sale.create` is still in the outbox (the server does not have it yet).
+class _PhotoEvidenceButton extends StatefulWidget {
+  const _PhotoEvidenceButton({required this.data});
+
+  final ReceiptData data;
+
+  @override
+  State<_PhotoEvidenceButton> createState() => _PhotoEvidenceButtonState();
+}
+
+class _PhotoEvidenceButtonState extends State<_PhotoEvidenceButton> {
+  // agent ร่าง
+  static const _offlineReason =
+      'ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะถ่ายรูปหลักฐานได้';
+  static const _queuedReason =
+      'บิลนี้ยังไม่ถึงเซิร์ฟเวอร์ — ถ่ายรูปหลักฐานไม่ได้';
+  static const _lookupFailedReason =
+      'ตรวจสถานะบิลไม่ได้ กดอีกครั้งเพื่อลองใหม่';
+  static const _savedLabel = 'บันทึกรูปแล้ว';
+
+  SalePhotosRepository? _repo;
+  bool _saved = false;
+
+  /// Whether this bill's sale.create is still in the outbox: null until the
+  /// first lookup answers. Kept in state — never re-created in build — and
+  /// refreshed only when the sync status really changes.
+  bool? _queued;
+  bool _lookupFailed = false;
+  SyncStatus? _lastStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    _repo = salePhotosRepositoryOf(context);
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final repo = _repo;
+    if (repo == null) return;
+    try {
+      final queued = await repo.hasPendingSaleCreate(widget.data.sale.id);
+      if (!mounted) return;
+      setState(() {
+        _queued = queued;
+        _lookupFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _lookupFailed = true;
+      });
+    }
+  }
+
+  Future<void> _press() async {
+    final repo = _repo;
+    if (repo == null) return;
+    if (_lookupFailed) {
+      await _refresh();
+      if (_lookupFailed || _queued == true || !mounted) return;
+    }
+    final sale = widget.data.sale;
+    final saved = await showSalePhotoSheet(
+      context,
+      repo: repo,
+      saleId: sale.id,
+      receiptNo: sale.receiptNo,
+    );
+    if (saved && mounted) {
+      setState(() {
+        _saved = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_repo == null) return const SizedBox.shrink();
+    return SyncStatusBuilder(
+      builder: (context, status, isDegraded) {
+        final last = _lastStatus;
+        _lastStatus = status;
+        if (last != null && last != status) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _refresh();
+          });
+        }
+        final queued = _queued == true;
+        final ready =
+            !isDegraded && !queued && (_queued != null || _lookupFailed);
+        final reason = isDegraded
+            ? _offlineReason
+            : queued
+            ? _queuedReason
+            : (_lookupFailed ? _lookupFailedReason : null);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_saved)
+                  const Row(
+                    key: Key('receipt-photos-saved'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: AppColors.successLight,
+                        size: 20,
+                      ),
+                      SizedBox(width: 6),
+                      Text(_savedLabel, style: TextStyle(color: Colors.white)),
+                    ],
+                  )
+                else
+                  OutlinedButton.icon(
+                    key: const Key('receipt-photo-evidence'),
+                    onPressed: ready ? _press : null,
+                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                    label: const Text('ถ่ายรูปหลักฐานสินค้า'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: AppColors.navyMid,
+                      disabledForegroundColor: Colors.white54,
+                      side: const BorderSide(color: Color(0x26FFFFFF)),
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                  ),
+                if (reason != null && !_saved)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      reason,
+                      key: const Key('receipt-photo-reason'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class ReceiptView extends StatelessWidget {
@@ -99,19 +329,24 @@ class ReceiptView extends StatelessWidget {
               icon: const Icon(Icons.print, size: 18),
               label: const Text('พิมพ์ใบเสร็จ'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE8601C),
+                backgroundColor: AppColors.orange,
                 foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
               ),
             ),
             const SizedBox(width: 8),
+            // Focused on open: Enter / Space closes the receipt and the next
+            // sale can start straight from the keyboard.
             OutlinedButton.icon(
+              autofocus: true,
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close, size: 18),
               label: const Text('ปิด'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFA8B4C2),
-                backgroundColor: const Color(0xFF153660),
+                foregroundColor: Colors.white,
+                backgroundColor: AppColors.navyMid,
                 side: const BorderSide(color: Color(0x26FFFFFF)),
+                minimumSize: const Size(0, 48),
               ),
             ),
           ],

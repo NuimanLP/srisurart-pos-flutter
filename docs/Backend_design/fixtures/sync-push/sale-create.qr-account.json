@@ -1,0 +1,158 @@
+{
+  "name": "sale-create.qr-account",
+  "description": "QR payment accounts (owner request 2026-10-10): two offline โอน/QR sales. The first names an account this shop has — stored and answered as paymentAccountId. The second names an account the server does not know (deleted on another device, or never synced) — a replay is never refused for it, the id is stored and answered as null. date, shiftId and movements[].id/date are server-stamped example values",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "f9b02a54-2ec3-54c1-beaf-847f2b4c1961",
+          "idempotencyKey": "k_qr_001",
+          "type": "sale.create",
+          "payload": {
+            "id": "dbbef0b4-d40e-514d-aae7-8427f7a5e978",
+            "receiptNo": "RC01-2569-09-0043",
+            "date": "2026-09-15T02:10:00.000Z",
+            "subtotal": "85.00",
+            "discount": "0.00",
+            "total": "85.00",
+            "paymentMethod": "โอน/QR",
+            "paymentAccountId": "c5c330ec-9aa2-5cfc-99ee-60b85e1f07d2",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                "partNo": "HN-15412-KVB",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "85.00"
+              }
+            ]
+          }
+        },
+        {
+          "opId": "7ca75287-6c9b-5dc6-967e-7c39677b7136",
+          "idempotencyKey": "k_qr_002",
+          "type": "sale.create",
+          "payload": {
+            "id": "a5fd04c7-a074-50bd-9f8a-f99c5bed2a99",
+            "receiptNo": "RC01-2569-09-0044",
+            "date": "2026-09-15T02:20:00.000Z",
+            "subtotal": "85.00",
+            "discount": "0.00",
+            "total": "85.00",
+            "paymentMethod": "โอน/QR",
+            "paymentAccountId": "4b04b03a-9bb3-59ef-989c-eb51d0629cb0",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                "partNo": "HN-15412-KVB",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "85.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "f9b02a54-2ec3-54c1-beaf-847f2b4c1961",
+            "status": "applied",
+            "response": {
+              "id": "dbbef0b4-d40e-514d-aae7-8427f7a5e978",
+              "receiptNo": "RC01-2569-09-0043",
+              "total": "85.00",
+              "pointsGranted": 8,
+              "date": "2026-09-15T02:10:00.000Z",
+              "shiftId": "1375a8e0-d189-5224-942d-4727d16bef7f",
+              "paymentAccountId": "c5c330ec-9aa2-5cfc-99ee-60b85e1f07d2",
+              "products": [
+                {
+                  "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "stock": 47
+                }
+              ],
+              "items": [
+                {
+                  "lineNo": 1,
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "costAtSale": "50.00"
+                }
+              ],
+              "movements": [
+                {
+                  "id": "0192f000-0000-7000-8000-000000000043",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "partNo": "HN-15412-KVB",
+                  "name": "Oil Filter",
+                  "delta": -1,
+                  "type": "sale",
+                  "note": null,
+                  "stockAfter": 47,
+                  "date": "2026-09-15T02:15:00.000Z"
+                }
+              ],
+              "mechanicCreditBalanceAfter": null,
+              "mechanicAfter": null,
+              "customerAfter": null
+            }
+          },
+          {
+            "opId": "7ca75287-6c9b-5dc6-967e-7c39677b7136",
+            "status": "applied",
+            "response": {
+              "id": "a5fd04c7-a074-50bd-9f8a-f99c5bed2a99",
+              "receiptNo": "RC01-2569-09-0044",
+              "total": "85.00",
+              "pointsGranted": 8,
+              "date": "2026-09-15T02:20:00.000Z",
+              "shiftId": "1375a8e0-d189-5224-942d-4727d16bef7f",
+              "paymentAccountId": null,
+              "products": [
+                {
+                  "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "stock": 46
+                }
+              ],
+              "items": [
+                {
+                  "lineNo": 1,
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "costAtSale": "50.00"
+                }
+              ],
+              "movements": [
+                {
+                  "id": "0192f000-0000-7000-8000-000000000044",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
+                  "partNo": "HN-15412-KVB",
+                  "name": "Oil Filter",
+                  "delta": -1,
+                  "type": "sale",
+                  "note": null,
+                  "stockAfter": 46,
+                  "date": "2026-09-15T02:25:00.000Z"
+                }
+              ],
+              "mechanicCreditBalanceAfter": null,
+              "mechanicAfter": null,
+              "customerAfter": null
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -40,15 +40,19 @@ import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_customers_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_sale_photos_repository.dart';
+import 'package:srisurart_pos/data/repositories/sale_photos_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_suppliers_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/repositories/owner_import_repository.dart';
+import 'package:srisurart_pos/data/repositories/payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -194,6 +198,14 @@ const _loginOverrides = {
     502: OwnerImportRepository.uploadLostMessage,
     503: OwnerImportRepository.uploadLostMessage,
   },
+  // The same upload, sent raw as a `.zip` (product images, 2026-10-10).
+  'OwnerImportRepository.importBackupFile': {
+    400: OwnerImportRepository.rejectedFileMessage,
+    429: OwnerImportRepository.uploadLostMessage,
+    500: OwnerImportRepository.uploadLostMessage,
+    502: OwnerImportRepository.uploadLostMessage,
+    503: OwnerImportRepository.uploadLostMessage,
+  },
 };
 
 /// The only things a screen may be handed. Anything else — above all an
@@ -250,6 +262,18 @@ const _classes = <String, List<(String, String)>>{
     ('lib/data/repositories/api_suppliers_repository.dart', 'ApiSuppliersRepository'),
     ('lib/data/repositories/suppliers_repository.dart', 'SuppliersRepository'),
   ],
+  'ApiPaymentAccountsRepository': [
+    ('lib/data/repositories/api_payment_accounts_repository.dart',
+        'ApiPaymentAccountsRepository'),
+    ('lib/data/repositories/payment_accounts_repository.dart',
+        'PaymentAccountsRepository'),
+  ],
+  // The interface, model and exception live in sale_photos_repository.dart;
+  // every public method is declared here.
+  'ApiSalePhotosRepository': [
+    ('lib/data/repositories/api_sale_photos_repository.dart',
+        'ApiSalePhotosRepository'),
+  ],
   'DevicesRepository': [
     ('lib/data/repositories/devices_repository.dart', 'DevicesRepository'),
   ],
@@ -287,6 +311,7 @@ const _classes = <String, List<(String, String)>>{
 /// Public `Future` methods that never reach `ApiClient`, with the reason.
 const _noApiCall = <String, String>{
   'ApiProductsRepository.getById': 'Drift first; its GET is caught and swallowed',
+  'ApiProductsRepository.getImageUrls': 'reads app_meta only; never calls the API',
   'ApiProductsRepository.productIdsWithUnsyncedOps': 'inherited, Drift only',
   'ApiProductsRepository.openDocumentRefs': 'inherited, Drift only',
   'ApiMechanicsRepository.getCreditPayments': 'inherited, Drift only',
@@ -294,6 +319,7 @@ const _noApiCall = <String, String>{
   'ApiMechanicsRepository.discardRejectedCreditPayment': 'inherited, Drift only',
   'ApiSettingsRepository.getSettings': 'inherited, Drift only',
   'ApiSuppliersRepository.getSuppliersForProduct': 'inherited, Drift only',
+  'ApiPaymentAccountsRepository.getAccounts': 'inherited, Drift only',
   'ApiMechanicsRepository.flushPendingCreditPayments':
       'driven below via its outbox op; listed for its writesToServer=false early exit',
   'AuthRepository.logout': 'token storage only',
@@ -335,6 +361,7 @@ const _noApiCall = <String, String>{
   'SyncService.writeAtomic': 'Drift transaction only',
   'SyncService.enqueueOp': 'Drift write only',
   'OwnerImportRepository.pendingImportJobId': 'Drift read',
+  'ApiSalePhotosRepository.hasPendingSaleCreate': 'Drift read (outbox_ops)',
 };
 
 SaleInput _sale() => const SaleInput(
@@ -378,6 +405,10 @@ final Map<String, _Call> _cases = {
   'ApiProductsRepository.delete': (w) => ApiProductsRepository(w.db, w.api).delete('tp1'),
   'ApiProductsRepository.adjustStock': (w) =>
       ApiProductsRepository(w.db, w.api).adjustStock('tp1', 1, 'adjust', null),
+  'ApiProductsRepository.setImage': (w) => ApiProductsRepository(w.db, w.api)
+      .setImage('tp1', Uint8List.fromList([0xFF, 0xD8, 0xFF])),
+  'ApiProductsRepository.removeImage': (w) =>
+      ApiProductsRepository(w.db, w.api).removeImage('tp1'),
   // Inherited from ProductsRepository; both reach ApiClient through overrides.
   'ApiProductsRepository.deleteMany': (w) =>
       ApiProductsRepository(w.db, w.api).deleteMany(['tp1']),
@@ -480,6 +511,39 @@ final Map<String, _Call> _cases = {
       .updateSupplier('ts1', name: const Value('ร้านใหม่')),
   'ApiSuppliersRepository.deleteSupplier': (w) =>
       ApiSuppliersRepository(w.db, w.api).deleteSupplier('ts1'),
+  // ── QR payment accounts ──
+  'ApiPaymentAccountsRepository.pullFromServer': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).pullFromServer(),
+  'ApiPaymentAccountsRepository.getLatestAccounts': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).getLatestAccounts(),
+  'ApiPaymentAccountsRepository.addAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).addAccount(const PaymentAccountInput(
+        nickname: 'บัญชีร้าน',
+        bankCode: 'KBANK',
+        kind: 'promptpay',
+        promptpayId: '0812345678',
+      )),
+  'ApiPaymentAccountsRepository.updateAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api)
+          .updateAccount('pa1', const PaymentAccountsCompanion(nickname: Value('ใหม่'))),
+  'ApiPaymentAccountsRepository.setDefault': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).setDefault('pa1'),
+  'ApiPaymentAccountsRepository.deleteAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).deleteAccount('pa1'),
+  // ── Sale photo evidence ──
+  'ApiSalePhotosRepository.upload': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).upload(
+        saleId: 's1',
+        photoId: 'p1',
+        idempotencyKey: 'salephoto-p1',
+        bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF]),
+        takenAt: DateTime.utc(2026, 10, 12),
+        sortOrder: 0,
+      ),
+  'ApiSalePhotosRepository.list': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).list('s1'),
+  'ApiSalePhotosRepository.bytes': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).bytes('s1', 'p1', SalePhotoVariant.thumb),
   // ── Devices / review items ──
   'DevicesRepository.listDevices': (w) => DevicesRepository(w.api).listDevices(),
   'DevicesRepository.createDevice': (w) =>
@@ -490,6 +554,13 @@ final Map<String, _Call> _cases = {
   'OwnerImportRepository.importBackup': (w) =>
       OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
           .importBackup(const {'__meta': {'version': 2}}, confirmShopName: 'ร้าน'),
+  'OwnerImportRepository.importBackupFile': (w) =>
+      OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
+          .importBackupFile(const [0x50, 0x4B, 3, 4],
+              contentType: OwnerImportRepository.zipContentType, confirmShopName: 'ร้าน'),
+  'OwnerImportRepository.exportBackup': (w) => OwnerImportRepository(w.api, w.db,
+          exportPollInterval: Duration.zero, maxExportPolls: 2)
+      .exportBackup(),
   // Never throws: every reply either finishes the refresh, clears the marker or keeps it.
   'OwnerImportRepository.resumePendingImport': (w) async {
     await w.db.into(w.db.appMeta).insert(AppMetaCompanion.insert(

@@ -48,6 +48,7 @@ const _useApiWrites = bool.fromEnvironment('USE_API_WRITES');
     OutboxOps,
     SyncCursors,
     OpEffects,
+    PaymentAccounts,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -82,7 +83,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -155,7 +156,11 @@ class AppDatabase extends _$AppDatabase {
       // v6 → v7 (Ticket #272): Drop Products.offlineOk (ADR-0010 / Phase 2 spec:
       // Postgres never had this column, client drops it).
       if (from < 7) {
-        await m.alterTable(TableMigration(products));
+        // TableMigration rebuilds from TODAY's definition: a column added in a
+        // later version (v15 image_key) is not in the old table yet.
+        await m.alterTable(
+          TableMigration(products, newColumns: [products.imageKey]),
+        );
       }
       // v7 → v8 (Ticket #274, C16): Clear doc_counter_seeds upon upgrade so
       // stale seed markers from before switch-over are wiped.
@@ -199,6 +204,28 @@ class AppDatabase extends _$AppDatabase {
       // from. Starts empty — ops queued before it take the legacy path.
       if (from < 13) {
         await m.createTable(opEffects);
+      }
+      // v13 → v14 (QR accounts, owner 2026-10-10): the payment-account cache
+      // and the account a โอน/QR bill was paid into. Both start empty/null —
+      // older bills have no account (the closing report shows ไม่ระบุบัญชี).
+      if (from < 14) {
+        await m.createTable(paymentAccounts);
+        await m.addColumn(sales, sales.paymentAccountId);
+      }
+      // v14 → v15 (product images, owner 2026-10-10): products.image_key.
+      // NULL on every existing row — the next pull brings the server's keys.
+      // A file older than v7 already has it: v7's TableMigration(products)
+      // rebuilt the table from today's definition, image_key included.
+      if (from < 15 && from >= 7) {
+        await m.addColumn(products, products.imageKey);
+      }
+      // ...and the products cursor goes, so that next pull runs from epoch:
+      // an incremental pull past the old cursor would never bring the keys of
+      // products whose image was set before this upgrade. (The pull's pending-
+      // outbox stock guard applies to a full pull exactly as to any other.)
+      if (from < 15) {
+        await (delete(syncCursors)..where((t) => t.entity.equals('products')))
+            .go();
       }
     },
   );
@@ -441,8 +468,8 @@ class AppDatabase extends _$AppDatabase {
     await _seedBlankSettings();
   });
 
-  /// The server-pulled part of the cache — catalogue, quotes, POs, settings
-  /// and the sync cursors — for a DB adopted as this tenant's without being
+  /// The server-pulled part of the cache — catalogue, quotes, POs, settings,
+  /// payment accounts and the sync cursors — for a DB adopted as this tenant's without being
   /// emptied (`TenantCacheGuard`, legacy DB + device-token login). The next
   /// pull re-downloads all of it from zero. Kept: the till's own history,
   /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
@@ -468,6 +495,8 @@ class AppDatabase extends _$AppDatabase {
       categories,
       settingsRow,
       syncCursors,
+      // Pulled whole from `GET /payment-accounts` (no cursor).
+      paymentAccounts,
     ]) {
       await delete(table).go();
     }

@@ -215,4 +215,20 @@ void main() {
     )..where((t) => t.saleId.equals('s1'))).get();
     expect(lines.map((l) => l.costAtSale), [null, null]);
   });
+
+  test('QR accounts: the replay\'s paymentAccountId wins (unknown → NULL); absent leaves it', () async {
+    await (db.update(db.sales)..where((t) => t.id.equals('s1')))
+        .write(const SalesCompanion(paymentAccountId: Value('pa-gone')));
+    Future<String?> account() async =>
+        (await (db.select(db.sales)..where((t) => t.id.equals('s1'))).getSingle())
+            .paymentAccountId;
+
+    final op = _op('2', payload, ['sale:s1']);
+    await db.transaction(() => patchSaleFromPushReply(db, op, {'id': 's1'}, const []));
+    expect(await account(), 'pa-gone');
+
+    await db.transaction(() =>
+        patchSaleFromPushReply(db, op, {'id': 's1', 'paymentAccountId': null}, const []));
+    expect(await account(), equals(null));
+  });
 }

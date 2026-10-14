@@ -273,7 +273,7 @@ server/src/
 
 ข้อเท็จจริงที่เอกสารนี้ต้องใช้ (ตรวจกับ migration 2026-09-23):
 
-- **29 ตาราง** = 27 จาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (เฟส 2) · `change_log` **ไม่สร้าง** (#191)
+- **30 ตาราง** = 27 จาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (เฟส 2) + `payment_accounts` (บัญชีรับเงิน QR, 2026-10-10) · `change_log` **ไม่สร้าง** (#191)
 - **RLS 26 ตาราง** (`FORCE ROW LEVEL SECURITY` + policy `tenant_isolation`) · global 2 ตาราง (`tenants`, `platform_admins`) · `import_jobs` ไม่ติด RLS โดยตั้งใจ (อ่านจาก platform plane เท่านั้น)
 - ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` (composite ไม่ใช่ `UUID` เดี่ยว) · `id` และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` ตัวพิมพ์เล็ก ตั้งแต่ #616 (เดิม `TEXT` จาก `newId`) — UUIDv7 จาก client/`newUuid()` ยกเว้น `tenants`/`users`/`platform_admins` ที่ยังได้ v4 จาก `gen_random_uuid()`
 - `users.role` เหลือ `CHECK (role = 'owner')` และ active ได้ 1 บัญชีต่อร้าน · `users.pin_hash` **ถูกลบแล้ว** (migration `…3001-SingleOwnerRole`, 08 E1/E2/E3)

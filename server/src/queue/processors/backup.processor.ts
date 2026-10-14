@@ -15,9 +15,9 @@ import { TenantJobRunner } from '../tenant-job-runner.js';
 import {
   exportFilePath,
   pruneExportFiles,
-  writeExportFile,
   type ExportDescriptor,
 } from '../../backup/export-file.js';
+import { writeExportZip } from '../../backup/snapshot-zip.js';
 
 @Injectable()
 @Processor(QUEUE_BACKUP)
@@ -62,9 +62,11 @@ export class BackupProcessor extends WorkerHost {
       // 17. The snapshot goes to a file, never into the job's `returnvalue`: that would park a
       // whole shop's history in `redis-queue` (192 MB, noeviction) for the job's lifetime.
       // Written before the audit row so a failed write fails the job without an audit entry.
-      const { sizeBytes, sha256 } = await writeExportFile(
+      // A ZIP (contract §4): data.json + each product image's preview from the volume.
+      const { sizeBytes, sha256, images, missingImages } = await writeExportZip(
         exportFilePath(tenantId, String(job.id)),
         snapshot,
+        tenantId,
       );
 
       // 18. AC3: Write audit_log entry
@@ -78,11 +80,13 @@ export class BackupProcessor extends WorkerHost {
         after: {
           recordCounts,
           exportedAt,
+          images,
+          ...(missingImages > 0 ? { missingImages } : {}),
         },
       });
 
       this.logger.info(
-        { tenantId, recordCounts, sizeBytes },
+        { tenantId, recordCounts, sizeBytes, images, missingImages },
         'Tenant data export completed successfully',
       );
 

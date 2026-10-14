@@ -20,6 +20,7 @@ import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { parseUuid } from '../common/ids.js';
 import { authorisedTenantId } from '../common/request-context.js';
+import { zipUploadOf } from './zip-upload.js';
 import {
   SnapshotPayload,
   TenantImportService,
@@ -59,6 +60,9 @@ export class OwnerImportController {
    * (owner decision 2026-10-07): the worker copies the current data to a file, deletes it and
    * writes the snapshot, in one transaction. Without it a shop with bills is still refused 409.
    * `?jobId=<uuid>` lets the client name the job, so a lost reply is found by polling it.
+   *
+   * The file is the legacy JSON (`application/json`, ≤ 10 MiB, parsed into `body`) or the
+   * backup ZIP (`application/zip`, ≤ 200 MB, streamed to disk by `app.setup.ts` — contract §4).
    */
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
@@ -69,9 +73,18 @@ export class OwnerImportController {
     @Query('confirmShopName') confirmShopName?: string,
     @Query('jobId') jobId?: string,
   ) {
-    const userId = requireOwnerDevice(req);
-    if (mode !== undefined && mode !== 'replace') {
-      throw new BadRequestException(`mode must be 'replace' or absent`);
+    const zipFile = zipUploadOf(req);
+    let userId: string;
+    let requestedJobId: string | undefined;
+    try {
+      userId = requireOwnerDevice(req);
+      if (mode !== undefined && mode !== 'replace') {
+        throw new BadRequestException(`mode must be 'replace' or absent`);
+      }
+      requestedJobId = jobId === undefined ? undefined : parseUuid(jobId, 'jobId');
+    } catch (err) {
+      await this.importService.discardUpload(zipFile);
+      throw err;
     }
     return this.importService.createOwnerJob(
       authorisedTenantId(),
@@ -79,7 +92,8 @@ export class OwnerImportController {
       userId,
       clientIp(req) ?? undefined,
       mode === 'replace' ? { confirmShopName: confirmShopName ?? '' } : undefined,
-      jobId === undefined ? undefined : parseUuid(jobId, 'jobId'),
+      requestedJobId,
+      zipFile,
     );
   }
 

@@ -13,6 +13,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../../core/network/server_error_resolver.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -131,7 +132,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
                 return const LoadingView();
               }
               if (snap.hasError) {
-                return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: 'เกิดข้อผิดพลาด: ${snap.error}',
+                  action: OutlinedButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('ลองใหม่อีกครั้ง'),
+                  ),
+                );
               }
               final data = snap.data!;
               final filtered = _filter(data.customers);
@@ -148,11 +157,17 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     onAdd: () => _openEditor(),
                   ),
                   Expanded(
+                    // A search with no match is not "no customers yet".
                     child: filtered.isEmpty
-                        ? const EmptyState(
-                            icon: Icons.people_outline,
-                            message: 'ยังไม่มีลูกค้า',
-                          )
+                        ? (data.customers.isEmpty
+                              ? const EmptyState(
+                                  icon: Icons.people_outline,
+                                  message: 'ยังไม่มีลูกค้า',
+                                )
+                              : const EmptyState(
+                                  icon: Icons.person_search_outlined,
+                                  message: 'ไม่พบลูกค้าที่ค้นหา',
+                                ))
                         : _CustomersTable(
                             customers: filtered,
                             billCountByCustomer: data.billCountByCustomer,
@@ -209,10 +224,10 @@ class _TopBar extends StatelessWidget {
             icon: Icons.add,
             onPressed: onAdd,
           );
-          // Wide (tablet): keep the original single-row layout byte-identical —
-          // un-flexed stats, fixed 260px search, one Spacer pushing the
-          // search + button flush right.
-          if (constraints.maxWidth >= 600) {
+          // Wide (>= AppBreakpoints.customersTopBarRow, 900dp): the original
+          // single row — un-flexed stats, fixed 260px search, one Spacer
+          // pushing the search + button flush right. Narrower widths stack.
+          if (constraints.maxWidth >= AppBreakpoints.customersTopBarRow) {
             return Row(
               children: [
                 ...stats,
@@ -223,13 +238,19 @@ class _TopBar extends StatelessWidget {
               ],
             );
           }
-          // Narrow (phone): stack the stats row above a full-width search +
+          // Narrow (phone, small tablet): stack the stats row above a full-width search +
           // button so nothing overflows horizontally.
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(children: stats),
+              // Wrap: a large spend figure (or 2x–3x zoom) drops the second
+              // stat to its own line instead of overflowing.
+              Wrap(
+                spacing: 28,
+                runSpacing: 8,
+                children: [stats.first, stats.last],
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -270,7 +291,6 @@ class _Stat extends StatelessWidget {
           label,
           style: theme.textTheme.labelSmall?.copyWith(
             color: theme.colorScheme.secondary,
-            letterSpacing: 1,
           ),
         ),
       ],
@@ -314,7 +334,6 @@ class _CustomersTable extends StatelessWidget {
     final theme = Theme.of(context);
     final headerStyle = theme.textTheme.labelMedium?.copyWith(
       fontWeight: FontWeight.w700,
-      letterSpacing: 1,
       color: theme.colorScheme.secondary,
     );
     return SingleChildScrollView(
@@ -367,7 +386,6 @@ class _CustomersTable extends StatelessWidget {
     );
     final labelStyle = theme.textTheme.labelSmall?.copyWith(
       color: theme.colorScheme.secondary,
-      letterSpacing: 1,
     );
     final numStyle = theme.textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w700,
@@ -418,7 +436,18 @@ class _CustomersTable extends StatelessWidget {
                 ),
               ),
               if ((c.phone ?? '').isNotEmpty)
-                Text(c.phone!, style: theme.textTheme.bodyMedium),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.phone_outlined,
+                      size: 16,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(c.phone!, style: theme.textTheme.bodyMedium),
+                  ],
+                ),
             ],
           ),
           if ((c.address ?? '').isNotEmpty) ...[
@@ -446,15 +475,21 @@ class _CustomersTable extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              TextButton.icon(
                 onPressed: () => onEdit(c),
-                child: const Text('แก้ไข'),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('แก้ไข'),
+                style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
               ),
               const SizedBox(width: 6),
-              TextButton(
+              TextButton.icon(
                 onPressed: isDegraded ? null : () => onDelete(c, billCount),
-                style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                child: const Text('ลบ'),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('ลบ'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  minimumSize: const Size(0, 44),
+                ),
               ),
             ],
           ),
@@ -635,6 +670,45 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
     final dialogWidth = MediaQuery.sizeOf(context).width < 520
         ? double.maxFinite
         : 460.0;
+    // Phone: one field per row — two ~140dp fields side by side are too
+    // cramped to read or tap.
+    final stacked = dialogWidth == double.maxFinite;
+    final nameTH = AppTextField(
+      label: 'ชื่อ (TH)',
+      controller: _nameTH,
+      autofocus: true,
+      textInputAction: TextInputAction.next,
+    );
+    final nameEN = AppTextField(
+      label: 'ชื่อ (EN)',
+      controller: _name,
+      textInputAction: TextInputAction.next,
+    );
+    final phone = AppTextField(
+      label: 'เบอร์โทร',
+      controller: _phone,
+      keyboardType: TextInputType.phone,
+      textInputAction: TextInputAction.next,
+    );
+    final address = AppTextField(
+      label: 'ที่อยู่',
+      controller: _address,
+      textInputAction: TextInputAction.done,
+      onSubmitted: _saving ? null : _save,
+    );
+    Widget pair(Widget a, Widget b) => stacked
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [a, const SizedBox(height: 14), b],
+          )
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: a),
+              const SizedBox(width: 14),
+              Expanded(child: b),
+            ],
+          );
     return AlertDialog(
       scrollable: true,
       title: Text(_isNew ? 'เพิ่มลูกค้าใหม่' : 'แก้ไขข้อมูลลูกค้า'),
@@ -642,36 +716,18 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
         width: dialogWidth,
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: AppTextField(
-                    label: 'ชื่อ (TH)',
-                    controller: _nameTH,
-                    autofocus: true,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: AppTextField(label: 'ชื่อ (EN)', controller: _name),
-                ),
-              ],
+            pair(nameTH, nameEN),
+            const SizedBox(height: 6),
+            Text(
+              'กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.secondary,
+              ),
             ),
             const SizedBox(height: 14),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: AppTextField(label: 'เบอร์โทร', controller: _phone),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: AppTextField(label: 'ที่อยู่', controller: _address),
-                ),
-              ],
-            ),
+            pair(phone, address),
           ],
         ),
       ),

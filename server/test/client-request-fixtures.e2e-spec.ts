@@ -139,6 +139,12 @@ describe('client request fixtures replay against the real server', () => {
       `INSERT INTO categories (tenant_id, name, position) VALUES ($1::uuid, 'ct-category', 1), ($1::uuid, 'อื่นๆ', 0)`,
       [TENANT],
     );
+    // QR payment accounts: the account a `โอน/QR` sale or a PATCH/DELETE fixture names.
+    await admin.query(
+      `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, kind, promptpay_id, is_default)
+       VALUES ($1::uuid, $2, 'Contract account', 'KBANK', 'promptpay', '0812345678', true)`,
+      [TENANT, CONTRACT_IDS.paymentAccount],
+    );
 
     const token = accessToken({
       tenantId: TENANT,

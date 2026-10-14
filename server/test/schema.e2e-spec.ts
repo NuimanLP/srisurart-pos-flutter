@@ -8,16 +8,28 @@ import {
   APP_ROLE,
   TENANT_SCOPED_TABLES as INITIAL_TENANT_SCOPED_TABLES,
 } from '../src/db/migrations/1788652800001-RowLevelSecurity.js';
-import { ENTITY_FKS } from '../src/db/migrations/1788652804900-EntityIdsToUuid.js';
+import {
+  ENTITY_FKS,
+  EntityIdsToUuid1788652804900,
+} from '../src/db/migrations/1788652804900-EntityIdsToUuid.js';
 import { SEED_CATEGORIES, seedCategories } from '../src/db/seed.js';
 import { testId } from './support/test-ids.js';
 
 const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
+const PAYMENT_ACCOUNTS_TABLE = 'payment_accounts';
+const SALE_PHOTOS_TABLE = 'sale_photos';
 const TENANT_SCOPED_TABLES = [
   ...INITIAL_TENANT_SCOPED_TABLES,
   OWNER_REVIEW_ITEMS_TABLE,
+  PAYMENT_ACCOUNTS_TABLE,
+  SALE_PHOTOS_TABLE,
 ] as const;
-const ALL_TABLES = [...INITIAL_ALL_TABLES, OWNER_REVIEW_ITEMS_TABLE] as const;
+const ALL_TABLES = [
+  ...INITIAL_ALL_TABLES,
+  OWNER_REVIEW_ITEMS_TABLE,
+  PAYMENT_ACCOUNTS_TABLE,
+  SALE_PHOTOS_TABLE,
+] as const;
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
 // compose Postgres (127.0.0.1:5432, published by docker-compose.dev.yml) — never synchronize, never mocks. The owner
@@ -56,6 +68,8 @@ const P1 = testId('p1');
 const S1 = testId('s1');
 const RI_NULL = testId('ri-null');
 const RI_FK = testId('ri-fk');
+const PA_A = testId('pa-a');
+const PA_B = testId('pa-b');
 
 /** One product per tenant, inserted as owner (= superuser, which bypasses RLS). */
 async function insertFixtureProducts(owner: Client): Promise<void> {
@@ -111,9 +125,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   // migration explains why it could not simply be appended to either exported list.
   const IMPORT_JOBS_TABLE = 'import_jobs';
 
-  it('runs from an empty database to exactly 29 tables (27 + import_jobs + owner_review_items), without change_log', async () => {
+  it('runs from an empty database to exactly 31 tables (27 + import_jobs + owner_review_items + payment_accounts + sale_photos), without change_log', async () => {
     const tables = await tableNames(owner);
-    expect(tables).toHaveLength(29);
+    expect(tables).toHaveLength(31);
     expect(tables).toEqual([...ALL_TABLES, IMPORT_JOBS_TABLE].sort());
     expect(tables).not.toContain('change_log');
   });
@@ -338,6 +352,136 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     }
   });
 
+  it('payment_accounts: an emptied app.tenant_id fails closed with 0 rows, not 22P02 (…5000)', async () => {
+    await owner.query(
+      `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, kind, promptpay_id)
+       VALUES ($1, $2, 'ร้าน A', 'KBANK', 'promptpay', '0812345678'),
+              ($3, $4, 'ร้าน B', 'SCB',   'promptpay', '0899999999')`,
+      [TENANT_A, PA_A, TENANT_B, PA_B],
+    );
+    try {
+      await app.query('BEGIN');
+      await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      const inTx = await app.query(`SELECT id FROM payment_accounts`);
+      expect(inTx.rows).toEqual([{ id: PA_A }]); // never tenant B's row
+      await app.query('COMMIT');
+      expect((await app.query(`SELECT current_setting('app.tenant_id', true) AS v`)).rows[0].v).toBe('');
+
+      const after = await app.query(`SELECT count(*)::int AS n FROM payment_accounts`);
+      expect(after.rows[0].n).toBe(0);
+      await expect(
+        app.query(
+          `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, kind, promptpay_id)
+           VALUES ($1, $2, 'x', 'KBANK', 'promptpay', '0812345678')`,
+          [TENANT_A, testId('pa-x')],
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await owner.query(`DELETE FROM payment_accounts WHERE id = ANY($1::uuid[])`, [[PA_A, PA_B]]);
+    }
+  });
+
+  it('sale_photos: an emptied app.tenant_id reads 0 rows (not 22P02); pos_app inserts and reads under RLS but cannot UPDATE/DELETE; no FK to sales (…5200)', async () => {
+    const row = (tenantId: string, id: string, saleId: string) => [
+      tenantId,
+      id,
+      saleId,
+      'a'.repeat(32),
+      'b'.repeat(64),
+      testId('sp-user'),
+      testId('sp-device'),
+    ];
+    const INSERT = `INSERT INTO sale_photos (tenant_id, id, sale_id, image_key, source_sha256, width, height, sort_order, taken_at, uploaded_by, device_id)
+                    VALUES ($1, $2, $3, $4, $5, 1600, 1200, 0, now(), $6, $7)`;
+    const SP_A = testId('sp-a');
+    const SP_B = testId('sp-b');
+    const SP_APP = testId('sp-app');
+    // No `sales` row exists for either sale id: there is no FK to break (owner decision C).
+    await owner.query(INSERT, row(TENANT_A, SP_A, testId('sp-sale-a')));
+    await owner.query(INSERT, row(TENANT_B, SP_B, testId('sp-sale-b')));
+    try {
+      const fks = await owner.query(
+        `SELECT confrelid::regclass::text AS target FROM pg_constraint
+          WHERE contype = 'f' AND conrelid = 'sale_photos'::regclass`,
+      );
+      expect(fks.rows).toEqual([{ target: 'tenants' }]);
+
+      await app.query('BEGIN');
+      await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      expect((await app.query(`SELECT id FROM sale_photos`)).rows).toEqual([{ id: SP_A }]);
+      await app.query(INSERT, row(TENANT_A, SP_APP, testId('sp-sale-a')));
+      await app.query('SAVEPOINT s');
+      await expect(app.query(`UPDATE sale_photos SET width = 1`)).rejects.toMatchObject({ code: '42501' });
+      await app.query('ROLLBACK TO SAVEPOINT s');
+      await expect(app.query(`DELETE FROM sale_photos`)).rejects.toMatchObject({ code: '42501' });
+      await app.query('ROLLBACK');
+
+      expect((await app.query(`SELECT count(*)::int AS n FROM sale_photos`)).rows[0].n).toBe(0);
+      await expect(app.query(INSERT, row(TENANT_A, testId('sp-x'), testId('sp-sale-a')))).rejects.toMatchObject({
+        code: '42501',
+      });
+    } finally {
+      await app.query('ROLLBACK').catch(() => undefined);
+      await owner.query(`DELETE FROM sale_photos WHERE id = ANY($1::uuid[])`, [[SP_A, SP_B, SP_APP]]);
+    }
+  });
+
+  it('payment_accounts: kind CHECKs, one live default per tenant, and the sales FK + โอน/QR CHECK (…5000)', async () => {
+    const insert = (id: string, cols: string, values: string) =>
+      owner.query(
+        `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, ${cols}) VALUES ($1, $2, 'n', 'KBANK', ${values})`,
+        [TENANT_A, id],
+      );
+    try {
+      // A promptpay row with an image, an image row with no image, an unknown kind.
+      await expect(insert(testId('pa-c1'), 'kind, promptpay_id, image', `'promptpay', '0812345678', '\\x00'`)).rejects.toMatchObject({ code: '23514' });
+      await expect(insert(testId('pa-c2'), 'kind, image_mime', `'image', 'image/png'`)).rejects.toMatchObject({ code: '23514' });
+      await expect(insert(testId('pa-c3'), 'kind', `'cash'`)).rejects.toMatchObject({ code: '23514' });
+
+      await insert(testId('pa-d1'), 'kind, promptpay_id, is_default', `'promptpay', '0812345678', true`);
+      await expect(insert(testId('pa-d2'), 'kind, promptpay_id, is_default', `'promptpay', '0812345679', true`)).rejects.toMatchObject({
+        code: '23505',
+        constraint: 'uq_payment_accounts_default',
+      });
+      // A soft-deleted default does not count against the live one.
+      await insert(testId('pa-d3'), 'kind, promptpay_id, is_default, deleted_at', `'promptpay', '0812345670', true, now()`);
+
+      const sale = (id: string, method: string, account: string | null) =>
+        owner.query(
+          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, payment_account_id)
+           VALUES ($1, $2, $3, 10, 0, 10, $4, $5)`,
+          [TENANT_A, id, `RC-${id}`, method, account],
+        );
+      await sale(testId('s-qr-ok'), 'โอน/QR', testId('pa-d1'));
+      await expect(sale(testId('s-qr-cash'), 'เงินสด', testId('pa-d1'))).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'ck_sales_payment_account_qr',
+      });
+      await expect(sale(testId('s-qr-none'), 'โอน/QR', testId('pa-missing'))).rejects.toMatchObject({
+        code: '23503',
+        constraint: 'fk_sales_payment_account',
+      });
+      // Another tenant's account is not this tenant's row: the composite FK refuses it.
+      await owner.query(
+        `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, kind, promptpay_id)
+         VALUES ($1, $2, 'B', 'SCB', 'promptpay', '0899999999')`,
+        [TENANT_B, testId('pa-b-only')],
+      );
+      await expect(sale(testId('s-qr-other'), 'โอน/QR', testId('pa-b-only'))).rejects.toMatchObject({ code: '23503' });
+
+      const fk = await owner.query<{ def: string }>(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'fk_sales_payment_account'`,
+      );
+      // No ON DELETE action at all — never a SET NULL that would null tenant_id too.
+      expect(fk.rows[0].def).toBe(
+        'FOREIGN KEY (tenant_id, payment_account_id) REFERENCES payment_accounts(tenant_id, id)',
+      );
+    } finally {
+      await owner.query(`DELETE FROM sales WHERE id = $1`, [testId('s-qr-ok')]);
+      await owner.query(`DELETE FROM payment_accounts WHERE tenant_id = ANY($1::uuid[])`, [[TENANT_A, TENANT_B]]);
+    }
+  });
+
   it('owner_review_items: deleting the reviewer nulls only reviewed_by, the item keeps its tenant (…4200)', async () => {
     const user = await owner.query<{ id: string }>(
       `INSERT INTO users (tenant_id, username, password_hash, display_name, role)
@@ -411,19 +555,20 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   });
 
   it('platform_admins: an admin existing before …4600 gets password_changed_at backfilled to now(), not left NULL (#443)', async () => {
-    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up), …4800
-    // (PR #580 follow-up) and …4900 (#616) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
-    // DataSource instance sees the rest as already applied and executes only those four,
-    // exactly like a real deploy. …4900 refuses a database with business rows, so the
-    // product fixture is taken out for the re-run and put back afterwards.
+    // Roll back down to …4600 (drops password_changed_at) — every migration after it first
+    // (…4700, …4800, …4900 #616, …5000 QR accounts, and whatever comes next) — insert an
+    // admin as if it had existed beforehand, then re-run migrations: a fresh DataSource
+    // instance sees the rest as already applied and executes exactly …4600 and the ones after
+    // it, like a real deploy. …4900 refuses a database with business rows, so the product
+    // fixture is taken out for the re-run and put back afterwards.
+    const names = MIGRATIONS.map((m) => new m().name);
+    const from4600 = names.slice(names.indexOf('PlatformAdminPasswordChangedAt1788652804600'));
+    expect(from4600[0]).toBe('PlatformAdminPasswordChangedAt1788652804600');
     await app.end();
     const ds = createMigrationDataSource(OWNER_URL);
     await ds.initialize();
     try {
-      await ds.undoLastMigration({ transaction: 'each' }); // …4900
-      await ds.undoLastMigration({ transaction: 'each' }); // …4800
-      await ds.undoLastMigration({ transaction: 'each' }); // …4700
-      await ds.undoLastMigration({ transaction: 'each' }); // …4600
+      for (let i = 0; i < from4600.length; i++) await ds.undoLastMigration({ transaction: 'each' });
       const inserted = await owner.query(
         `INSERT INTO platform_admins (username, password_hash, display_name)
          VALUES ('pre-4600-admin', 'x', 'X') RETURNING id`,
@@ -434,12 +579,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
         const before = Date.now();
         const ran = await ds.runMigrations({ transaction: 'each' });
         await insertFixtureProducts(owner);
-        expect(ran.map((m) => m.name)).toEqual([
-          'PlatformAdminPasswordChangedAt1788652804600',
-          'ReviewItemQuoteConflict1788652804700',
-          'ReviewItemDrawerOverdrawnOffline1788652804800',
-          'EntityIdsToUuid1788652804900',
-        ]);
+        expect(ran.map((m) => m.name)).toEqual(from4600);
         const r = await owner.query(
           `SELECT password_changed_at FROM platform_admins WHERE id = $1`,
           [id],
@@ -457,8 +597,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     app = await connect(APP_URL);
   });
 
-  it(`${APP_ROLE} has DML on every table (movements and audit_log insert-only) and none on the migrations table`, async () => {
-    const APPEND_ONLY: readonly string[] = ['movements', 'audit_log'];
+  it(`${APP_ROLE} has DML on every table (movements, audit_log and sale_photos insert-only) and none on the migrations table`, async () => {
+    const APPEND_ONLY: readonly string[] = ['movements', 'audit_log', SALE_PHOTOS_TABLE];
     for (const t of ALL_TABLES) {
       const r = await owner.query(
         `SELECT has_table_privilege($1, $2, 'SELECT') AS s, has_table_privilege($1, $2, 'INSERT') AS i,
@@ -502,7 +642,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     expect(products.rows[0].n).toBe(1); // only the fixture row — the seed adds no demo products
   });
 
-  it('no id column (id, *_id, ref_id, entity_id) is text — only settings.tax_id, a Thai tax number (…4900, #616)', async () => {
+  it('no id column (id, *_id, ref_id, entity_id) is text — only settings.tax_id and payment_accounts.promptpay_id, a tax / PromptPay number (…4900, #616)', async () => {
     const r = await owner.query<{ col: string }>(
       `SELECT table_name || '.' || column_name AS col
          FROM information_schema.columns
@@ -511,7 +651,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
           AND (column_name = 'id' OR column_name LIKE '%\\_id')
         ORDER BY 1`,
     );
-    expect(r.rows.map((x) => x.col)).toEqual(['settings.tax_id']);
+    expect(r.rows.map((x) => x.col)).toEqual(['payment_accounts.promptpay_id', 'settings.tax_id']);
   });
 
   it('the 11 composite entity FKs exist with their original names and ON DELETE actions (…4900, #616)', async () => {
@@ -585,7 +725,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     const down = createMigrationDataSource(OWNER_URL);
     await down.initialize();
     try {
-      await down.undoLastMigration({ transaction: 'each' }); // …4900, with the product fixture in place
+      // Every migration after …4900 first, then …4900 itself, with the product fixture in place.
+      const after4900 = MIGRATIONS.length - MIGRATIONS.indexOf(EntityIdsToUuid1788652804900);
+      for (let i = 0; i < after4900; i++) await down.undoLastMigration({ transaction: 'each' });
     } finally {
       await down.destroy();
     }
@@ -628,7 +770,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(ran.map((m) => m.name)).toEqual(
         MIGRATIONS.map((m) => new m().name),
       );
-      expect(await tableNames(owner)).toHaveLength(29);
+      expect(await tableNames(owner)).toHaveLength(31);
     } finally {
       await ds.destroy();
     }

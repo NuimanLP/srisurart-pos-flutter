@@ -31,6 +31,8 @@ export const CONTRACT_IDS = {
   review: testId('ct-review-1'),
   device: testId('ct-device-1'),
   supplier: testId('ct-supplier-1'),
+  /** A seeded PromptPay account (QR payment accounts) — the client's `ct-payment-account-1`. */
+  paymentAccount: testId('ct-payment-account-1'),
 } as const;
 
 /** A lowercase UUIDv7, the shape `newUuid()` mints for every entity id (#616) — Dart's `uuidV7`. */

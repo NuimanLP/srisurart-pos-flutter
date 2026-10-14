@@ -50,6 +50,21 @@ class AppColors {
   static const Color error = Color(0xFFC0392B);
   static const Color info = steelBlue;
 
+  // Status TEXT on a tinted status background — the base status colours above
+  // are ~3:1 as small text, so text uses these readable shades instead.
+  // Light theme (dark text on a pale tint):
+  static const Color warningText = Color(0xFF856404);
+  static const Color errorText = Color(0xFF721C24);
+  // Dark theme (light text on a deep tint):
+  static const Color warningTextOnDark = Color(0xFFFFD56B);
+  static const Color errorTextOnDark = Color(0xFFFF8E99);
+
+  // Alert-banner fills (SyncAlertBanner): light / dark.
+  static const Color warningBanner = Color(0xFFFFF3CD);
+  static const Color warningBannerDark = Color(0xFF423200);
+  static const Color errorBanner = Color(0xFFF8D7DA);
+  static const Color errorBannerDark = Color(0xFF4A1015);
+
   // ── Category color palette (CAT_PALETTE from db.js getCatColor) ──
   // Consistent color per category name (index into the seeded category order).
   static const List<Color> catPalette = [

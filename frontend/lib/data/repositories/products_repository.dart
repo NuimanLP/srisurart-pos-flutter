@@ -23,6 +23,7 @@ import 'package:drift/drift.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
+import '../../core/utils/product_image.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
 import '../db/product_stamp.dart';
@@ -315,6 +316,20 @@ class ProductsRepository {
     }
     return BulkDeleteResult(deleted, failed);
   }
+
+  /// Product pictures (owner 2026-10-10) exist only on the API build: the
+  /// Drift build has no server to hold them, so it has no URLs (every card
+  /// shows the placeholder) and no upload.
+  Future<ProductImageUrls?> getImageUrls() async => null;
+
+  /// Replaces [productId]'s picture with [jpeg] (already shrunk on the
+  /// device). API build only — callers gate on [getImageUrls].
+  Future<void> setImage(String productId, Uint8List jpeg) =>
+      throw UnsupportedError('product images need the server');
+
+  /// Removes [productId]'s picture. API build only — callers gate on [getImageUrls].
+  Future<void> removeImage(String productId) =>
+      throw UnsupportedError('product images need the server');
 
   /// db.js adjustStock — MANUAL adjust CLAMPS at 0 (max(0, stock+delta)),
   /// updates the product, then logs a movement. No-op if product not found.

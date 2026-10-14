@@ -13,6 +13,14 @@
  */
 
 import { isUuid } from '../common/ids.js';
+import {
+  decodeQrImage,
+  isBankCode,
+  isPaymentAccountKind,
+  isPromptPayId,
+  MAX_ACTIVE_PAYMENT_ACCOUNTS,
+  normaliseNickname,
+} from '../payment-accounts/payment-accounts.rules.js';
 
 type Row = Record<string, unknown>;
 
@@ -115,6 +123,12 @@ export function planUnparseableDates(snapshot: Row): BadDate[] {
     check('quotes', id, 'convertedAt', q.convertedAt ?? q.converted_at);
   }
   for (const m of rows(snapshot.sa_movements)) check('movements', String(m.id), 'date', m.date);
+  for (const a of rows(snapshot.sa_payment_accounts)) {
+    const id = String(a.id);
+    check('paymentAccounts', id, 'createdAt', a.createdAt ?? a.created_at);
+    check('paymentAccounts', id, 'updatedAt', a.updatedAt ?? a.updated_at);
+    check('paymentAccounts', id, 'deletedAt', a.deletedAt ?? a.deleted_at);
+  }
   for (const cp of rows(snapshot.sa_credit_payments)) check('creditPayments', String(cp.id), 'date', cp.date);
 
   const shifts: Array<{ sh: Row; idx: number }> = [
@@ -359,13 +373,14 @@ export function planBadIds(snapshot: Row): BadId[] {
     ['sa_products', 'products', [], null],
     ['sa_customers', 'customers', [], null],
     ['sa_mechanics', 'mechanics', [], null],
-    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
+    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId', 'paymentAccountId'], 'required'],
     ['sa_returns', 'returns', ['saleId', 'customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
     ['sa_pos', 'purchaseOrders', [], 'optional'],
     ['sa_quotes', 'quotes', ['convertedSaleId'], 'optional'],
     ['sa_movements', 'movements', ['productId', 'refId'], null],
     ['sa_suppliers', 'suppliers', ['productId'], null],
     ['sa_credit_payments', 'creditPayments', ['mechanicId', 'shiftId', 'deviceId'], null],
+    ['sa_payment_accounts', 'paymentAccounts', [], null],
   ];
   for (const [key, table, fields, lineProduct] of specs) {
     for (const r of rows(snapshot[key])) {
@@ -390,4 +405,67 @@ export function planBadIds(snapshot: Row): BadId[] {
 
 export function describeBadId(b: BadId): string {
   return `${b.table}.${b.field} = ${JSON.stringify(b.value)}`;
+}
+
+// ── 5. QR payment accounts (contract §1/§2) ─────────────────────────────────────────────
+// Every row is judged by the same rules the API applies (`payment-accounts.rules.ts`), so a
+// file can never write an account `POST /payment-accounts` would have refused — nor one the
+// table's CHECKs or `uq_payment_accounts_default` would refuse mid-transaction as a 500. The
+// shop-wide rules are checked over the active (not `deletedAt`) rows: at most one default,
+// at most five.
+
+export interface PaymentAccountViolation {
+  id: string;
+  problem: string;
+}
+
+export function planPaymentAccountViolations(snapshot: Row): PaymentAccountViolation[] {
+  const out: PaymentAccountViolation[] = [];
+  const accounts = rows(snapshot.sa_payment_accounts);
+  const seen = new Set<string>();
+  let activeCount = 0;
+  const activeDefaults: string[] = [];
+  for (const a of accounts) {
+    const id = String(a.id);
+    const bad = (problem: string) => out.push({ id, problem });
+    if (seen.has(id)) bad('id appears more than once');
+    seen.add(id);
+    if (normaliseNickname(a.nickname) === null) bad('nickname must be 1–40 characters');
+    if (!isBankCode(a.bankCode ?? a.bank_code)) bad(`unknown bankCode ${JSON.stringify(a.bankCode ?? a.bank_code)}`);
+    const kind = a.kind;
+    const promptpayId = a.promptpayId ?? a.promptpay_id;
+    const image = a.imageBase64 ?? a.image_base64;
+    const mime = a.imageMime ?? a.image_mime;
+    if (!isPaymentAccountKind(kind)) {
+      bad(`kind must be 'promptpay' or 'image', got ${JSON.stringify(kind)}`);
+    } else if (kind === 'promptpay') {
+      if (!isPromptPayId(promptpayId)) bad('promptpayId must be 10 digits starting with 0, 13 digits or 15 digits');
+      if (image != null || mime != null) bad("a 'promptpay' account must carry no image");
+    } else {
+      if (promptpayId != null) bad("an 'image' account must carry no promptpayId");
+      const decoded = decodeQrImage(image, mime);
+      if ('problem' in decoded) bad(decoded.problem);
+    }
+    const isDefault = a.isDefault ?? a.is_default;
+    if (isDefault != null && typeof isDefault !== 'boolean') bad('isDefault must be a boolean');
+    const sortOrder = a.sortOrder ?? a.sort_order;
+    if (sortOrder != null && (typeof sortOrder !== 'number' || !Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 10_000)) {
+      bad('sortOrder must be a whole number from 0 to 10000');
+    }
+    if ((a.deletedAt ?? a.deleted_at) == null) {
+      activeCount++;
+      if (isDefault === true) activeDefaults.push(id);
+    }
+  }
+  if (activeDefaults.length > 1) {
+    out.push({ id: activeDefaults.join(', '), problem: 'more than one active account is the default' });
+  }
+  if (activeCount > MAX_ACTIVE_PAYMENT_ACCOUNTS) {
+    out.push({ id: '-', problem: `${activeCount} active accounts, at most ${MAX_ACTIVE_PAYMENT_ACCOUNTS} allowed` });
+  }
+  return out;
+}
+
+export function describePaymentAccountViolation(v: PaymentAccountViolation): string {
+  return `paymentAccounts:${v.id} ${v.problem}`;
 }

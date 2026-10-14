@@ -39,10 +39,38 @@ const WRAPPER =
 const PIN_PRECHECK =
   /^\{\s*const params = idempotencyParamsOf\(req,\s*([^)]+?)\s*\);\s*const authorised = await this\.voids\.authorise\(id, voidActorOf\(req, body\)\);\s*return this\.idempotency\.runIdempotent\(params, res, \(\) =>\s*this\.voids\.void\(id, authorised\),?\s*\);\s*\}$/;
 
+/**
+ * The second whole-body exception, for `PUT /products/:id/image` alone (contract §3): sharp
+ * decodes, re-encodes and the two files are written BEFORE the claim, for the same reason as
+ * the PIN — no pooled connection held across seconds of CPU. The key is still read first, the
+ * pre-step reads nothing from Postgres, and the claim is still the first statement of the only
+ * transaction. `settleImage` only wraps the claimed call so this upload's files can be removed
+ * again afterwards when no product references them (404, 409, stale replay); `image` carries
+ * the key and whether this upload created its files (`settleImage` uses it). Reported as
+ * ` (image pre-check)`.
+ */
+const PRODUCT_IMAGE_PRECHECK =
+  /^\{\s*const params = idempotencyParamsOf\(req,\s*([^)]+?)\s*\);\s*const image = await this\.prepareImage\(req\);\s*return this\.settleImage\(image, \(\) =>\s*this\.idempotency\.runIdempotent\(params, res, \(\) => this\.products\.setImage\(id, image\.key\)\),?\s*\);\s*\}$/;
+
+/**
+ * The same exception, deliberately, for `PUT /sales/:saleId/photos/:photoId` alone
+ * (10_SALE_PHOTO_EVIDENCE.md §4.3): the query and body are validated, sharp runs in its one
+ * slot and both files are written BEFORE the claim; nothing reads Postgres before it, and the
+ * bill's `FOR UPDATE` is the first thing `attach` does inside the claim's transaction.
+ * `settlePhoto` only removes this upload's files afterwards when no photo references them.
+ */
+const SALE_PHOTO_PRECHECK =
+  /^\{\s*const params = idempotencyParamsOf\(req,\s*([^)]+?)\s*\);\s*const photo = await this\.preparePhoto\(req, takenAt, sortOrder\);\s*return this\.settlePhoto\(photo, \(\) =>\s*this\.idempotency\.runIdempotent\(params, res, \(\) => this\.photos\.attach\(saleId, photoId, photo\)\),?\s*\);\s*\}$/;
+
+const IMAGE_PRECHECK = {
+  exec: (body: string) => PRODUCT_IMAGE_PRECHECK.exec(body) ?? SALE_PHOTO_PRECHECK.exec(body),
+};
+
 interface Route {
   route: string;
   successCode: number | 'no claim first';
   precheck: boolean;
+  imagePrecheck: boolean;
   declared: number;
   passthrough: boolean;
 }
@@ -86,7 +114,8 @@ function idempotentRoutes(
         const body = m.body?.getText(sf) ?? '';
         const inner = WRAPPER.exec(body)?.[1];
         const precheck = inner ? null : PIN_PRECHECK.exec(body);
-        const claimed = precheck ?? CLAIM.exec(inner ? bodyOf(inner) : body);
+        const imagePrecheck = inner || precheck ? null : IMAGE_PRECHECK.exec(body);
+        const claimed = precheck ?? imagePrecheck ?? CLAIM.exec(inner ? bodyOf(inner) : body);
         const mentions = (inner ? bodyOf(inner) : body).includes(
           'idempotencyParamsOf',
         );
@@ -103,6 +132,7 @@ function idempotentRoutes(
           route: `${verb.name.toUpperCase()} /${path}`,
           successCode: claimed ? statusOf(claimed[1]) : 'no claim first',
           precheck: precheck !== null,
+          imagePrecheck: imagePrecheck !== null,
           declared: httpCode
             ? statusOf(httpCode.arg!)
             : verb.name === 'Post'
@@ -169,12 +199,47 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
             this.voids.void(id, authorised),
           );
         }
+        @Put(':id/image')
+        async image(@Req() req, @Res({ passthrough: true }) res) {
+          const params = idempotencyParamsOf(req, 200);
+          const image = await this.prepareImage(req);
+          return this.settleImage(image, () =>
+            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image.key)),
+          );
+        }
+        @Put(':id/image2')
+        async imageAndARead(@Req() req, @Res({ passthrough: true }) res) {
+          const params = idempotencyParamsOf(req, 200);
+          const image = await this.prepareImage(req);
+          const p = await this.products.byId(id);
+          return this.settleImage(image, () =>
+            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image.key)),
+          );
+        }
+        @Put(':saleId/photos/:photoId')
+        async photo(@Req() req, @Res({ passthrough: true }) res) {
+          const params = idempotencyParamsOf(req, 200);
+          const photo = await this.preparePhoto(req, takenAt, sortOrder);
+          return this.settlePhoto(photo, () =>
+            this.idempotency.runIdempotent(params, res, () => this.photos.attach(saleId, photoId, photo)),
+          );
+        }
+        @Put(':saleId/photos2/:photoId')
+        async photoAndARead(@Req() req, @Res({ passthrough: true }) res) {
+          const params = idempotencyParamsOf(req, 200);
+          const photo = await this.preparePhoto(req, takenAt, sortOrder);
+          const n = await this.photos.list(saleId);
+          return this.settlePhoto(photo, () =>
+            this.idempotency.runIdempotent(params, res, () => this.photos.attach(saleId, photoId, photo)),
+          );
+        }
       }`;
     expect(idempotentRoutes(src)).toEqual({
       'C.create': {
         route: 'POST /things',
         successCode: 201,
         precheck: false,
+        imagePrecheck: false,
         declared: 201,
         passthrough: true,
       },
@@ -182,6 +247,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         route: 'POST /things/:id/accept',
         successCode: 201,
         precheck: false,
+        imagePrecheck: false,
         declared: 202,
         passthrough: true,
       },
@@ -189,6 +255,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         route: 'DELETE /things/:id',
         successCode: 'no claim first',
         precheck: false,
+        imagePrecheck: false,
         declared: 200,
         passthrough: false,
       },
@@ -197,6 +264,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         route: 'POST /things/:id/void',
         successCode: 200,
         precheck: true,
+        imagePrecheck: false,
         declared: 200,
         passthrough: true,
       },
@@ -205,6 +273,43 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         route: 'POST /things/:id/void2',
         successCode: 'no claim first',
         precheck: false,
+        imagePrecheck: false,
+        declared: 200,
+        passthrough: true,
+      },
+      // The image shape is recognised and flagged…
+      'C.image': {
+        route: 'PUT /things/:id/image',
+        successCode: 200,
+        precheck: false,
+        imagePrecheck: true,
+        declared: 200,
+        passthrough: true,
+      },
+      // …and a read slipped in before the claim is not that shape either.
+      'C.imageAndARead': {
+        route: 'PUT /things/:id/image2',
+        successCode: 'no claim first',
+        precheck: false,
+        imagePrecheck: false,
+        declared: 200,
+        passthrough: true,
+      },
+      // The sale-photo shape is the same exception…
+      'C.photo': {
+        route: 'PUT /things/:saleId/photos/:photoId',
+        successCode: 200,
+        precheck: false,
+        imagePrecheck: true,
+        declared: 200,
+        passthrough: true,
+      },
+      // …and the same rule: no read before the claim.
+      'C.photoAndARead': {
+        route: 'PUT /things/:saleId/photos2/:photoId',
+        successCode: 'no claim first',
+        precheck: false,
+        imagePrecheck: false,
         declared: 200,
         passthrough: true,
       },
@@ -219,10 +324,10 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
     const summary = Object.fromEntries(
       Object.entries(found).map(([name, r]) => [
         name,
-        `${r.route} ${r.successCode}${r.successCode === r.declared ? '' : ` (declares ${r.declared})`}${r.passthrough ? '' : ' (no @Res passthrough)'}${r.precheck ? ' (PIN pre-check)' : ''}`,
+        `${r.route} ${r.successCode}${r.successCode === r.declared ? '' : ` (declares ${r.declared})`}${r.passthrough ? '' : ' (no @Res passthrough)'}${r.precheck ? ' (PIN pre-check)' : ''}${r.imagePrecheck ? ' (image pre-check)' : ''}`,
       ]),
     );
-    // Every live idempotent write route (39). The dead `PurchasingController` (registered
+    // Every live idempotent write route (45). The dead `PurchasingController` (registered
     // in no module) was deleted 2026-09-25 — `PurchaseOrdersController` serves its routes.
     expect(summary).toEqual({
       'CustomersController.create': 'POST /customers 201',
@@ -236,6 +341,9 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         'POST /mechanics/:id/credit-payments 201',
       'MechanicsController.delete': 'DELETE /mechanics/:id 200',
       'ParkedSalesController.park': 'POST /parked-sales 201',
+      'PaymentAccountsController.create': 'POST /payment-accounts 201',
+      'PaymentAccountsController.update': 'PATCH /payment-accounts/:id 200',
+      'PaymentAccountsController.delete': 'DELETE /payment-accounts/:id 200',
       'ParkedSalesController.remove': 'DELETE /parked-sales/:id 200',
       'CategoriesController.create': 'POST /categories 201',
       'CategoriesController.delete': 'DELETE /categories/:name 200',
@@ -246,6 +354,8 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
       'ProductsController.update': 'PATCH /products/:id 200',
       'ProductsController.delete': 'DELETE /products/:id 200',
       'ProductsController.adjustStock': 'POST /products/:id/adjust-stock 201',
+      'ProductImagesController.putImage': 'PUT /products/:id/image 200 (image pre-check)',
+      'ProductImagesController.removeImage': 'DELETE /products/:id/image 200',
       'PurchaseOrdersController.create': 'POST /purchase-orders 201',
       'PurchaseOrdersController.receive':
         'POST /purchase-orders/:id/receive 200',
@@ -260,6 +370,8 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
       'ReturnsController.create': 'POST /returns 201',
       'ReviewItemsController.markReviewed':
         'POST /review-items/:id/reviewed 200',
+      'SalePhotosController.putPhoto':
+        'PUT /sales/:saleId/photos/:photoId 200 (image pre-check)',
       'SalesController.create': 'POST /sales 201',
       'SalesController.voidSale': 'POST /sales/:id/void 200',
       'SettingsController.updateSettings': 'PATCH /settings 200',

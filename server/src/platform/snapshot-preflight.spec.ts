@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { planBadIds, planClampViolations, planDuplicateDocNumbers, planUnparseableDates } from './snapshot-preflight.js';
+import {
+  planBadIds,
+  planClampViolations,
+  planDuplicateDocNumbers,
+  planPaymentAccountViolations,
+  planUnparseableDates,
+} from './snapshot-preflight.js';
 import { testId } from '../../test/support/test-ids.js';
 
 // #239 AC 1-3: each pre-flight gap gets its own unit test, on the pure scan alone.
@@ -255,6 +261,72 @@ describe('planBadIds (#616)', () => {
     });
     expect(out.map((b) => `${b.table}.${b.field}`)).toEqual([
       'sales.items[1].productId', 'sales.items[2].productId', 'returns.items[0].productId',
+    ]);
+  });
+});
+
+describe('planPaymentAccountViolations (QR accounts)', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
+  const promptpay = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    nickname: 'บัญชีร้าน',
+    bankCode: 'KBANK',
+    kind: 'promptpay',
+    promptpayId: '0812345678',
+    imageBase64: null,
+    imageMime: null,
+    isDefault: false,
+    sortOrder: 0,
+    ...extra,
+  });
+
+  it('accepts what the export writes, soft-deleted rows included', () => {
+    expect(
+      planPaymentAccountViolations({
+        sa_payment_accounts: [
+          promptpay(testId('pa1'), { isDefault: true }),
+          { ...promptpay(testId('pa2')), kind: 'image', promptpayId: null, imageBase64: PNG, imageMime: 'image/png' },
+          promptpay(testId('pa3'), { isDefault: true, deletedAt: '2026-10-01T00:00:00.000Z' }),
+        ],
+      }),
+    ).toEqual([]);
+    expect(planPaymentAccountViolations({})).toEqual([]);
+  });
+
+  it('refuses a row the API would refuse', () => {
+    const out = planPaymentAccountViolations({
+      sa_payment_accounts: [
+        promptpay(testId('pa1'), { promptpayId: '123' }),
+        promptpay(testId('pa2'), { bankCode: 'XBANK' }),
+        promptpay(testId('pa3'), { kind: 'image', promptpayId: null, imageBase64: PNG, imageMime: 'image/jpeg' }),
+        promptpay(testId('pa4'), { nickname: '' }),
+      ],
+    });
+    expect(out.map((v) => v.id)).toEqual([testId('pa1'), testId('pa2'), testId('pa3'), testId('pa4')]);
+  });
+
+  it('refuses two active defaults and more than five active accounts — deleted rows do not count', () => {
+    const six = Array.from({ length: 6 }, (_, i) => promptpay(testId(`pa${i}`)));
+    expect(planPaymentAccountViolations({ sa_payment_accounts: six }).map((v) => v.problem)).toEqual([
+      '6 active accounts, at most 5 allowed',
+    ]);
+    const fiveAndADeleted = [...six.slice(0, 5), { ...six[5], deletedAt: '2026-10-01T00:00:00.000Z' }];
+    expect(planPaymentAccountViolations({ sa_payment_accounts: fiveAndADeleted })).toEqual([]);
+    const twoDefaults = [promptpay(testId('a'), { isDefault: true }), promptpay(testId('b'), { isDefault: true })];
+    expect(planPaymentAccountViolations({ sa_payment_accounts: twoDefaults }).map((v) => v.problem)).toEqual([
+      'more than one active account is the default',
+    ]);
+  });
+
+  it('planBadIds checks the account ids and a sale\'s paymentAccountId', () => {
+    expect(
+      planBadIds({
+        sa_payment_accounts: [promptpay('pa1')],
+        sa_sales: [{ id: testId('s1'), paymentAccountId: 'pa1', items: [{ productId: testId('p1') }] }],
+      }),
+    ).toEqual([
+      { table: 'sales', field: 'paymentAccountId', value: 'pa1' },
+      { table: 'paymentAccounts', field: 'id', value: 'pa1' },
     ]);
   });
 });

@@ -1,7 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { isUuid } from '../common/ids.js';
 import { DEFAULT_JOB_OPTIONS } from '../queue/queue.constants.js';
 
@@ -41,7 +40,7 @@ export function exportFilePath(tenantId: string, jobId: string): string {
   if (!isUuid(tenantId) || !JOB_ID.test(jobId)) {
     throw new Error('Invalid tenant or job id for an export file');
   }
-  return join(exportDir(), tenantId, `${jobId}.json`);
+  return join(exportDir(), tenantId, `${jobId}.zip`);
 }
 
 /**
@@ -54,7 +53,28 @@ export function preImportExportPath(tenantId: string, importJobId: string): stri
   if (!isUuid(tenantId) || !JOB_ID.test(importJobId)) {
     throw new Error('Invalid tenant or job id for a pre-import export file');
   }
-  return join(exportDir(), tenantId, 'pre-import', `${importJobId}.json`);
+  return join(exportDir(), tenantId, 'pre-import', `${importJobId}.zip`);
+}
+
+/**
+ * A ZIP the shop uploaded for import (`POST /backup/import`, `POST /platform/tenants/:id/import`
+ * with `Content-Type: application/zip`), kept for the worker until the job ends. In its own
+ * `import/` directory, which `pruneExportFiles` does not descend into; the worker removes it.
+ */
+export function importZipPath(tenantId: string, importJobId: string): string {
+  if (!isUuid(tenantId) || !JOB_ID.test(importJobId)) {
+    throw new Error('Invalid tenant or job id for an import ZIP');
+  }
+  return join(exportDir(), tenantId, 'import', `${importJobId}.zip`);
+}
+
+/**
+ * Where the api streams an uploaded import ZIP before it knows the job id (`zip-upload.ts`).
+ * `pruneExportFiles` treats this directory like a tenant's and removes anything left in it past
+ * `EXPORT_TTL_MS` (an upload whose request died before the job took it over).
+ */
+export function importUploadDir(): string {
+  return join(exportDir(), 'import-uploads');
 }
 
 export interface ExportDescriptor {
@@ -62,58 +82,6 @@ export interface ExportDescriptor {
   sha256: string;
   exportedAt: string;
   recordCounts: Record<string, number>;
-}
-
-/**
- * Writes `snapshot` as one JSON object, one top-level key at a time, so the process never
- * holds the whole document as a single string next to the object (~halves the worker's peak).
- * Written to a temp name and renamed, so a reader never sees a half-written file.
- */
-export async function writeExportFile(
-  file: string,
-  snapshot: Record<string, unknown>,
-): Promise<{ sizeBytes: number; sha256: string }> {
-  await mkdir(dirname(file), { recursive: true });
-  // Unique per attempt: every container is pid 1, and a stalled attempt can overlap its retry.
-  const tmp = `${file}.${randomUUID()}.tmp`;
-  const hash = createHash('sha256');
-  let sizeBytes = 0;
-  const fh = await open(tmp, 'w');
-  try {
-    const write = async (s: string) => {
-      const buf = Buffer.from(s, 'utf8');
-      hash.update(buf);
-      sizeBytes += buf.length;
-      // `write` may write less than asked (a full disk does this): finish it, or fail loudly.
-      for (let off = 0; off < buf.length; ) {
-        const { bytesWritten } = await fh.write(buf, off, buf.length - off);
-        if (bytesWritten <= 0) throw new Error(`export file short write: ${off} of ${buf.length} bytes`);
-        off += bytesWritten;
-      }
-    };
-    let first = true;
-    await write('{');
-    for (const [key, value] of Object.entries(snapshot)) {
-      if (value === undefined) continue;
-      await write(`${first ? '' : ','}${JSON.stringify(key)}:${JSON.stringify(value)}`);
-      first = false;
-    }
-    await write('}');
-    // On disk before the rename makes it visible: the replace-mode import deletes the shop's
-    // data right after this returns, trusting this file to be its way back.
-    await fh.sync();
-  } catch (err) {
-    await fh.close();
-    await rm(tmp, { force: true });
-    throw err;
-  }
-  await fh.close();
-  await rename(tmp, file);
-  const onDisk = (await stat(file)).size;
-  if (onDisk !== sizeBytes) {
-    throw new Error(`export file ${file} is ${onDisk} bytes on disk, expected ${sizeBytes}`);
-  }
-  return { sizeBytes, sha256: hash.digest('hex') };
 }
 
 /**
@@ -141,7 +109,7 @@ export async function pruneExportFiles(now = Date.now()): Promise<number> {
       const p = join(root, t, f);
       try {
         const st = await stat(p);
-        // Files only: `pre-import/` (preImportExportPath) is kept.
+        // Files only: `pre-import/` (preImportExportPath) and `import/` (importZipPath) are kept.
         if (st.isFile() && now - st.mtimeMs > EXPORT_TTL_MS) {
           await rm(p, { force: true });
           removed++;

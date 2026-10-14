@@ -13,6 +13,7 @@ import {
   type PlatformAdminSyncResult,
 } from './db/platform-admins-env.js';
 import { platformAdminCacheKey } from './platform/platform-auth.guard.js';
+import { IMPORT_REQUEST_TIMEOUT_MS } from './backup/zip-upload.js';
 
 const config = loadConfig();
 const logger = createLogger({
@@ -59,6 +60,8 @@ for (const r of platformAdminResults.filter((x) => x.action === 'updated')) {
 const server = app.getHttpServer() as Server;
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
+// The whole request, body included: long enough for a 200 MB backup ZIP (zip-upload.ts).
+server.requestTimeout = IMPORT_REQUEST_TIMEOUT_MS;
 
 await app.listen(config.port, '0.0.0.0');
 logger.info({ port: config.port }, 'api listening');

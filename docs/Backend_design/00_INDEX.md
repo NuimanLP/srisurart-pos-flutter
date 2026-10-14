@@ -31,12 +31,13 @@
 | ไฟล์ | เนื้อหา | สถานะ | ใครควรอ่าน |
 |---|---|---|---|
 | ⭐ [`00_BASICS.md`](00_BASICS.md) | **ปูพื้นฐาน — อ่านอันนี้ก่อน** ถ้ายังไม่เคยทำ backend: client/server, API, SQL, transaction, multi-tenant, JWT, cache, queue, scaling, offline sync + glossary อธิบายด้วยตัวอย่างจากร้านเราเอง | ✅ ปูพื้น (ปรับตาม ADR/โค้ด 2026-09-23) | **ทุกคนที่อ่านเอกสารอื่นแล้วงง** |
-| [`01_DATABASE.md`](01_DATABASE.md) | ตารางทั้งหมด, ER diagram, DDL, index, constraint, business invariant, RLS, แผน migrate ข้อมูลเดิม · **ฐานข้อมูลจริงมี 29 ตาราง** (27 จาก `InitialSchema` + `import_jobs` + `owner_review_items`; `change_log` ไม่สร้าง) | ✅ มีผล · **ความจริงของ schema = `server/src/db/migrations/`** (ปรับ 2026-09-23) | **คนทำ DB / TypeORM entities** |
+| [`01_DATABASE.md`](01_DATABASE.md) | ตารางทั้งหมด, ER diagram, DDL, index, constraint, business invariant, RLS, แผน migrate ข้อมูลเดิม · **ฐานข้อมูลจริงมี 30 ตาราง** (27 จาก `InitialSchema` + `import_jobs` + `owner_review_items` + `payment_accounts` (2026-10-10); `change_log` ไม่สร้าง) | ✅ มีผล · **ความจริงของ schema = `server/src/db/migrations/`** (ปรับ 2026-09-23) | **คนทำ DB / TypeORM entities** |
 | [`02_API_SCREENS.md`](02_API_SCREENS.md) | 11 หน้าจอ → ยิง API อะไรบ้าง, API catalogue, request/response, cache / queue / idempotent, error codes + ข้อความไทย (§8), เกณฑ์ k6 (§9) | ✅ มีผล | **คนทำ NestJS modules + คนทำ Flutter client** |
 | [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md) | 3 architecture ให้เลือก + 3 แบบ multi-tenant, ข้อเสนอสุดท้าย (§7), แผนลงมือ + **DoD เฟส 1** (§8), วิธีวัด k6 (§8.1) | ✅ มีผล · DoD §8 = 17 ข้อ ติ๊ก 16 เหลือ k6 (#380) — นับ ณ 2026-09-23 | **ทุกคน + อาจารย์** |
 | [`07_CICD_DEPLOY.md`](07_CICD_DEPLOY.md) | **เจ้าของเรื่อง CI/CD + deploy** — pipeline, environment, secret, deploy/rollback ขึ้น VM `mob04` (การตัดสินใจอยู่ใน ADR-0013) | ✅ มีผล · CD ขึ้น `mob04` ทำงานครั้งแรก 2026-09-30 (runner `mob04-demo`, `e50f4fa`) · ~~🔴 rollback ยังไม่พิสูจน์~~ (**แก้ 2026-09-30:** rollback พิสูจน์แล้วทั้ง `workflow_dispatch` run `36687687309` และอัตโนมัติ run `36720675552`, #67 ปิด — ดู `CLAUDE.md` "Still open") | คนแตะ `.github/workflows/`, `deploy/` |
 | ⭐ [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) | **สเปกเฟส 2** (#240 D1–D15, E1–E11, F1–F10) — role `owner` เดียว, PWA, Online/Degraded/Syncing, outbox, `POST /sync/push`, เลข RC/CN ที่เครื่อง `pos` ออก, หลายกะ, void, PIN ออฟไลน์, หน้า "รอ owner", production บน `mob04` | ✅ มีผล (ADR ชนะ 08) | **ทุกคนก่อนหยิบ ticket เฟส 2** |
 | [`09_PHASE2_LANES.md`](09_PHASE2_LANES.md) | **แบ่ง lane เฟส 2** (เคาะ 2026-09-16) — ใครทำอะไร ลำดับไหน เส้นแบ่ง client/server, ticket 35 ใบใต้ #243, working agreement §10 | ✅ มีผล (08 ชนะ 09) | คนกำลังจะหยิบ ticket เฟส 2 |
+| [`10_SALE_PHOTO_EVIDENCE.md`](10_SALE_PHOTO_EVIDENCE.md) | **รูปหลักฐานสินค้าตอนขาย** (owner 2026-10-12) — UX แผ่นถ่ายรูปหลังขาย (ออนไลน์เท่านั้น, ดูได้บนเครื่องที่ขาย), สัญญา API `PUT/GET /sales/:id/photos`, ตาราง `sale_photos`, volume `sale-photos`, ticket ชุด server + client | 📝 ร่างออกแบบ rev 2 — ยังไม่มีโค้ด | คนจะหยิบงานรูปหลักฐาน |
 | ⭐ [`adr/`](adr/README.md) | **บันทึกการตัดสินใจ (ADR) — 1 ไฟล์ = 1 การตัดสินใจ** 0001–0013: สร้างร้านใหม่, admin plane, สถานะร้าน + ที่อยู่ของ transaction (0003 amendment), บทบาทเครื่อง, export/restore, rate limit, เลขใบเสร็จ, ต้นทุน ณ วันขาย, อายุ JWT, cache ฝั่ง client, monorepo, CouchDB (❌ Rejected), CI/CD toolchain | ✅ **ผูกมัด — ชนะเอกสารอื่นทุกฉบับ** · 0012 = Rejected | ทุกคนก่อนเริ่ม implement |
 | [`adr/0003-handler-scoped-migration-plan.md`](adr/0003-handler-scoped-migration-plan.md) | แผนลงมือ (ไม่ใช่ ADR) ย้าย transaction เข้า handler ตาม ADR-0003 amendment — สไลซ์ `tx.0`–`tx.5` (#149–#154) | 🗄️ ประวัติ — ครบ 6 สไลซ์ 2026-09-15 (มีผลตั้งแต่ `tx.4` 2026-09-14) | คนอยากรู้ว่า `runTx` มาจากไหน |
 | [`fixtures/sync-push/`](fixtures/sync-push/) | JSON 18 ไฟล์ของ `POST /sync/push` (applied / rejected / replay / batch) — **สัญญากลาง**ระหว่าง lane B (เครื่อง) กับ lane C (server) จาก #269 | ✅ มีผล (สัญญา) | คนเขียน `SyncService` / `/sync/push` และเทสต์ |
@@ -140,7 +141,7 @@ Supabase-only ไม่ได้ตามที่แผนเดิมวาง
 ---
 
 *อัปเดตล่าสุด: 2026-09-23 — ตารางเอกสารครบทุกไฟล์ (เพิ่ม 07, 09, fixtures, แผนย้าย ADR-0003, architecture*/checklist) + คอลัมน์สถานะ,
-01 = 29 ตารางตาม migration, ปรับข้อค้าง 3/8 ตามสถานะจริง, สถานะเฟส 1 สั้น ๆ
+01 = 30 ตารางตาม migration, ปรับข้อค้าง 3/8 ตามสถานะจริง, สถานะเฟส 1 สั้น ๆ
 2026-09-04 (scrutinize รอบ 3, 3 agent ถก) — เพิ่ม "การผูกเครื่อง" ใน ADR-0004,
 แยกใครออกเลขตามเฟสใน ADR-0007, refresh เช็ค `devices.retired_at` ใน ADR-0009, "ใครเป็นเจ้าของ
 invariant" + schema v3 ใน ADR-0010, propagate 0008/0009 ที่ตกค้าง, DoD เพิ่ม 5 ข้อ, รวมคำถาม 8 ข้อให้คนตอบ

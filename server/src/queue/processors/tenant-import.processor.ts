@@ -49,7 +49,12 @@ export class TenantImportProcessor extends WorkerHost {
     try {
       // `processJob` writes `status = 'succeeded'` itself, atomically with the import
       // transaction (#239 review, issue 2) — there is nothing left to mark here.
-      const result = await this.importService.processJob(data.importJobId, data.requestedByUserId, data.replace === true);
+      const result = await this.importService.processJob(
+        data.importJobId,
+        data.requestedByUserId,
+        data.replace === true,
+        data.zip === true,
+      );
       this.logger.info({ importJobId: data.importJobId, tenantId: data.tenantId, result }, 'Tenant import completed successfully');
       return result;
     } catch (err) {
@@ -58,6 +63,7 @@ export class TenantImportProcessor extends WorkerHost {
       const isFinalAttempt = job.attemptsMade + 1 >= maxAttempts;
       await this.importService.markFailed(data.importJobId, message, isFinalAttempt);
       if (isFinalAttempt) {
+        if (data.zip) await this.importService.removeImportZip(data.tenantId, data.importJobId);
         await this.routeToDlq(job, err);
       }
       throw err;
@@ -84,6 +90,7 @@ export class TenantImportProcessor extends WorkerHost {
     if (job.attemptsMade < maxAttempts) return; // more attempts remain — not final yet
     try {
       await this.importService.markFailed(job.data.importJobId, error?.message ?? 'worker stalled', true);
+      if (job.data.zip) await this.importService.removeImportZip(job.data.tenantId, job.data.importJobId);
     } catch (markErr) {
       this.logger.error(
         { jobId: job.id, importJobId: job.data.importJobId, err: markErr },

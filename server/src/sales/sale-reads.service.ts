@@ -23,6 +23,8 @@ export interface SaleHeader {
   voidReason: string | null;
   soldOffline: boolean;
   shiftId: string | null;
+  /** The QR account a `โอน/QR` bill was paid into (contract §3); null otherwise. */
+  paymentAccountId: string | null;
 }
 
 export interface SaleLineOut {
@@ -71,12 +73,13 @@ interface SaleRow {
   void_reason: string | null;
   sold_offline: boolean;
   shift_id: string | null;
+  payment_account_id: string | null;
 }
 
 const SALE_COLUMNS = `id, receipt_no, subtotal, discount, total, payment_method,
                       customer_id, customer_name, mechanic_id, mechanic_name,
                       mechanic_delta, points_granted, date, voided, voided_at,
-                      void_reason, sold_offline, shift_id`;
+                      void_reason, sold_offline, shift_id, payment_account_id`;
 
 /**
  * The read side of selling. Small, but the Returns screen cannot work without
@@ -259,6 +262,7 @@ export function toHeader(row: SaleRow): SaleHeader {
     voidReason: row.void_reason ?? null,
     soldOffline: row.sold_offline ?? false,
     shiftId: row.shift_id,
+    paymentAccountId: row.payment_account_id ?? null,
   };
 }
 

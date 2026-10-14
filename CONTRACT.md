@@ -63,7 +63,7 @@ lib/
     models/aggregates.dart        ← read aggregates + input DTOs (Contract — frozen)
   presentation/
     repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (Contract — frozen)
-    blocs/                        ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+    blocs/                        ← Cubits (ThemeMode, FontScale, UiZoom, PendingQuote, Cart)
     screens/                      ← one stub file per screen (screen agents fill in)
     widgets/app_shell.dart        ← nav frame (Contract; screen agents may extend)
   app.dart                        ← SrisurartApp (Contract)
@@ -83,11 +83,11 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 
 | Table | Row class | Companion | Key columns |
 |---|---|---|---|
-| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt?, offlineOk(bool=false — v3, server-written only) |
+| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt?, deletedAt?(v4), imageKey?(text — v15, the server's 32-hex image hash; `/img/<tenantId>/<imageKey>_t.webp`; bytes never in Drift) — offlineOk was dropped in v7 (#272) |
 | Categories | `CategoryRow` | `CategoriesCompanion` | name (PK), position(int — palette order) |
 | Customers | `CustomerRow` | `CustomersCompanion` | id, code, name, nameTH, phone?, address?, points(int=0), totalSpend(real=0), createdAt(text) |
 | Mechanics | `MechanicRow` | `MechanicsCompanion` | id, code, name, nameTH?, nickname?, shopName?, phone?, note?, creditLimit(real=0), creditBalance(real=0), totalSales(real=0), totalCredit(real=0), totalDiscount(real=0), totalMarkup(real=0), createdAt(text) |
-| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt?, shiftId?(text — v3, server-issued) |
+| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt?, shiftId?(text — v3, server-issued), paymentAccountId?(text — v14, the QR account of a `โอน/QR` bill; not an FK) |
 | SaleItems | `SaleItemRow` | `SaleItemsCompanion` | rowId(autoInc PK), saleId→Sales.id, productId, partNo?, name, nameTH?, qty(int), price(real) |
 | PurchaseOrders | `PurchaseOrderRow` | `PurchaseOrdersCompanion` | id, poNo, supplier, status(='open'), createdAt, receivedAt?, cancelledAt? |
 | PoItems | `PoItemRow` | `PoItemsCompanion` | rowId(autoInc PK), poId→PurchaseOrders.id, partNo, name, qty(int), cost(real) |
@@ -103,6 +103,7 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 | ParkedSales | `ParkedSaleRow` | `ParkedSalesCompanion` | id, parkedAt, payload(JSON string) |
 | SettingsRow | `SettingsRowData` | `SettingsRowCompanion` | id(singleton=0), shopName, shopNameEN, taxRate(real=7), quoteValidDays(int=30), address?, phone?, cashierName?, taxId?, branchNo? |
 | AppMeta | `AppMetaRow` | `AppMetaCompanion` | key(PK), value |
+| PaymentAccounts | `PaymentAccountRow` | `PaymentAccountsCompanion` | id(PK), nickname, bankCode, kind(`promptpay`\|`image`), promptpayId?, image?(blob), imageMime?, isDefault(bool=false), sortOrder(int=0), updatedAt? — v14; API build = cache of `GET /payment-accounts`, Drift build = the list itself |
 
 **Mapping notes (db.js → Drift):**
 - The JS `sa_cash_drawer` (single active shift) is the `Shifts` row with
@@ -111,10 +112,12 @@ Screens & services consume these row classes DIRECTLY for flat entities.
   as a JSON string.
 - AppMeta seeds `schema_version=2` and `backup_format_version=2` (these are the
   JS `SCHEMA_VERSION` / `BACKUP_FORMAT_VERSION`).
-- Drift's own `schemaVersion => 13` (each step is in `database.dart`
+- Drift's own `schemaVersion => 15` (each step is in `database.dart`
   onUpgrade; e.g. v2 = sync bookkeeping + costAtSale; v3 = the columns the
   server's shape forces, ADR-0010; v12 = #417 indexes via `@TableIndex`;
-  v13 = #488 `OpEffects` — opId PK + JSON of the deltas an offline op applied);
+  v13 = #488 `OpEffects` — opId PK + JSON of the deltas an offline op applied;
+  v14 = QR accounts (owner 2026-10-10) — `PaymentAccounts` + `Sales.paymentAccountId`;
+  v15 = product images (owner 2026-10-10) — `Products.imageKey`);
   the JS migration counter value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
   are unrelated and coincide only by accident.
 - Every write that changes a `Products` row stamps `updatedAt` via
@@ -155,14 +158,16 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 
 | File | Class | Owning agent | Method signatures |
 |---|---|---|---|
-| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<Set<String>> productIdsWithUnsyncedOps()` (ids an unsent outbox op references); `Future<Map<String, List<ProductDocRef>>> openDocumentRefs(List<ProductRow>)` (open PO / active quote / parked bill naming each product — bulk-delete WARNING only, local Drift reads); `Future<BulkDeleteResult> deleteMany(ids)` (one `delete` per id, refuses outbox-referenced ids, never throws — per-id Thai reasons; `BulkDeleteResult { List<String> deleted; Map<String,String> failed /* id → Thai reason */ }`, same file); `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)` |
+| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<Set<String>> productIdsWithUnsyncedOps()` (ids an unsent outbox op references); `Future<Map<String, List<ProductDocRef>>> openDocumentRefs(List<ProductRow>)` (open PO / active quote / parked bill naming each product — bulk-delete WARNING only, local Drift reads); `Future<BulkDeleteResult> deleteMany(ids)` (one `delete` per id, refuses outbox-referenced ids, never throws — per-id Thai reasons; `BulkDeleteResult { List<String> deleted; Map<String,String> failed /* id → Thai reason */ }`, same file); `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)`; product images (v15, owner 2026-10-10): `Future<ProductImageUrls?> getImageUrls()` (null on the Drift build / no tenant — placeholders), `Future<void> setImage(productId, Uint8List jpeg)` / `Future<void> removeImage(productId)` (API build only: raw `PUT` / `DELETE /products/:id/image`, `PendingWrites` key, only the reply's `imageKey` written to Drift; the Drift build throws `UnsupportedError` — callers gate on `getImageUrls`) |
 | `sales_repository.dart` | `SalesRepository` | **Sales** | `Future<SaleRow> saveSale(SaleInput)` (transactional, Thai 'สต็อกไม่พอ…' throw, strict stock); `Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); `Stream<List<SaleWithItems>> watchSales()`; `Future<Map<String,int>> getRefundedQty(saleId)` |
 | `returns_repository.dart` | `ReturnsRepository` | **Returns** | `Future<ReturnRow> createReturn(ReturnInput)` (transactional, over-refund/void Thai throws, auto-void parent); `Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to})` (same bounds as getSales) |
 | `purchase_orders_repository.dart` | `PurchaseOrdersRepository` | **Purchase Orders** | `Future<List<PurchaseOrderWithItems>> getPOs()`; `Future<PurchaseOrderRow> savePO(PoInput)`; `Future<List<String>> receivePO(id)` (weighted-avg cost, returns unmatched partNos); `Future<void> cancelPO(id)`; `Future<void> deletePO(id)` |
 | `quotes_repository.dart` | `QuotesRepository` | **Quotes** | `Future<List<QuoteWithItems>> getQuotes()`; `Future<QuoteRow> saveQuote(QuoteInput)`; `Future<void> updateQuote(id, QuotesCompanion)`; `Future<QuoteRow?> duplicateQuote(id)`; `Future<int> purgeOldQuotes({olderThanDays=90})`; `Future<void> deleteQuote(id)` |
 | `parked_repository.dart` | `ParkedRepository` | **Parked** | `Future<List<ParkedSaleRow>> getParked()`; `Future<ParkedSaleRow> parkSale(ParkedInput)`; `Future<void> deleteParked(id)` |
+| `favorites_repository.dart` | `FavoritesRepository` | **Favorites** | `Future<Set<String>> getFavorites()`; `Future<Set<String>> toggle(productId)` (returns the new set); top-level `List<ProductRow> favoritesFirst(products, favorites, {onlyFavorites=false})` (starred first, stable). THIS DEVICE ONLY: one JSON array in AppMeta `pos_favorite_product_ids`, no server — same class on the Drift and API builds; a tenant switch (`resetTenantCache`) clears it |
 | `mechanics_repository.dart` | `MechanicsRepository` | **Mechanics** | `Future<List<MechanicRow>> getMechanics()`; `Future<MechanicRow> addMechanic(MechanicsCompanion)` (auto M### code); `Future<void> updateMechanic(id, MechanicsCompanion)`; `Future<void> deleteMechanic(id)`; `Future<CreditPaymentRow> addCreditPayment({mechanicId,amount,note?,paymentMethod,allowOverpayment=false})` (reduces balance, clamp 0; `paymentMethod` + `allowOverpayment` are for the API write, #24 — Drift has no method column and ignores both; the API build queues instead and may throw `CreditPaymentQueued`); `Future<List<CreditPaymentRow>> getCreditPayments({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); outbox (#24, API build only writes it): `Future<List<PendingCreditPaymentRow>> getPendingCreditPayments()`, `Future<void> flushPendingCreditPayments()`, `Future<void> discardRejectedCreditPayment(id)`, `Future<void> resendRejectedAllowingOverpayment(id)` |
 | `customers_repository.dart` | `CustomersRepository` | **Customers** | `Future<List<CustomerRow>> getCustomers()`; `Future<CustomerRow> addCustomer(CustomersCompanion)` (auto CUS### code); `Future<void> updateCustomer(id, CustomersCompanion)`; `Future<void> deleteCustomer(id)` |
+| `payment_accounts_repository.dart` | `PaymentAccountsRepository` | **QR accounts** (2026-10-10) | `Future<List<PaymentAccountRow>> getAccounts()` (Drift, `sortOrder` then id); `Future<List<PaymentAccountRow>> getLatestAccounts()` (pulls first on the API build unless Degraded); `Future<PaymentAccountRow> addAccount(PaymentAccountInput)` (max 5 → `PAYMENT_ACCOUNT_LIMIT`; `isDefault` clears the others); `Future<void> updateAccount(id, PaymentAccountsCompanion)` (kind never changes); `Future<void> setDefault(id)`; `Future<void> deleteAccount(id)`; `bool get ownerOnly`; top-level `defaultPaymentAccount(list)` (default, else first). `ApiPaymentAccountsRepository` (`useApi`): online-only writes like settings, `pullFromServer()` replaces the cache (sign-in + `triggerEntityPull`) |
 | `snapshot_repository.dart` | `SnapshotRepository` | **Snapshot** | `Future<Map<String,dynamic>> exportSnapshot()` (sa_* keyed + __meta); `Future<void> importLegacyBackup(Map<String,dynamic>)` (atomic; Thai 'ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta' throw on missing __meta) |
 
 **Behaviour details for the implementers are documented inline at the top of
@@ -243,9 +248,12 @@ unwired.
 | `PurchaseOrdersRepository` | `RepositoryProvider<PurchaseOrdersRepository>` |
 | `QuotesRepository` | `RepositoryProvider<QuotesRepository>` |
 | `ParkedRepository` | `RepositoryProvider<ParkedRepository>` |
+| `FavoritesRepository` | `RepositoryProvider<FavoritesRepository>` |
 | `MovementsRepository` | `RepositoryProvider<MovementsRepository>` |
 | `SuppliersRepository` | `RepositoryProvider<SuppliersRepository>` |
 | `SettingsRepository` | `RepositoryProvider<SettingsRepository>` |
+| `PaymentAccountsRepository` | `RepositoryProvider<PaymentAccountsRepository>` (QR accounts; `useApi` → `ApiPaymentAccountsRepository`) |
+| `SalePhotosRepository` | `RepositoryProvider<SalePhotosRepository?>` — **nullable**: `ApiSalePhotosRepository` when `useApi`, `null` on the Drift build (no server holds photos; the button and strips then do not show). Read it with `salePhotosRepositoryOf(context)`, never `context.read<SalePhotosRepository>()`. Sale photo evidence, `docs/Backend_design/10_SALE_PHOTO_EVIDENCE.md` |
 | `SnapshotRepository` | `RepositoryProvider<SnapshotRepository>` |
 | `ShiftsRepository` | `RepositoryProvider<ShiftsRepository>` |
 | `AuthRepository` | `RepositoryProvider<AuthRepository>` (#54) |
@@ -261,6 +269,7 @@ alongside their persistence helpers), wired via `MultiBlocProvider` in
 |---|---|---|
 | `ThemeModeCubit` | `ThemeMode` | app-wide light/dark, persisted `sa_pos_theme` |
 | `FontScaleCubit` | `double` | app-wide text scale, persisted `sa_pos_font_scale` |
+| `UiZoomCubit` | `double` | whole-screen zoom (1/1.5/2/2.5/3x, capped per screen), persisted `sa_pos_ui_zoom`; applied via `UiZoom` in `MaterialApp.builder` |
 | `PendingQuoteCubit` | `QuoteWithItems?` | QuotesScreen → CheckoutScreen quote hand-off |
 | `CartCubit` | `List<CartLine>` | checkout cart (add/setQty/setPrice/clear) |
 
@@ -284,15 +293,15 @@ never inline in `build`.
 
 | File (`lib/presentation/screens/`) | Class | Route path (AppRoutes) | Sub-views OWNED by this screen agent |
 |---|---|---|---|
-| `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal, LowStockAlert, park strip, save-quote, mechanic override |
+| `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal (+ `ถ่ายรูปหลักฐานสินค้า` button → `SalePhotoSheet`, `widgets/sale_photo_sheet.dart`), LowStockAlert, park strip, save-quote, mechanic override |
 | `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor |
 | `purchase_orders_screen.dart` | `PurchaseOrdersScreen` | `/purchase-orders` (`purchaseOrders`) | PO create + receive |
 | `vehicle_search_screen.dart` | `VehicleSearchScreen` | `/vehicle-search` (`vehicleSearch`) | — |
 | `customers_screen.dart` | `CustomersScreen` | `/customers` (`customers`) | — |
 | `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake |
-| `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view |
+| `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view, `SalePhotoStrip` in the refund detail (`widgets/sale_photo_strip.dart`) |
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
-| `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category |
+| `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
 | `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
 | `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup, open/close shift, cash in/out |
 
@@ -444,6 +453,7 @@ confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
 | `status_chip.dart` | `StatusChip(String label, {StatusTone tone = neutral})`; factory `StatusChip.of(String status)` maps open/converted/received/expired/cancelled/voided → Thai label+tone; enum `StatusTone { success, info, warning, danger, neutral }` | `StatusChip.of('converted')` or `StatusChip('ค้างชำระ', tone: StatusTone.warning)` |
 | `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)`; `String thaiDateSlash(DateTime)` (numeric "23/06/2569", CSV/receipt shape); `String thaiDateTimeSlash(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
 | `theme_controller.dart` | `ThemeModeCubit extends Cubit<ThemeMode> { Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `context.read<ThemeModeCubit>().toggle()` |
+| `ui_zoom.dart` | `UiZoom({required double zoom, required Widget child})` — whole-screen zoom wrapper (scales text, buttons, spacing); wrapped around the app in `MaterialApp.builder` (`lib/app.dart`); `zoom` is `effectiveUiZoom(...)` of `UiZoomCubit` | `builder: (context, child) => UiZoom(zoom: z, child: child!)` |
 | `app_shell.dart` | `AppShell({required Widget child})` — Contract+UIKit owned nav frame; topbar (shop name/cashier/date + theme toggle) + NavigationRail(>=1000px)/Drawer; do not edit | router `ShellRoute → AppShell(child: ...)` |
 
 **Coordination note (theme toggle):** the topbar toggle flips

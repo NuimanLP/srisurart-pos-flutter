@@ -51,6 +51,7 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
   barcode_widget: ^2.0.4
+  mobile_scanner: ^7.4.2 # camera barcode scan (products, checkout, PO search)
   web: ^1.1.1 # browser file-download for backup/CSV export on the web target
   flutter_bloc: ^9.1.1
   bloc: ^9.2.1
@@ -61,6 +62,12 @@ dependencies:
   # failed to compile. iOS needs 14.0+ from 12.0 on.
   file_picker: ^13.1.0
   file_picker_web: ^4.0.0 # FilePickerWebOptions (no window-blur cancel)
+  # JPEG encoder for product photos (the engine encodes PNG only). Already in
+  # the lock through `pdf`; pinned to that resolved version.
+  image: ^4.9.1
+  # In-app camera for sale photos (live viewfinder on Android/iOS/web; camera_web
+  # uses getUserMedia only — no CDN script).
+  camera: ^0.12.1
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +80,8 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   drift_dev: ^2.34.0
+  # Tests fake the in-app camera through CameraPlatform.instance.
+  camera_platform_interface: ^2.15.0
   build_runner: ^2.15.0
   # Test-only: schema_v3_migration_test builds a real v2 database file before
   # AppDatabase opens it. Pinned to the version drift already resolves, so the

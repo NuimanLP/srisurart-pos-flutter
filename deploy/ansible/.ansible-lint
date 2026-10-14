@@ -1,0 +1,9 @@
+---
+# ansible-lint config for deploy/ansible (CI: server.yml job `ci-guards`, run from this directory).
+# production = the strictest profile. A finding is fixed in the playbook; where a fix makes no
+# sense the task carries `# noqa: <rule> <reason>` on the offending line. No skip_list/warn_list:
+# a rule is never switched off for the whole directory.
+profile: production
+# Never reach Galaxy at lint time. CI installs the one collection the playbooks use
+# (ansible.posix, sha256-verified tarball) before running the linter.
+offline: true

@@ -21,11 +21,13 @@ class LoginDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // Scrolls instead of overflowing on a short screen / under 2x–3x zoom.
+      scrollable: true,
       title: const Row(
         children: [
           Icon(Icons.lock_outline, color: AppColors.orange),
           SizedBox(width: 8),
-          Text('เข้าสู่ระบบ'),
+          Flexible(child: Text('เข้าสู่ระบบ')),
         ],
       ),
       content: SizedBox(

@@ -172,9 +172,11 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
         children: [
           Icon(Icons.pin, color: AppColors.orange),
           SizedBox(width: 8),
-          Text(
-            'ตั้งค่ารหัส PIN ออฟไลน์',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Flexible(
+            child: Text(
+              'ตั้งค่ารหัส PIN ออฟไลน์',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

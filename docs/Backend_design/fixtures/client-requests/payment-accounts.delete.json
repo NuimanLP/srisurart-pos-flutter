@@ -1,0 +1,14 @@
+{
+  "name": "payment-accounts.delete",
+  "caller": "ApiPaymentAccountsRepository.deleteAccount",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/payment-accounts/:id",
+      "method": "DELETE",
+      "path": "/api/v1/payment-accounts/43a5b631-4399-5192-9de9-ac7e5f1af22e",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

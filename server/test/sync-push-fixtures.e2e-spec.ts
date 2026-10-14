@@ -97,7 +97,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
     await app.close();
   });
 
-  it('all 18 fixture files exist in docs/Backend_design/fixtures/sync-push', () => {
+  it('all 19 fixture files exist in docs/Backend_design/fixtures/sync-push', () => {
     const files = readdirSync(FIXTURES_DIR).filter((f) => f.endsWith('.json'));
     expect(files.sort()).toEqual([
       'batch.no-active-user-403.json',
@@ -111,6 +111,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       'return-create.rejected-price.json',
       'sale-create.applied.json',
       'sale-create.client-id-reused.json',
+      'sale-create.qr-account.json',
       'sale-create.rejected-stock.json',
       'sale-create.replay-by-id.json',
       'sale-create.replay-by-key.json',
@@ -238,6 +239,37 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       const resStockRejected = await push(fStockRejected.request.body);
       expect(resStockRejected.status).toBe(fStockRejected.response.status);
       expect(resStockRejected.body).toEqual(fStockRejected.response.body);
+    });
+
+    it('sale-create.qr-account.json: a known account is stored, an unknown one is NULL — never refused', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_off_001') });
+      await seedProduct(admin, TENANT, {
+        id: testId('p1'),
+        partNo: 'HN-15412-KVB',
+        name: 'Oil Filter',
+        price: 85,
+        cost: 50,
+        stock: 48,
+      });
+      await admin.query(
+        `INSERT INTO payment_accounts (tenant_id, id, nickname, bank_code, kind, promptpay_id)
+         VALUES ($1::uuid, $2, 'บัญชีร้าน', 'KBANK', 'promptpay', '0812345678')`,
+        [TENANT, testId('pa_shop')],
+      );
+
+      const f = loadFixture('sale-create.qr-account.json');
+      const res = await push(f.request.body);
+      expect(res.status).toBe(f.response.status);
+      expect(res.body).toEqual(withServerStamps(f.response.body));
+
+      const stored = await admin.query(
+        `SELECT id, payment_account_id FROM sales WHERE tenant_id = $1::uuid ORDER BY receipt_no`,
+        [TENANT],
+      );
+      expect(stored).toEqual([
+        { id: testId('s_qr_001'), payment_account_id: testId('pa_shop') },
+        { id: testId('s_qr_002'), payment_account_id: null },
+      ]);
     });
 
     it('return-create.applied.json & return-create.rejected-price.json', async () => {

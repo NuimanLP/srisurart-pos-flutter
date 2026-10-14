@@ -110,26 +110,34 @@ class QuoteA4View extends StatelessWidget {
         ((quote.validUntil.difference(quote.date).inMilliseconds) / 86400000)
             .round();
 
+    // MultiPage, not Page: a long quote (20+ lines) does not fit one A4 sheet,
+    // and a single Page cannot lay it out. The item table flows onto the next
+    // sheet; a short quote renders exactly as one page did.
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.symmetric(horizontal: 40, vertical: 32),
-        build: (ctx) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _headerBand(s, cond),
-              pw.SizedBox(height: 18),
-              _metaGrid(s, dateStr, validUntilStr, isExpired, cond, semi),
-              pw.SizedBox(height: 18),
-              _itemsTable(cond, semi),
-              pw.SizedBox(height: 14),
-              _totalsRow(validDays, cond),
-              pw.SizedBox(height: 22),
-              _signatures(cond),
-            ],
-          );
-        },
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        footer: (ctx) => ctx.pagesCount > 1
+            ? pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(
+                  '${quote.quoteNo}  ${ctx.pageNumber}/${ctx.pagesCount}',
+                  style: const pw.TextStyle(fontSize: 8, color: _steel),
+                ),
+              )
+            : pw.SizedBox(),
+        build: (ctx) => [
+          _headerBand(s, cond),
+          pw.SizedBox(height: 18),
+          _metaGrid(s, dateStr, validUntilStr, isExpired, cond, semi),
+          pw.SizedBox(height: 18),
+          _itemsTable(cond, semi),
+          pw.SizedBox(height: 14),
+          _totalsRow(validDays, cond),
+          pw.SizedBox(height: 22),
+          _signatures(cond),
+        ],
       ),
     );
     return doc.save();

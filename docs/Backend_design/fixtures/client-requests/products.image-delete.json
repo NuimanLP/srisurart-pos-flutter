@@ -1,0 +1,14 @@
+{
+  "name": "products.image-delete",
+  "caller": "ApiProductsRepository.removeImage",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/products/:id/image",
+      "method": "DELETE",
+      "path": "/api/v1/products/a2bba7f5-f859-59f4-8ebd-92cee8c78f1c/image",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

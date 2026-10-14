@@ -155,6 +155,18 @@ class ServerErrorResolver {
     // refused. The server's reply carries `details.expectedCash`; the Drift path,
     // the offline queue and the screen use `drawerInsufficientCashMessage` (with ฿X).
     'DRAWER_INSUFFICIENT_CASH': 'เงินในลิ้นชักไม่พอ',
+    // QR payment accounts (owner request 2026-10-10) — ratified by the owner
+    // 2026-10-10 (contract §2; 02_API_SCREENS.md §8).
+    'PAYMENT_ACCOUNT_LIMIT': 'บันทึกบัญชีรับเงินได้สูงสุด 5 บัญชี', // เจ้าของรับรอง 2026-10-10
+    'OWNER_ONLY': 'เฉพาะเจ้าของร้านเท่านั้นที่แก้ไขบัญชีรับเงินได้', // เจ้าของรับรอง 2026-10-10
+    'PAYMENT_ACCOUNT_NOT_FOUND':
+        'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่', // เจ้าของรับรอง 2026-10-10
+    // Product images (owner request 2026-10-10, contract §3) — agent ร่าง.
+    'PRODUCT_IMAGE_INVALID':
+        'ไฟล์รูปไม่ถูกต้อง กรุณาใช้รูป JPG, PNG หรือ WebP', // agent ร่าง
+    'PRODUCT_IMAGE_TOO_LARGE': 'รูปใหญ่เกิน 3 MB', // agent ร่าง
+    // Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §4.6) — agent ร่าง.
+    'SALE_PHOTO_LIMIT': 'บิลนี้มีรูปหลักฐานครบ 5 รูปแล้ว', // agent ร่าง
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };

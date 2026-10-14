@@ -10,9 +10,11 @@ import 'core/network/api_client.dart';
 import 'core/network/pos_trust.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
+import 'data/repositories/api_payment_accounts_repository.dart';
 import 'data/repositories/api_settings_repository.dart';
 import 'data/repositories/offline_pin_repository.dart';
 import 'data/repositories/owner_import_repository.dart';
+import 'data/repositories/payment_accounts_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/services/doc_counter_seeder.dart';
 import 'presentation/blocs/auth_cubit.dart';
@@ -24,6 +26,7 @@ import 'presentation/blocs/settings_pull.dart';
 import 'presentation/repositories/repository_providers.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
+import 'presentation/blocs/ui_zoom_cubit.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +37,8 @@ Future<void> main() async {
   // net; the offline PWA shell can't reach fonts.gstatic.com (flutter#163554).
   GoogleFonts.config.allowRuntimeFetching = false;
   final db = AppDatabase.open();
+  // Read before runApp so the first frame is already at the stored zoom.
+  final uiZoom = await UiZoomCubit.readStored();
   runApp(
     MultiRepositoryProvider(
       providers: repositoryProviders(db),
@@ -41,6 +46,9 @@ Future<void> main() async {
         providers: [
           BlocProvider<ThemeModeCubit>(create: (_) => ThemeModeCubit()),
           BlocProvider<FontScaleCubit>(create: (_) => FontScaleCubit()),
+          BlocProvider<UiZoomCubit>(
+            create: (_) => UiZoomCubit(initial: uiZoom),
+          ),
           BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
           BlocProvider<CartCubit>(create: (_) => CartCubit()),
           BlocProvider<AuthCubit>(
@@ -60,6 +68,10 @@ Future<void> main() async {
               final settings = ctx.read<SettingsRepository>();
               if (settings is ApiSettingsRepository) {
                 pullSettingsOnSignIn(cubit, settings);
+              }
+              final accounts = ctx.read<PaymentAccountsRepository>();
+              if (accounts is ApiPaymentAccountsRepository) {
+                pullPaymentAccountsOnSignIn(cubit, accounts);
               }
               cubit.init();
               // The refresh path clears the tokens and calls this; without the

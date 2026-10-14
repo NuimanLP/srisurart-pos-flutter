@@ -1,0 +1,18 @@
+{
+  "name": "payment-accounts.update",
+  "caller": "ApiPaymentAccountsRepository.updateAccount",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/payment-accounts/:id",
+      "method": "PATCH",
+      "path": "/api/v1/payment-accounts/43a5b631-4399-5192-9de9-ac7e5f1af22e",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "nickname": "บัญชีหน้าร้าน",
+        "bankCode": "SCB",
+        "promptpayId": "0898765432"
+      }
+    }
+  ]
+}

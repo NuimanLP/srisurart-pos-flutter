@@ -25,10 +25,12 @@
 // discount, best-effort re-select the customer, then clear the provider —
 // mirroring the JS screen's loadQuote/onQuoteLoaded effect.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -38,10 +40,13 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/product_image.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/parked_repository.dart';
+import '../../data/repositories/payment_accounts_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/quotes_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -49,10 +54,13 @@ import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
+import '../widgets/product_image.dart';
+import '../widgets/qr_payment_panel.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/tap_target.dart';
@@ -61,8 +69,15 @@ import '../widgets/tap_target.dart';
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _orange = Color(0xFFE8601C);
-const _warnOrange = Color(0xFFD4820A);
+const _orange = AppColors.orange;
+const _warnOrange = AppColors.warning;
+
+/// Sell-screen product card (owner sample 2026-10-10): the picture block's
+/// height and the card's fixed grid extent (the text block under the picture
+/// is ~120 px in Sarabun at font scale 1.0, so 168 px (288 − 120) leaves room for the
+/// largest font scale, 1.25). Exposed for the layout tests.
+const posCardImageHeight = 120.0;
+const posCardExtent = 288.0;
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -73,6 +88,9 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _barcodeCtrl = TextEditingController();
+  // Kept focused after each scan so a barcode scanner (a keyboard) can ring
+  // item after item without a tap in between.
+  final _barcodeFocus = FocusNode();
   final _custSearchCtrl = TextEditingController();
   final _mechSearchCtrl = TextEditingController();
   final _cashCtrl = TextEditingController();
@@ -80,12 +98,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   String _search = '';
   String _filterZone = 'ทั้งหมด';
+  // Starred products (this device only) and the ⭐ chip; see FavoritesRepository.
+  Set<String> _favorites = {};
+  bool _onlyFavorites = false;
+  // Product picture URLs (API build only; null = placeholders).
+  ProductImageUrls? _imageUrls;
   CustomerRow? _selectedCustomer;
   String _custSearch = '';
   MechanicRow? _selectedMechanic;
   String _mechSearch = '';
   String? _editingPriceId;
   String _payMethod = 'เงินสด';
+  // QR accounts (owner 2026-10-10): the cached list (watched), and the
+  // account the bill records — pinned by [_pinPayAccount], or switched to.
+  List<PaymentAccountRow> _accounts = const [];
+  String? _payAccountId;
+  StreamSubscription<void>? _accountsSub;
   // The bill discount is always stored/sent in baht (`_discount`). Percent mode
   // is UI only: the baht amount is derived from the current subtotal, so it
   // follows cart changes until the cashier switches back to ฿.
@@ -111,12 +139,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   void initState() {
     super.initState();
-    _productsFuture = context.read<ProductsRepository>().getAll();
+    _productsFuture = _loadProducts();
     _customersFuture = context.read<CustomersRepository>().getCustomers();
     _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
     _categoriesFuture = context.read<ProductsRepository>().getCategories();
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
+    _loadFavorites();
+    _loadImageUrls();
+    _loadAccounts();
+    _accountsSub = context
+        .read<PaymentAccountsRepository>()
+        .changes
+        .listen((_) => _loadAccounts());
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -133,6 +168,183 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return out;
   }
 
+  Future<void> _loadFavorites() async {
+    try {
+      final favs = await context.read<FavoritesRepository>().getFavorites();
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      // Unreadable favorites: the grid simply shows no stars.
+    }
+  }
+
+  /// The product list — and, while the picture URLs are still unknown (no
+  /// tenant id in app_meta yet when the screen opened), another try at them
+  /// once this load (a pull, on the API build) is over.
+  Future<List<ProductRow>> _loadProducts() {
+    final load = context.read<ProductsRepository>().getAll();
+    if (_imageUrls == null) {
+      load.then(
+        (_) => mounted && _imageUrls == null ? _loadImageUrls() : null,
+        onError: (Object _) => null, // the grid shows the load error itself
+      );
+    }
+    return load;
+  }
+
+  /// Where this shop's product pictures live (API build, signed in); null on
+  /// the Drift build — every card then shows the placeholder.
+  Future<void> _loadImageUrls() async {
+    try {
+      final urls = await context.read<ProductsRepository>().getImageUrls();
+      if (mounted && urls != null) setState(() => _imageUrls = urls);
+    } catch (_) {
+      // No URLs: the cards keep their placeholders.
+    }
+  }
+
+  /// The picture large (`_p.webp`), zoomable, with the name and part number.
+  /// Never adds to the cart.
+  void _showImagePreview(ProductRow p, String url) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Flexible(
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: InteractiveViewer(
+                    maxScale: 4,
+                    child: ProductImage(
+                      key: const Key('pos-image-preview'),
+                      url: url,
+                      fit: BoxFit.contain,
+                      iconSize: 64,
+                      fullResolution: true,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  p.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  p.partNo,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: AppColors.steelBlue.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('ปิด'), // agent ร่าง
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleFavorite(String productId) async {
+    try {
+      final favs = await context.read<FavoritesRepository>().toggle(productId);
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      if (!mounted) return;
+      // A SnackBar, not _warn: at phone width the cart panel is another tab.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('บันทึกสินค้าโปรดไม่สำเร็จ'),
+        ), // เจ้าของรับรอง 2026-10-08 (PR #672)
+      );
+    }
+  }
+
+  /// The QR payment accounts, from the local cache (so โอน/QR works offline).
+  /// Re-read on every [PaymentAccountsRepository.changes] — a pull on login /
+  /// reconnect, [_refreshAccounts], or an edit in Settings.
+  Future<void> _loadAccounts() async {
+    try {
+      final list =
+          await context.read<PaymentAccountsRepository>().getAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
+    } catch (_) {
+      // Unreadable cache: the QR panel shows the add-an-account hint and the
+      // sale still goes through as โอน/QR with no account.
+    }
+  }
+
+  /// Asks the server for the current accounts when โอน/QR is shown, so an
+  /// online till never shows an account edited or deleted elsewhere. While
+  /// Degraded it skips the network and answers from the cache.
+  Future<void> _refreshAccounts() async {
+    try {
+      final list =
+          await context.read<PaymentAccountsRepository>().getLatestAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
+    } catch (_) {
+      // The cache stays as it was.
+    }
+  }
+
+  /// Pins the account a โอน/QR bill records the first time one resolves, so a
+  /// later cache change (a new default, a refresh) never silently changes the
+  /// sale body — and with it the sale's idempotency fingerprint. A pinned
+  /// account that has left the cache moves to the default/first only while no
+  /// sale attempt is parked: a parked retry must resend the same body, and the
+  /// server accepts this shop's soft-deleted account. Call inside setState.
+  void _pinPayAccount() {
+    if (_payMethod != 'โอน/QR') return;
+    if (_accounts.any((a) => a.id == _payAccountId)) return;
+    if (_payAccountId != null &&
+        context.read<SalesRepository>().hasParkedAttempt) {
+      return;
+    }
+    _payAccountId = defaultPaymentAccount(_accounts)?.id;
+  }
+
+  /// The account the QR panel shows: the pinned / switched-to one, else the
+  /// default, else the first (contract §5).
+  PaymentAccountRow? get _qrAccount =>
+      _accounts.where((a) => a.id == _payAccountId).firstOrNull ??
+      defaultPaymentAccount(_accounts);
+
+  /// The account id a โอน/QR bill records, else null. The pinned id wins
+  /// even when it has left the cache (see [_pinPayAccount]).
+  String? get _saleAccountId =>
+      _payMethod == 'โอน/QR' ? (_payAccountId ?? _qrAccount?.id) : null;
+
   void _refreshParked() => setState(() {
     _parkedFuture = context.read<ParkedRepository>().getParked();
   });
@@ -141,7 +353,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// the mechanic/customer stats a sale updates (credit balance, points).
   void _refreshAfterSale() {
     setState(() {
-      _productsFuture = context.read<ProductsRepository>().getAll();
+      _productsFuture = _loadProducts();
       _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
       _customersFuture = context.read<CustomersRepository>().getCustomers();
     });
@@ -150,10 +362,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   void dispose() {
     _barcodeCtrl.dispose();
+    _barcodeFocus.dispose();
     _custSearchCtrl.dispose();
     _mechSearchCtrl.dispose();
     _cashCtrl.dispose();
     _discountCtrl.dispose();
+    _accountsSub?.cancel();
     super.dispose();
   }
 
@@ -295,6 +509,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _selectedCustomer = null;
       _selectedMechanic = null;
       _payMethod = 'เงินสด';
+      _payAccountId = null;
       _editingPriceId = null;
     });
   }
@@ -363,6 +578,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // Preserve the in-progress payment state so a resume restores it
       // instead of inheriting whatever is left over from the next cart.
       'paymentMethod': _payMethod,
+      // The QR account switched to, so a resume restores it (contract §5).
+      'paymentAccountId': ?_saleAccountId,
       'cash': _cashCtrl.text,
       // Preserve per-line override context for an exact resume.
       'lines': [
@@ -432,6 +649,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final custId = blob['customerId'] as String?;
       final mechId = blob['mechanicId'] as String?;
       final payMethod = (blob['paymentMethod'] as String?) ?? 'เงินสด';
+      final payAccountId = blob['paymentAccountId'] as String?;
       final cash = (blob['cash'] as String?) ?? '';
       CustomerRow? cust;
       MechanicRow? mech;
@@ -453,10 +671,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _refreshParked();
       _setDiscountAmount(discount);
       _cashCtrl.text = cash;
+      if (payMethod == 'โอน/QR') unawaited(_refreshAccounts());
       setState(() {
         _selectedCustomer = cust;
         _selectedMechanic = mech;
         _payMethod = payMethod;
+        _payAccountId = payAccountId;
+        _pinPayAccount();
         _priceWarning = issues.isNotEmpty
             ? 'ข้อมูลเปลี่ยนระหว่างพักบิล:\n${issues.join('\n')}'
             : null;
@@ -673,6 +894,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
         overrideCreditLimit: override,
         quoteId: _cart.quoteId,
+        paymentAccountId: _saleAccountId,
         items: [
           for (final it in cart)
             SaleLineInput(
@@ -757,10 +979,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (!mounted) return;
       _refreshAfterSale();
       await showReceiptDialog(context, receiptData);
+      // Ready for the next customer: back to the scan field (two-pane; on a
+      // phone the field is on the other tab).
+      if (mounted && _isWide) _barcodeFocus.requestFocus();
     } catch (e) {
       if (mounted) {
         setState(() {
-          _productsFuture = context.read<ProductsRepository>().getAll();
+          _productsFuture = _loadProducts();
         });
       }
       if (isDeviceRoleRefusal(e)) {
@@ -828,10 +1053,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   // Build
   // ─────────────────────────────────────────────────────────────────────────
+  /// Product grid and cart side by side; below this the cart is a second tab.
+  bool get _isWide =>
+      MediaQuery.of(context).size.width >= AppBreakpoints.checkoutTwoPane;
+
   @override
   Widget build(BuildContext context) {
-    final isWide =
-        MediaQuery.of(context).size.width >= AppBreakpoints.checkoutTwoPane;
+    final isWide = _isWide;
+    final cart = context.watch<CartCubit>().state;
 
     // Catch a quote staged while this screen is already alive; the initState
     // post-frame handles the normal fresh-build navigation case.
@@ -839,57 +1068,175 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       listener: (context, state) {
         if (state != null) _maybeConsumePendingQuote();
       },
-      child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        body: FutureBuilder<List<ProductRow>>(
-          future: _productsFuture,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              return Center(child: Text('โหลดสินค้าไม่สำเร็จ: ${snap.error}'));
-            }
-            final products = snap.data!;
-            return Column(
-              children: [
-                const NotPosDeviceBanner(),
-                _lowStockBanner(products),
-                Expanded(
-                  child: isWide
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+      // Desktop keys: F2 = back to the scan field, F9 = the pay button (the
+      // same handler and guards as a tap). Two-pane only, where the cart and
+      // its total are on screen when the key is pressed.
+      child: CallbackShortcuts(
+        bindings: {
+          if (isWide) ...{
+            const SingleActivator(LogicalKeyboardKey.f2): () =>
+                _barcodeFocus.requestFocus(),
+            // Not while a line price is being edited: a click on the pay
+            // button commits that edit first (onTapOutside), a key press
+            // would not — the bill would go out at the old price.
+            const SingleActivator(LogicalKeyboardKey.f9): () {
+              if (_cart.state.isNotEmpty &&
+                  !_submitting &&
+                  _editingPriceId == null) {
+                _handleCheckout();
+              }
+            },
+          },
+        },
+        child: _scaffold(isWide, cart),
+      ),
+    );
+  }
+
+  Widget _scaffold(bool isWide, List<CartLine> cart) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: FutureBuilder<List<ProductRow>>(
+        future: _productsFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('โหลดสินค้าไม่สำเร็จ: ${snap.error}'));
+          }
+          final products = snap.data!;
+          return Column(
+            children: [
+              const NotPosDeviceBanner(),
+              _lowStockBanner(products),
+              Expanded(
+                child: isWide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: _leftPanel(products)),
+                          const VerticalDivider(width: 1),
+                          SizedBox(width: 400, child: _rightPanel(products)),
+                        ],
+                      )
+                    : DefaultTabController(
+                        length: 2,
+                        child: Column(
                           children: [
-                            Expanded(child: _leftPanel(products)),
-                            const VerticalDivider(width: 1),
-                            SizedBox(width: 400, child: _rightPanel(products)),
-                          ],
-                        )
-                      : DefaultTabController(
-                          length: 2,
-                          child: Column(
-                            children: [
-                              const TabBar(
-                                tabs: [
-                                  Tab(text: 'สินค้า'),
-                                  Tab(text: 'ตะกร้า'),
+                            TabBar(
+                              tabs: [
+                                const Tab(text: 'สินค้า'),
+                                Tab(child: _cartTabLabel(cart)),
+                              ],
+                            ),
+                            Expanded(
+                              child: TabBarView(
+                                children: [
+                                  // The cart is the other tab here: a bar
+                                  // under the grid keeps its count and
+                                  // total in sight, one tap away.
+                                  // Not on a very short screen (e.g. 3x
+                                  // zoom): the grid needs the room more,
+                                  // and the tab's badge still shows the count.
+                                  LayoutBuilder(
+                                    builder: (tabCtx, box) => Column(
+                                      children: [
+                                        Expanded(child: _leftPanel(products)),
+                                        if (cart.isNotEmpty &&
+                                            box.maxHeight >= 360)
+                                          _phoneCartBar(tabCtx, cart),
+                                      ],
+                                    ),
+                                  ),
+                                  _rightPanel(products),
                                 ],
                               ),
-                              Expanded(
-                                child: TabBarView(
-                                  children: [
-                                    _leftPanel(products),
-                                    _rightPanel(products),
-                                  ],
-                                ),
-                              ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 'ตะกร้า' plus a count badge, so a tap on a product visibly lands even
+  /// while the cart tab is hidden.
+  Widget _cartTabLabel(List<CartLine> cart) {
+    final pieces = cart.fold<int>(0, (n, l) => n + l.qty);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Flexible(child: Text('ตะกร้า', overflow: TextOverflow.ellipsis)),
+        if (pieces > 0) ...[
+          const SizedBox(width: 6),
+          Badge(
+            key: const Key('cart-tab-count'),
+            backgroundColor: _orange,
+            textColor: Colors.white,
+            label: Text('$pieces'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Phone width, products tab: the cart's line count and total, and a
+  /// button that opens the cart tab.
+  Widget _phoneCartBar(BuildContext tabCtx, List<CartLine> cart) {
+    return Material(
+      key: const Key('phone-cart-bar'),
+      color: AppColors.navy,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+          child: Row(
+            children: [
+              const Icon(Icons.shopping_cart, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '${cart.length} รายการ  ',
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        TextSpan(
+                          text: baht(_total),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 18,
                           ),
                         ),
+                      ],
+                    ),
+                    maxLines: 1,
+                  ),
                 ),
-              ],
-            );
-          },
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                key: const Key('phone-cart-bar-open'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _orange,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => DefaultTabController.of(tabCtx).animateTo(1),
+                icon: const Icon(Icons.arrow_forward, size: 18),
+                label: const Text('ดูตะกร้า'), // owner-ratified 2026-10-12
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -931,7 +1278,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   Widget _leftPanel(List<ProductRow> products) {
     final q = _search.toLowerCase();
-    final filtered = products.where((p) {
+    final matched = products.where((p) {
       final catOk = _filterZone == 'ทั้งหมด' || p.category == _filterZone;
       final searchOk =
           q.isEmpty ||
@@ -940,14 +1287,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           p.partNo.toLowerCase().contains(q);
       return catOk && searchOk;
     }).toList();
+    // Starred first (stable), or only starred with the ⭐ chip on.
+    final filtered = favoritesFirst(
+      matched,
+      _favorites,
+      onlyFavorites: _onlyFavorites,
+    );
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Qty already in the cart per product, shown on its card.
+    final inCart = {
+      for (final l in context.watch<CartCubit>().state) l.productId: l.qty,
+    };
 
     return FutureBuilder<Map<String, String>>(
       future: _catColorsFuture,
       builder: (context, catColorsSnap) {
         final catColors = catColorsSnap.data ?? const <String, String>{};
-        return _leftPanelBody(products, filtered, catColors, isDark);
+        return _leftPanelBody(products, filtered, catColors, isDark, inCart);
       },
     );
   }
@@ -957,6 +1314,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     List<ProductRow> filtered,
     Map<String, String> catColors,
     bool isDark,
+    Map<String, int> inCart,
   ) {
     return Container(
       color: Theme.of(context).colorScheme.surface,
@@ -985,6 +1343,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   flex: 6,
                   child: TextField(
                     controller: _barcodeCtrl,
+                    focusNode: _barcodeFocus,
                     autofocus: true,
                     decoration: InputDecoration(
                       hintText: 'สแกนบาร์โค้ด / รหัสอะไหล่',
@@ -1001,6 +1360,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           color: _orange,
                           size: 20,
                         ),
+                      ),
+                      suffixIcon: BarcodeScanButton(
+                        onScanned: (v) async {
+                          // Same path as typed / USB-scanner input. Products
+                          // are read after the dialog closed, not as captured
+                          // when the button was tapped.
+                          _barcodeCtrl.text = v;
+                          final fresh = await _productsFuture;
+                          if (!mounted) return;
+                          _submitBarcode(fresh);
+                        },
                       ),
                       filled: true,
                       fillColor: isDark
@@ -1028,7 +1398,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     ),
                     textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _handleBarcode(products),
+                    onSubmitted: (_) => _submitBarcode(products),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1085,17 +1455,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    for (final z in all)
+                    for (final z in all) ...[
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: _categoryChip(z, catColors),
                       ),
+                      if (z == 'ทั้งหมด')
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _favoritesChip(),
+                        ),
+                    ],
                   ],
                 ),
               );
             },
           ),
           const SizedBox(height: 8),
+          // Phone width: the cart (and its warning) is the other tab, so a
+          // refusal from a card tap ('สต็อกไม่พอ…') is shown here too.
+          if (!_isWide && _priceWarning != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 60),
+                child: SingleChildScrollView(child: _warningBanner()),
+              ),
+            ),
           // ── Product grid ──
           Expanded(
             child: filtered.isEmpty
@@ -1123,7 +1509,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
+                          _onlyFavorites &&
+                                  !products.any(
+                                    (p) => _favorites.contains(p.id),
+                                  )
+                              // เจ้าของรับรอง 2026-10-08 (PR #672)
+                              ? 'แตะ ☆ บนการ์ดสินค้าเพื่อเพิ่มเป็นสินค้าโปรด'
+                              : 'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
                           style: TextStyle(
                             fontSize: 13,
                             color: Theme.of(
@@ -1139,13 +1531,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 200,
-                          mainAxisExtent: 155,
+                          mainAxisExtent: posCardExtent,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 10,
                         ),
                     itemCount: filtered.length,
-                    itemBuilder: (ctx, i) =>
-                        _productTile(filtered[i], catColors),
+                    itemBuilder: (ctx, i) => _productTile(
+                      filtered[i],
+                      catColors,
+                      inCart[filtered[i].id] ?? 0,
+                    ),
                   ),
           ),
         ],
@@ -1192,13 +1587,57 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _productTile(ProductRow p, Map<String, String> catColors) {
+  /// The ⭐ chip: toggles "starred only"; combines with the selected category.
+  Widget _favoritesChip() {
+    final on = _onlyFavorites;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('pos-favorites-chip'),
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => setState(() => _onlyFavorites = !on),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? _orange : _orange.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: on ? _orange : _orange.withValues(alpha: 0.25),
+              width: on ? 1.5 : 1,
+            ),
+          ),
+          child: Icon(
+            on ? Icons.star : Icons.star_border,
+            size: 18,
+            color: on ? Colors.white : _orange,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _productTile(
+    ProductRow p,
+    Map<String, String> catColors,
+    int qtyInCart,
+  ) {
+    final isFavorite = _favorites.contains(p.id);
     final outOfStock = p.stock == 0;
     final catColor = _parseColor(catColors[p.category]) ?? AppColors.navyLight;
-    final stockColor = p.stock == 0
+    final lowStock = !outOfStock && p.stock <= p.minStock;
+    final stockColor = outOfStock
         ? AppColors.error
-        : (p.stock <= p.minStock ? _warnOrange : AppColors.successLight);
+        : (lowStock ? _warnOrange : AppColors.successLight);
+    final stockLabel = outOfStock
+        ? 'หมด'
+        : (lowStock ? 'สต็อกต่ำ' : 'มีสินค้า'); // 'มีสินค้า': agent ร่าง
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = Theme.of(context).colorScheme.onSurface;
+    final thumbUrl = _imageUrls?.thumb(p.imageKey);
+    final previewUrl = _imageUrls?.preview(p.imageKey);
+    // A dark disc behind an overlay icon keeps it readable on any picture.
+    final overlayDisc = Colors.black.withValues(alpha: 0.35);
 
     return Container(
       decoration: BoxDecoration(
@@ -1218,8 +1657,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
           onTap: outOfStock
               ? null
               : () {
@@ -1230,50 +1669,95 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           highlightColor: _orange.withValues(alpha: 0.05),
           child: Stack(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Product name
-                    Text(
-                      p.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      p.nameTH,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      p.partNo,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                        color: AppColors.steelBlue.withValues(alpha: 0.8),
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Picture (or the placeholder) — top of the card.
+                  SizedBox(
+                    key: Key('pos-card-image-${p.id}'),
+                    height: posCardImageHeight,
+                    child: ProductImage(url: thumbUrl),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Part number + stock status
+                          Row(
+                            children: [
+                              // 2:1 with the status label, which may shrink
+                              // (ellipsis) on a narrow card at large text.
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  p.partNo,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10,
+                                    color: AppColors.steelBlue.withValues(
+                                      alpha: 0.9,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: stockColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  stockLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: stockColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            p.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              height: 1.25,
+                            ),
+                          ),
+                          Text(
+                            p.nameTH,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: muted.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'คงเหลือ ${p.stock}',
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: muted.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          Text(
                             baht(p.price),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1283,73 +1767,84 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               color: _orange,
                             ),
                           ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              // Category badge — top left of the picture, clear of the star.
+              Positioned(
+                top: 8,
+                left: 8,
+                right: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: catColor,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      p.category,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Already in the cart: how many — bottom left of the picture,
+              // clear of the preview button.
+              if (qtyInCart > 0)
+                Positioned(
+                  left: 8,
+                  top: posCardImageHeight - 30,
+                  child: Container(
+                    key: Key('pos-card-in-cart-${p.id}'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _orange,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.shopping_cart,
+                          size: 13,
+                          color: Colors.white,
                         ),
                         const SizedBox(width: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                color: stockColor,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: stockColor.withValues(alpha: 0.4),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              p.stock > 0 ? '${p.stock}' : 'หมด',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: stockColor,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          '$qtyInCart',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              // Category badge — top right
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: catColor,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    p.category,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                    ),
                   ),
                 ),
-              ),
               // Out-of-stock overlay
               if (outOfStock)
                 Positioned.fill(
                   child: Container(
-                    decoration: BoxDecoration(
-                      color: (isDark ? Colors.black : Colors.white).withValues(
-                        alpha: 0.65,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                    color: (isDark ? Colors.black : Colors.white).withValues(
+                      alpha: 0.65,
                     ),
                     child: Center(
                       child: Container(
@@ -1373,11 +1868,91 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   ),
                 ),
+              // Favorite star — top right of the picture, its own 40 px tap
+              // target (never the card's add-to-cart); drawn after the
+              // out-of-stock overlay so a sold-out item can be starred.
+              Positioned(
+                top: 0,
+                right: 0,
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: InkResponse(
+                    key: Key('fav-star-${p.id}'),
+                    radius: 20,
+                    onTap: () => _toggleFavorite(p.id),
+                    child: Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: overlayDisc,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            isFavorite ? Icons.star : Icons.star_border,
+                            size: 20,
+                            color: isFavorite ? _orange : Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Preview — bottom right of the picture, only when there is
+              // one; its own 40 px tap, never the card's add-to-cart.
+              if (previewUrl != null)
+                Positioned(
+                  top: posCardImageHeight - 40,
+                  right: 0,
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Tooltip(
+                      message: 'ดูรูป', // agent ร่าง
+                      child: InkResponse(
+                        key: Key('pos-image-preview-${p.id}'),
+                        radius: 20,
+                        onTap: () => _showImagePreview(p, previewUrl),
+                        child: Center(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: overlayDisc,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.zoom_in,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Enter in the field and a camera scan both land here.
+  void _submitBarcode(List<ProductRow> products) {
+    // Two-pane (keyboard / scanner): Enter unfocuses the field, so take it
+    // back for the next scan — before a not-found dialog, which hands focus
+    // back on close.
+    if (_isWide) _barcodeFocus.requestFocus();
+    // A sale in flight clears the cart when it lands, so a line added now
+    // would vanish. Keep the scanned code in the field; Enter again once the
+    // receipt is closed.
+    if (_submitting) return;
+    _handleBarcode(products);
   }
 
   void _handleBarcode(List<ProductRow> products) {
@@ -1482,15 +2057,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         ),
         const SizedBox(width: 8),
-        Text(
-          t,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.55),
+        // Wraps instead of overflowing on a phone at large text; no letter
+        // spacing — it pulls Thai tone marks off their letters.
+        Flexible(
+          child: Text(
+            t,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
           ),
         ),
       ],
@@ -1518,7 +2096,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         children: [
           _label('⏸ บิลที่พัก (${parked.length})'),
           SizedBox(
-            height: 44,
+            height: 48,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -1548,7 +2126,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         borderRadius: BorderRadius.circular(10),
         onTap: () => _handleResume(pk),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 2, 4),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(10),
@@ -1584,15 +2162,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   color: _warnOrange,
                 ),
               ),
-              const SizedBox(width: 4),
-              InkWell(
-                onTap: () => _handleDeleteParked(pk),
-                child: Icon(
-                  Icons.close,
-                  size: 14,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.4),
+              const SizedBox(width: 2),
+              // Its own 36 px target: a 14 px ✕ next to "resume" was easy to
+              // miss — and a miss resumes the bill instead.
+              Tooltip(
+                message: 'ลบบิลที่พัก', // owner-ratified 2026-10-12
+                child: TapTarget(
+                  minSize: 36,
+                  onTap: () => _handleDeleteParked(pk),
+                  child: Icon(
+                    Icons.close,
+                    size: 18,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.55),
+                  ),
                 ),
               ),
             ],
@@ -1988,17 +2572,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ),
           Container(
-            width: 28,
-            height: 28,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: Theme.of(
                 context,
               ).colorScheme.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
             ),
             child: IconButton(
               padding: EdgeInsets.zero,
-              icon: const Icon(Icons.close, size: 14),
+              icon: const Icon(Icons.close, size: 18),
               onPressed: onClear,
             ),
           ),
@@ -2114,40 +2698,49 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ),
           if (_priceWarning != null)
-            Container(
-              margin: const EdgeInsets.only(top: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.15),
-                border: Border.all(color: AppColors.error),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '⚠ $_priceWarning',
-                      style: const TextStyle(
-                        color: Color(0xFFFF8B7A),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  InkWell(
-                    onTap: _clearWarn,
-                    child: const Padding(
-                      padding: EdgeInsets.only(left: 6),
-                      child: Icon(
-                        Icons.close,
-                        size: 16,
-                        color: Color(0xFFFF8B7A),
-                      ),
-                    ),
-                  ),
-                ],
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: _warningBanner(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The ⚠ message box ([_priceWarning]) with its close button. The light
+  /// theme uses the error red itself for the text: the dark theme's pale red
+  /// is unreadable on a light pink box.
+  Widget _warningBanner() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = isDark ? const Color(0xFFFF8B7A) : AppColors.error;
+    return Container(
+      key: const Key('checkout-warning'),
+      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: isDark ? 0.15 : 0.08),
+        border: Border.all(color: AppColors.error),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '⚠ $_priceWarning',
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
+          ),
+          TapTarget(
+            minSize: 36,
+            onTap: _clearWarn,
+            child: Icon(Icons.close, size: 18, color: fg),
+          ),
         ],
       ),
     );
@@ -2206,22 +2799,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _qtyBtn(Icons.remove, () {
-                  final err = _cart.setQty(
-                    item.productId,
-                    item.qty - 1,
-                    product,
-                  );
-                  if (err != null) _warn(err);
-                }),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 28),
-                  child: Text(
-                    '${item.qty}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+                // At qty 1 the minus removes the line (setQty → 0), so it
+                // shows a bin instead of a minus.
+                _qtyBtn(
+                  item.qty <= 1 ? Icons.delete_outline : Icons.remove,
+                  () {
+                    final err = _cart.setQty(
+                      item.productId,
+                      item.qty - 1,
+                      product,
+                    );
+                    if (err != null) _warn(err);
+                  },
+                  color: item.qty <= 1
+                      ? Theme.of(context).colorScheme.error
+                      : null,
+                ),
+                // Tap the number to type a quantity (12 bolts = one entry,
+                // not 11 taps on +).
+                Tooltip(
+                  message: 'แตะเพื่อพิมพ์จำนวน', // owner-ratified 2026-10-12
+                  child: InkWell(
+                    key: Key('cart-qty-${item.productId}'),
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () => _promptQty(item, product),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 30,
+                      ),
+                      child: Center(
+                        widthFactor: 1,
+                        child: Text(
+                          '${item.qty}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            decoration: TextDecoration.underline,
+                            decorationStyle: TextDecorationStyle.dotted,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -2346,19 +2965,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   // 30dp visual chip kept, but TapTarget gives it a ≥44dp hit area — these are
   // the most-tapped controls on a touch POS.
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) => TapTarget(
-    onTap: onTap,
-    child: Container(
-      width: 30,
-      height: 30,
-      alignment: Alignment.center,
-      child: Icon(
-        icon,
-        size: 16,
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-      ),
-    ),
-  );
+  Widget _qtyBtn(IconData icon, VoidCallback onTap, {Color? color}) =>
+      TapTarget(
+        onTap: onTap,
+        child: Container(
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          child: Icon(
+            icon,
+            size: 18,
+            color:
+                color ??
+                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+      );
+
+  /// Type a line's quantity. The typed number goes through the same
+  /// [CartCubit.setQty] as the +/- buttons (stock check; 0 removes the line).
+  Future<void> _promptQty(CartLine item, ProductRow? product) async {
+    final qty = await showDialog<int>(
+      context: context,
+      builder: (ctx) => _QtyDialog(item: item, product: product),
+    );
+    if (qty == null || qty == item.qty || !mounted) return;
+    final err = _cart.setQty(item.productId, qty, product);
+    if (err != null) _warn(err);
+  }
 
   // ── Totals ──
   Widget _totalsSection(List<CartLine> cart, double mechanicDelta) {
@@ -2576,12 +3210,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     color: Colors.white70,
                   ),
                 ),
-                Text(
-                  baht(total),
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                const SizedBox(width: 12),
+                // The number the clerk reads out: as large as the pane
+                // allows, shrinking instead of overflowing on a phone.
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      baht(total),
+                      key: const Key('checkout-grand-total'),
+                      style: const TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -2642,6 +3286,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           if (_payMethod == 'เครดิตช่าง' && _selectedMechanic != null)
             _creditPanel(total),
+          if (_payMethod == 'โอน/QR')
+            QrPaymentPanel(
+              accounts: _accounts,
+              selected: _qrAccount,
+              total: total,
+              onSelect: (a) => setState(() => _payAccountId = a.id),
+            ),
           if (_payMethod == 'เงินสด') ...[
             const SizedBox(height: 12),
             TextField(
@@ -2715,55 +3366,73 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ? Icons.qr_code
         : Icons.credit_score;
 
-    return GestureDetector(
-      onTap: () => setState(() => _payMethod = m),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        margin: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: active
-              ? (isCredit ? _warnOrange : _orange)
-              : Colors.transparent,
+    // InkWell, not a bare GestureDetector: a ripple on touch, and reachable
+    // with Tab + Enter on a keyboard.
+    return Padding(
+      padding: const EdgeInsets.all(3),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          boxShadow: active
-              ? [
-                  BoxShadow(
-                    color: (isCredit ? _warnOrange : _orange).withValues(
-                      alpha: 0.2,
-                    ),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 20,
+          onTap: () {
+            setState(() {
+              _payMethod = m;
+              _pinPayAccount();
+            });
+            if (m == 'โอน/QR') unawaited(_refreshAccounts());
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+            decoration: BoxDecoration(
               color: active
-                  ? Colors.white
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.5),
+                  ? (isCredit ? _warnOrange : _orange)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: (isCredit ? _warnOrange : _orange).withValues(
+                          alpha: 0.2,
+                        ),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
             ),
-            const SizedBox(height: 3),
-            Text(
-              '$m${wouldExceed ? ' ⚠' : ''}',
-              style: TextStyle(
-                fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                fontSize: 11,
-                color: active
-                    ? Colors.white
-                    : Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: active
+                      ? Colors.white
+                      : Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$m${wouldExceed ? ' ⚠' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 13,
+                    color: active
+                        ? Colors.white
+                        : Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2915,34 +3584,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget _changeRow(double total) {
     final cash = double.tryParse(_cashCtrl.text.trim()) ?? 0;
     final change = cash - total;
-    if (_cashCtrl.text.isEmpty || change < 0) return const SizedBox.shrink();
+    if (_cashCtrl.text.isEmpty) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Short: say by how much now, instead of only 'รับเงินไม่ครบ' on pay.
+    final short = change < 0;
+    // The bright green reads on navy; on the light cream it needs the
+    // darker brand green to be legible.
+    final Color tone = short
+        ? Theme.of(context).colorScheme.error
+        : (isDark ? const Color(0xFF2ECC71) : AppColors.success);
     return Container(
+      key: Key(short ? 'cash-short' : 'cash-change'),
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF2ECC71).withValues(alpha: 0.1),
+        color: tone.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFF2ECC71).withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: tone.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'เงินทอน',
+          Text(
+            short ? 'ยังขาด' : 'เงินทอน', // 'ยังขาด': owner-ratified 2026-10-12
             style: TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 16,
-              color: Color(0xFF2ECC71),
+              color: tone,
             ),
           ),
-          Text(
-            baht(change),
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
-              color: Color(0xFF2ECC71),
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                baht(change.abs()),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 24,
+                  color: tone,
+                ),
+              ),
             ),
           ),
         ],
@@ -3055,17 +3738,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           size: 22,
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          _submitting
-                              ? 'กำลังบันทึก…'
-                              : 'ชำระเงิน  ${baht(_total)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 18,
-                            letterSpacing: 0.3,
-                            color: Colors.white,
+                        // Shrinks rather than overflows for a big total on a
+                        // phone or under whole-screen zoom.
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _submitting
+                                  ? 'กำลังบันทึก…'
+                                  : 'ชำระเงิน  ${baht(_total)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 20,
+                                letterSpacing: 0.3,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
+                        // The F9 shortcut (two-pane only, see build).
+                        if (_isWide && !empty && !_submitting) ...[
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.white70),
+                            ),
+                            child: const Text(
+                              'F9',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -3075,6 +3787,73 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The qty-entry dialog behind a tap on a cart line's number. Pops the typed
+/// quantity (null on cancel / blank); the caller applies it via setQty.
+class _QtyDialog extends StatefulWidget {
+  const _QtyDialog({required this.item, required this.product});
+
+  final CartLine item;
+  final ProductRow? product;
+
+  @override
+  State<_QtyDialog> createState() => _QtyDialogState();
+}
+
+class _QtyDialogState extends State<_QtyDialog> {
+  // The whole current qty starts selected, so typing replaces it — mobile
+  // does not select on focus ("1" then typing 12 would read 112).
+  late final _ctrl = TextEditingController(text: '${widget.item.qty}')
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: '${widget.item.qty}'.length,
+    );
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.pop(context, int.tryParse(_ctrl.text.trim()));
+
+  @override
+  Widget build(BuildContext context) {
+    final product = widget.product;
+    return AlertDialog(
+      title: Text(
+        widget.item.name,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      content: TextField(
+        key: const Key('cart-qty-input'),
+        controller: _ctrl,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(5),
+        ],
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+        decoration: InputDecoration(
+          labelText: 'จำนวน', // owner-ratified 2026-10-12
+          helperText: product == null ? null : 'คงเหลือ ${product.stock}',
+          border: const OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('ตกลง')),
+      ],
     );
   }
 }

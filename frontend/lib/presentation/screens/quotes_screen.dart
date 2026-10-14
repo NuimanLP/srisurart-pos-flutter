@@ -61,17 +61,22 @@ class _QuotesScreenState extends State<QuotesScreen> {
   });
 
   // ── filtering (mirrors JSX `filtered`) ──
+  static bool _inFilter(QuoteRow q, _QuoteFilter filter) {
+    final expired = q.isExpired;
+    final converted = q.isConverted;
+    if (filter == _QuoteFilter.open && (converted || expired)) return false;
+    if (filter == _QuoteFilter.expired && (converted || !expired)) {
+      return false;
+    }
+    if (filter == _QuoteFilter.converted && !converted) return false;
+    return true;
+  }
+
   List<QuoteWithItems> _applyFilter(List<QuoteWithItems> all) {
     final s = _search.trim().toLowerCase();
     return all.where((qi) {
       final q = qi.quote;
-      final expired = q.isExpired;
-      final converted = q.isConverted;
-      if (_filter == _QuoteFilter.open && (converted || expired)) return false;
-      if (_filter == _QuoteFilter.expired && (converted || !expired)) {
-        return false;
-      }
-      if (_filter == _QuoteFilter.converted && !converted) return false;
+      if (!_inFilter(q, _filter)) return false;
       if (s.isEmpty) return true;
       return q.quoteNo.toLowerCase().contains(s) ||
           (q.customerName ?? '').toLowerCase().contains(s);
@@ -287,7 +292,10 @@ class _QuotesScreenState extends State<QuotesScreen> {
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  Future<void> _openPreview(QuoteWithItems qi, {bool isDegraded = false}) async {
+  Future<void> _openPreview(
+    QuoteWithItems qi, {
+    bool isDegraded = false,
+  }) async {
     final SettingsRowData settings;
     try {
       settings = await context.read<SettingsRepository>().getSettings();
@@ -334,7 +342,15 @@ class _QuotesScreenState extends State<QuotesScreen> {
                 return const LoadingView();
               }
               if (snap.hasError) {
-                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: 'โหลดข้อมูลไม่สำเร็จ: ${snap.error}',
+                  action: OutlinedButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('ลองใหม่อีกครั้ง'),
+                  ),
+                );
               }
               final all = snap.data!;
               final openValid = all
@@ -347,48 +363,90 @@ class _QuotesScreenState extends State<QuotesScreen> {
               );
               final filtered = _applyFilter(all);
 
-              return Column(
-                children: [
-                  _Header(
-                    totalOpen: totalOpen,
-                    totalValue: totalValue,
-                    onExport: () => _handleExportCSV(all),
-                    onPurge: _handlePurgeOld,
-                    isDegraded: isDegraded,
-                  ),
-                  _FilterBar(
-                    filter: _filter,
-                    onFilter: (f) => setState(() => _filter = f),
-                    onSearch: (q) => setState(() => _search = q),
-                  ),
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? EmptyState(
-                            icon: Icons.request_quote_outlined,
-                            message: all.isEmpty
-                                ? 'ยังไม่มีใบเสนอราคา · กดปุ่มในหน้าขายเพื่อบันทึก'
-                                : 'ไม่พบรายการ',
-                          )
-                        : ListView.separated(
+              final header = _Header(
+                totalOpen: totalOpen,
+                totalValue: totalValue,
+                onExport: () => _handleExportCSV(all),
+                onPurge: _handlePurgeOld,
+                isDegraded: isDegraded,
+              );
+              final filterBar = _FilterBar(
+                filter: _filter,
+                counts: {
+                  for (final f in _QuoteFilter.values)
+                    f: all.where((qi) => _inFilter(qi.quote, f)).length,
+                },
+                onFilter: (f) => setState(() => _filter = f),
+                onSearch: (q) => setState(() => _search = q),
+              );
+              // Rows built once; the list is a sliver on short screens.
+              Widget row(int i) => _QuoteRow(
+                item: filtered[i],
+                expired: filtered[i].quote.isExpired,
+                converted: filtered[i].quote.isConverted,
+                onPreview: () =>
+                    _openPreview(filtered[i], isDegraded: isDegraded),
+                onConvert: () => _handleConvert(filtered[i]),
+                onEdit: () => _handleEdit(filtered[i]),
+                onDuplicate: () => _handleDuplicate(filtered[i].quote),
+                onDelete: () => _handleDelete(filtered[i].quote),
+                isDegraded: isDegraded,
+              );
+              final empty = EmptyState(
+                icon: Icons.request_quote_outlined,
+                message: all.isEmpty
+                    ? 'ยังไม่มีใบเสนอราคา · กดปุ่มในหน้าขายเพื่อบันทึก'
+                    : 'ไม่พบรายการ',
+              );
+
+              return LayoutBuilder(
+                builder: (context, c) {
+                  // Short screen (2x–3x zoom, phone landscape): header +
+                  // filters would leave no room for the list — scroll
+                  // them away with it instead of pinning them.
+                  if (c.maxHeight < 520) {
+                    return CustomScrollView(
+                      slivers: [
+                        SliverToBoxAdapter(child: header),
+                        SliverToBoxAdapter(child: filterBar),
+                        if (filtered.isEmpty)
+                          SliverFillRemaining(child: empty)
+                        else
+                          SliverPadding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 8),
-                            itemBuilder: (_, i) => _QuoteRow(
-                              item: filtered[i],
-                              expired: filtered[i].quote.isExpired,
-                              converted: filtered[i].quote.isConverted,
-                              onPreview: () =>
-                                  _openPreview(filtered[i], isDegraded: isDegraded),
-                              onConvert: () => _handleConvert(filtered[i]),
-                              onEdit: () => _handleEdit(filtered[i]),
-                              onDuplicate: () =>
-                                  _handleDuplicate(filtered[i].quote),
-                              onDelete: () => _handleDelete(filtered[i].quote),
-                              isDegraded: isDegraded,
+                            sliver: SliverList.separated(
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (_, i) => row(i),
                             ),
                           ),
-                  ),
-                ],
+                      ],
+                    );
+                  }
+                  return Column(
+                    children: [
+                      header,
+                      filterBar,
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? empty
+                            : ListView.separated(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  16,
+                                ),
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (_, i) => row(i),
+                              ),
+                      ),
+                    ],
+                  );
+                },
               );
             },
           );
@@ -416,45 +474,59 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '📋 ใบเสนอราคา',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: AppColors.orange,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '$totalOpen ใบยังไม่หมดอายุ · ${baht(totalValue)}',
+          style: const TextStyle(fontSize: 13, color: AppColors.steelBlue),
+        ),
+      ],
+    );
+    final tools = [
+      OutlinedButton.icon(
+        onPressed: onExport,
+        icon: const Icon(Icons.download, size: 18),
+        label: const Text('CSV'),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton.icon(
+        onPressed: isDegraded ? null : onPurge,
+        icon: const Icon(Icons.cleaning_services_outlined, size: 18),
+        label: const Text('ล้างเก่า'),
+      ),
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (context, c) {
+          // Phone: the tool buttons go under the title instead of squeezing it.
+          if (c.maxWidth < 480) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '📋 ใบเสนอราคา',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.orange,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$totalOpen ใบยังไม่หมดอายุ · ${baht(totalValue)}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.steelBlue,
-                  ),
-                ),
+                title,
+                const SizedBox(height: 8),
+                Row(children: tools),
               ],
-            ),
-          ),
-          OutlinedButton.icon(
-            onPressed: onExport,
-            icon: const Icon(Icons.download, size: 18),
-            label: const Text('CSV'),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: isDegraded ? null : onPurge,
-            icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-            label: const Text('ล้างเก่า'),
-          ),
-        ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: title),
+              ...tools,
+            ],
+          );
+        },
       ),
     );
   }
@@ -463,11 +535,13 @@ class _Header extends StatelessWidget {
 // ── Filter pills + search ──
 class _FilterBar extends StatelessWidget {
   final _QuoteFilter filter;
+  final Map<_QuoteFilter, int> counts;
   final ValueChanged<_QuoteFilter> onFilter;
   final ValueChanged<String> onSearch;
 
   const _FilterBar({
     required this.filter,
+    required this.counts,
     required this.onFilter,
     required this.onSearch,
   });
@@ -490,24 +564,34 @@ class _FilterBar extends StatelessWidget {
             runSpacing: 6,
             children: _labels.entries.map((e) {
               final active = filter == e.key;
+              final fg = active ? AppColors.white : AppColors.steelBlue;
               return ChoiceChip(
-                label: Text(e.value),
+                // The count sits in its own Text so the label stays findable
+                // as-is; it tells staff whether a filter is worth opening.
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(e.value),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${counts[e.key] ?? 0}',
+                      style: TextStyle(
+                        color: fg.withValues(alpha: 0.85),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
                 selected: active,
                 showCheckmark: false,
                 selectedColor: AppColors.orange,
-                labelStyle: TextStyle(
-                  color: active ? AppColors.white : AppColors.steelBlue,
-                  fontWeight: FontWeight.w700,
-                ),
+                labelStyle: TextStyle(color: fg, fontWeight: FontWeight.w700),
                 onSelected: (_) => onFilter(e.key),
               );
             }).toList(),
           ),
           const SizedBox(height: 8),
-          SearchField(
-            hint: 'ค้นเลขที่ / ลูกค้า / ช่าง',
-            onChanged: onSearch,
-          ),
+          SearchField(hint: 'ค้นเลขที่ / ลูกค้า / ช่าง', onChanged: onSearch),
         ],
       ),
     );
@@ -550,109 +634,121 @@ class _QuoteRow extends StatelessWidget {
         ? q.customerName!
         : 'ลูกค้าทั่วไป';
 
-    return AppCard(
-      padding: const EdgeInsets.all(12),
-      child: Row(
+    final info = InkWell(
+      onTap: onPreview,
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // main (tap → preview)
-          Expanded(
-            child: InkWell(
-              onTap: onPreview,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          q.quoteNo,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: AppColors.orange,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _tag(converted, expired, validDays),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    customer,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${item.items.length} รายการ · ${thaiDate(q.date)}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.steelBlue,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // right (amount + actions)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
             children: [
-              Text(
-                baht(q.total ?? 0),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
+              Flexible(
+                child: Text(
+                  q.quoteNo,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: AppColors.orange,
+                    fontFamily: 'monospace',
+                  ),
                 ),
               ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 4,
-                children: [
-                  if (!converted && !expired)
-                    _actionBtn(
-                      '→ ขาย',
-                      AppColors.successLight,
-                      isDegraded ? null : onConvert,
-                      filled: true,
-                      tooltip: 'แปลงเป็นการขาย',
-                    ),
-                  if (!converted)
-                    _iconBtn(
-                      Icons.edit,
-                      AppColors.warning,
-                      isDegraded ? null : onEdit,
-                      'แก้ไข (ลบของเก่า ใส่ตะกร้า)',
-                    ),
-                  _iconBtn(
-                    Icons.copy,
-                    AppColors.info,
-                    isDegraded ? null : onDuplicate,
-                    'ทำซ้ำ (ต่ออายุใหม่)',
-                  ),
-                  _actionBtn('ดู', AppColors.orange, onPreview),
-                  // #27 Q2 (owner, 2026-10-03): a converted quote is the record
-                  // a bill was sold from — the server refuses to delete it.
-                  if (!converted)
-                    _iconBtn(
-                      Icons.delete_outline,
-                      AppColors.error,
-                      isDegraded ? null : onDelete,
-                      'ลบ',
-                    ),
-                ],
-              ),
+              const SizedBox(width: 8),
+              _tag(converted, expired, validDays),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            customer,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${item.items.length} รายการ · ${thaiDate(q.date)}',
+            style: const TextStyle(fontSize: 12, color: AppColors.steelBlue),
+          ),
         ],
+      ),
+    );
+    final amount = Text(
+      baht(q.total ?? 0),
+      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+    );
+    final actions = Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (!converted && !expired)
+          _actionBtn(
+            '→ ขาย',
+            AppColors.successLight,
+            isDegraded ? null : onConvert,
+            filled: true,
+            tooltip: 'แปลงเป็นการขาย',
+          ),
+        if (!converted)
+          _iconBtn(
+            Icons.edit,
+            AppColors.warning,
+            isDegraded ? null : onEdit,
+            'แก้ไข (ลบของเก่า ใส่ตะกร้า)',
+          ),
+        _iconBtn(
+          Icons.copy,
+          AppColors.info,
+          isDegraded ? null : onDuplicate,
+          'ทำซ้ำ (ต่ออายุใหม่)',
+        ),
+        _actionBtn('ดู', AppColors.orange, onPreview),
+        // #27 Q2 (owner, 2026-10-03): a converted quote is the record
+        // a bill was sold from — the server refuses to delete it.
+        if (!converted)
+          _iconBtn(
+            Icons.delete_outline,
+            AppColors.error,
+            isDegraded ? null : onDelete,
+            'ลบ',
+          ),
+      ],
+    );
+
+    return AppCard(
+      padding: const EdgeInsets.all(12),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          // Phone / zoomed: a 5-button cluster beside the text starves the
+          // quote number and customer — put the actions on their own row.
+          if (c.maxWidth < 560) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: info),
+                    const SizedBox(width: 12),
+                    amount,
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerRight, child: actions),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: info),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [amount, const SizedBox(height: 6), actions],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -662,25 +758,51 @@ class _QuoteRow extends StatelessWidget {
       return _pill('✓ แปลงแล้ว', AppColors.successLight, filled: true);
     }
     if (expired) {
-      return _pill('หมดอายุ', AppColors.error, filled: true);
+      return _pill(
+        'หมดอายุ',
+        AppColors.error,
+        filled: true,
+        icon: Icons.timer_off_outlined,
+      );
     }
-    return _pill('ยังใช้ได้ $validDays วัน', AppColors.steelBlue);
+    // Same label; the colour alone warns that the quote is about to lapse.
+    return _pill(
+      'ยังใช้ได้ $validDays วัน',
+      validDays <= 3 ? AppColors.warning : AppColors.steelBlue,
+      icon: Icons.schedule,
+    );
   }
 
-  Widget _pill(String label, Color color, {bool filled = false}) {
+  Widget _pill(
+    String label,
+    Color color, {
+    bool filled = false,
+    IconData? icon,
+  }) {
+    final fg = filled ? AppColors.white : color;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: filled ? color : color.withValues(alpha: 0.25),
+        color: filled ? color : color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(10),
+        border: filled ? null : Border.all(color: color.withValues(alpha: 0.5)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: filled ? AppColors.white : null,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: fg),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -696,7 +818,9 @@ class _QuoteRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(5),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        constraints: const BoxConstraints(minHeight: 40, minWidth: 48),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: filled ? color : color.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(5),
@@ -707,7 +831,7 @@ class _QuoteRow extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: FontWeight.w700,
             color: filled ? AppColors.white : color,
           ),
@@ -729,13 +853,15 @@ class _QuoteRow extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(5),
         child: Container(
-          padding: const EdgeInsets.all(6),
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.18),
             borderRadius: BorderRadius.circular(5),
             border: Border.all(color: color.withValues(alpha: 0.45)),
           ),
-          child: Icon(icon, size: 16, color: color),
+          child: Icon(icon, size: 20, color: color),
         ),
       ),
     );

@@ -18,18 +18,29 @@
 //   Drift query futures actually complete before the test finishes, then
 //   pumpAndSettle. This is plugin/test-harness noise, not a leaked app Timer.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/fake_sale_photos_repository.dart';
+import 'package:srisurart_pos/data/repositories/sale_photos_repository.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_sheet.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_strip.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
@@ -43,6 +54,9 @@ import 'package:srisurart_pos/presentation/screens/returns_screen.dart';
 import 'package:srisurart_pos/presentation/screens/settings_screen.dart';
 import 'package:srisurart_pos/presentation/screens/cash_drawer_screen.dart';
 import 'package:srisurart_pos/presentation/screens/owner_review_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_camera.dart';
+
+import 'support/fake_camera_platform.dart';
 
 /// One screen under test: a human label + a builder for the widget.
 class _ScreenCase {
@@ -70,17 +84,127 @@ final List<_ScreenCase> _screens = [
 const Size _tablet = Size(1280, 800);
 const Size _phone = Size(400, 800);
 
+/// Whole-screen zoom (blocs/ui_zoom_cubit.dart, widgets/ui_zoom.dart): a 1920x1080 screen at 3x and a
+/// 1366x768 laptop at 2x lay the app out on a ~640x360 / ~683x384 logical screen.
+const List<(String, Size, double)> _cases = [
+  ('tablet', _tablet, 1.0),
+  ('phone', _phone, 1.0),
+  ('zoom3x-fullhd', Size(1920, 1080), 3.0),
+  ('zoom2x-laptop', Size(1366, 768), 2.0),
+  // Capped to ~569x320: the shortest logical height the cap allows.
+  ('zoom3x-laptop', Size(1366, 768), 3.0),
+];
+
+/// Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §2.5): the surfaces that open
+/// ON TOP of a screen — the capture sheet (five photos), the Reports bill sheet
+/// and the full-screen viewer — opened with a fake repository at every size.
+const _photoSaleId = '0199d4a2-6b0d-7f2e-8a1b-2c3d4e5f6a7b';
+final _photoPng = Uint8List.fromList(
+  base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  ),
+);
+
+class _Opener extends StatefulWidget {
+  const _Opener(this.open);
+  final void Function(BuildContext) open;
+
+  @override
+  State<_Opener> createState() => _OpenerState();
+}
+
+class _OpenerState extends State<_Opener> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.open(context);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
+}
+
+FakeSalePhotosRepository _photoRepo() {
+  final repo = FakeSalePhotosRepository();
+  for (var i = 0; i < 3; i++) {
+    repo.seed(
+      _photoSaleId,
+      SalePhoto(
+        id: 'p$i',
+        saleId: _photoSaleId,
+        sortOrder: i,
+        width: 1,
+        height: 1,
+        takenAt: DateTime(2026, 10, 12, 14, 5),
+        createdAt: DateTime(2026, 10, 12, 14, 5),
+      ),
+      _photoPng,
+    );
+  }
+  return repo;
+}
+
+final Map<String, void Function(BuildContext, SalePhotosRepository)>
+_photoSurfaces = {
+  'sale photo sheet': (context, repo) => showSalePhotoSheet(
+    context,
+    repo: repo,
+    saleId: _photoSaleId,
+    receiptNo: 'RC01-2569-10-0042',
+    sources: SalePhotoSources(
+      files: () async => _photoPng,
+      shrink: (b) async => b,
+    ),
+  ),
+  'reports bill sheet': (context, repo) => showSaleBillSheet(
+    context,
+    saleId: _photoSaleId,
+    receiptNo: 'RC01-2569-10-0042',
+    date: DateTime(2026, 10, 12, 14, 5),
+    paymentMethod: 'เครดิตช่าง',
+    totalText: '฿123,456.00',
+  ),
+  // The in-app camera on a fake platform: live preview, then (no camera) the
+  // error state — the only state a browser pane without a camera ever shows.
+  'sale photo camera': (context, repo) {
+    CameraPlatform.instance = FakeCameraPlatform();
+    showSalePhotoCamera(context, count: 2, limit: 5, onShot: (_) async => null);
+  },
+  'sale photo camera, no camera': (context, repo) {
+    CameraPlatform.instance = FakeCameraPlatform()..cameras = const [];
+    showSalePhotoCamera(context, count: 0, limit: 5, onShot: (_) async => null);
+  },
+  'photo viewer': (context, repo) async {
+    final photos = await repo.list(_photoSaleId);
+    if (context.mounted) {
+      await showSalePhotoViewer(
+        context,
+        repo: repo,
+        photos: photos,
+        initial: 1,
+      );
+    }
+  },
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
+  setUpAll(() async {
+    await initializeDateFormatting('th', null);
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  for (final size in [_tablet, _phone]) {
-    final sizeLabel = size == _tablet ? 'tablet' : 'phone';
+  // The camera surfaces swap in a fake platform; put the real one back.
+  final realCamera = CameraPlatform.instance;
+  tearDown(() {
+    CameraPlatform.instance = realCamera;
+  });
 
+  for (final (sizeLabel, size, zoom) in _cases) {
     group('$sizeLabel (${size.width.toInt()}x${size.height.toInt()})', () {
       for (final sc in _screens) {
         testWidgets('${sc.label} renders without exception', (tester) async {
@@ -115,6 +239,7 @@ void main() {
                     BlocProvider<FontScaleCubit>(
                       create: (_) => FontScaleCubit(),
                     ),
+                    BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
                     BlocProvider<PendingQuoteCubit>(
                       create: (_) => PendingQuoteCubit(),
                     ),
@@ -124,6 +249,8 @@ void main() {
                     // A bare Scaffold parent gives screens an Overlay/Navigator
                     // and Material ancestor without pulling in go_router.
                     home: Scaffold(body: sc.build()),
+                    builder: (context, child) =>
+                        UiZoom(zoom: zoom, child: child!),
                   ),
                 ),
               ),
@@ -147,5 +274,72 @@ void main() {
         });
       }
     });
+  }
+  for (final (sizeLabel, size, zoom) in _cases) {
+    group(
+      'sale photos at $sizeLabel (${size.width.toInt()}x${size.height.toInt()})',
+      () {
+        for (final surface in _photoSurfaces.entries) {
+          testWidgets('${surface.key} renders without exception', (
+            tester,
+          ) async {
+            tester.view.physicalSize = size;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(() {
+              tester.view.resetPhysicalSize();
+              tester.view.resetDevicePixelRatio();
+            });
+            final db = AppDatabase(NativeDatabase.memory());
+            final repo = _photoRepo();
+            Object? caught;
+            await tester.runAsync(() async {
+              await tester.pumpWidget(
+                MultiRepositoryProvider(
+                  providers: repositoryProviders(db, useApiRepositories: false),
+                  child: RepositoryProvider<SalePhotosRepository?>.value(
+                    value: repo,
+                    child: MaterialApp(
+                      home: Scaffold(
+                        body: _Opener((c) => surface.value(c, repo)),
+                      ),
+                      builder: (context, child) =>
+                          UiZoom(zoom: zoom, child: child!),
+                    ),
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle(const Duration(milliseconds: 100));
+              if (surface.key == 'sale photo sheet') {
+                // Fill the sheet: five photos is its tallest state.
+                for (var i = 0; i < 5; i++) {
+                  final files = find.byKey(const Key('sale-photo-files'));
+                  await tester.ensureVisible(files);
+                  await tester.pump();
+                  await tester.tap(files);
+                  await tester.pumpAndSettle(const Duration(milliseconds: 100));
+                }
+                expect(find.text('ครบ 5 รูปแล้ว'), findsOneWidget);
+              }
+              if (surface.key == 'sale photo camera') {
+                expect(find.byKey(const Key('fake-preview-1')), findsOneWidget);
+                await tester.tap(find.byKey(const Key('sale-camera-shutter')));
+                await tester.pumpAndSettle(const Duration(milliseconds: 100));
+                expect(find.text('3 / 5 รูป'), findsOneWidget);
+              }
+              if (surface.key == 'sale photo camera, no camera') {
+                expect(find.text('ไม่พบกล้อง'), findsOneWidget);
+              }
+              caught = tester.takeException();
+              await db.close();
+            });
+            expect(
+              caught,
+              isNull,
+              reason: '${surface.key} threw at $sizeLabel',
+            );
+          });
+        }
+      },
+    );
   }
 }

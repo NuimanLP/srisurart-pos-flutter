@@ -26,7 +26,7 @@
 
 | ลบ | เก็บ |
 |---|---|
-| sales + items, returns + items, POs + items, quotes + items, credit_payments, shifts, drawer_entries, movements, parked_sales, suppliers, products, categories, customers, mechanics, owner_review_items, `tenant_meta` แบบ `unknownstore:*` | tenants, users, devices, audit_log, import_jobs · `settings` (เขียนทับถ้ามีในไฟล์) · `doc_counters` (ยกขึ้น ไม่ลดลง) · `idempotency_keys` (ถ้าลบ retry เก่าจะรันซ้ำได้) |
+| sales + items, returns + items, POs + items, quotes + items, credit_payments, shifts, drawer_entries, movements, parked_sales, suppliers, products, categories, customers, mechanics, owner_review_items, `tenant_meta` แบบ `unknownstore:*` | tenants, users, devices, audit_log, import_jobs · `settings` (เขียนทับถ้ามีในไฟล์) · `payment_accounts` (2026-10-10: แทนที่เฉพาะเมื่อไฟล์มี `sa_payment_accounts` ที่ไม่ว่าง เหมือน settings) · `doc_counters` (ยกขึ้น ไม่ลดลง) · `idempotency_keys` (ถ้าลบ retry เก่าจะรันซ้ำได้) |
 
 ## 4. กติกาใหม่: ทุก import เติม `doc_counters`
 ทั้ง platform import และ owner import ยก `doc_counters` ขึ้นถึงเลข RC/CN/PO/QT/CP ในไฟล์ที่ตรง `DOC_NUMBER_REGEX` ด้วย `GREATEST`

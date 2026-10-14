@@ -377,7 +377,9 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         ),
         const SizedBox(height: 12),
         Wrap(
+          alignment: WrapAlignment.center,
           spacing: 8,
+          runSpacing: 8,
           children: [500, 1000, 2000, 3000]
               .map(
                 (n) => _quickChip(
@@ -468,7 +470,6 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
               color: active ? AppColors.orange : AppColors.steelBlue,
             ),
           ),
@@ -597,47 +598,67 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 130,
-                      child: TextField(
-                        controller: _amountCtl,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: moneyInputFormatters,
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          hintText: 'จำนวนเงิน',
-                        ),
-                        onSubmitted: (_) => _handleAddEntry(d),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final amount = TextField(
+                      controller: _amountCtl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _noteCtl,
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          hintText:
-                              'หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน',
-                        ),
-                        onSubmitted: (_) => _handleAddEntry(d),
+                      inputFormatters: moneyInputFormatters,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    AppButton.secondary(
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        hintText: 'จำนวนเงิน',
+                      ),
+                      onSubmitted: (_) => _handleAddEntry(d),
+                    );
+                    final note = TextField(
+                      controller: _noteCtl,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        hintText: 'หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน',
+                      ),
+                      onSubmitted: (_) => _handleAddEntry(d),
+                    );
+                    final add = AppButton.secondary(
                       label: '+ เพิ่ม',
                       onPressed: () => _handleAddEntry(d),
-                    ),
-                  ],
+                    );
+                    // Narrow (phone / zoomed): one row left the note field
+                    // ~110px wide — give it its own full-width line.
+                    if (c.maxWidth < 480) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: amount),
+                              const SizedBox(width: 8),
+                              add,
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          note,
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 130, child: amount),
+                        const SizedBox(width: 8),
+                        Expanded(child: note),
+                        const SizedBox(width: 8),
+                        add,
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 Wrap(
@@ -873,6 +894,16 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               ),
               const SizedBox(height: 20),
               _fieldLabel('นับเงินสดจริงได้ ฿'),
+              // The commonest miss: leaving the float out (owner-ratified 2026-10-12).
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'นับเงินทั้งหมดในลิ้นชัก รวมเงินตั้งต้นด้วย',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
+              ),
               TextField(
                 controller: _physCtl,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -884,10 +915,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   fontSize: 26,
                   fontWeight: FontWeight.w700,
                 ),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  hintText: '0',
-                ),
+                decoration: const InputDecoration(isDense: true, hintText: '0'),
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 10),
@@ -910,26 +938,45 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     border: Border.all(color: varColor, width: 2),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'ผลต่าง',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          varLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.right,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: varColor,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'ผลต่าง',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              varLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: varColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      // What the number means for the counter (owner-ratified 2026-10-12).
+                      Text(
+                        variance == 0
+                            ? 'เงินในลิ้นชักตรงกับยอดที่ควรมี'
+                            : variance > 0
+                            ? 'นับได้มากกว่ายอดที่ควรมี'
+                            : 'นับได้น้อยกว่ายอดที่ควรมี — ลองนับใหม่อีกครั้ง',
+                        textAlign: TextAlign.right,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: varColor,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -942,14 +989,58 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     stream: _outboxRemaining,
                     initialData: 0,
                     builder: (context, snap) {
-                      final queued = (snap.data ?? 0) > 0;
-                      return AppButton(
-                        label: '🔒 ยืนยันปิดลิ้นชัก',
-                        busy: _busy,
-                        fullWidth: true,
-                        onPressed: (hasPhys && !isDegraded && !queued)
-                            ? _handleClose
-                            : null,
+                      final remaining = snap.data ?? 0;
+                      final queued = remaining > 0;
+                      // Why the button is greyed out — the same three
+                      // conditions, shown UNDER the button so it never moves.
+                      // owner-ratified 2026-10-12.
+                      final String? blocked = !hasPhys
+                          ? 'กรอกยอดเงินที่นับได้ก่อน จึงจะปิดลิ้นชักได้'
+                          : isDegraded
+                          ? 'ระบบออฟไลน์อยู่ — เชื่อมต่ออินเทอร์เน็ตก่อนจึงจะปิดลิ้นชักได้'
+                          : queued
+                          ? 'มีรายการรอส่งเข้าระบบ $remaining รายการ — รอให้ส่งครบก่อนปิดลิ้นชัก'
+                          : null;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          AppButton(
+                            label: '🔒 ยืนยันปิดลิ้นชัก',
+                            busy: _busy,
+                            fullWidth: true,
+                            onPressed: (hasPhys && !isDegraded && !queued)
+                                ? _handleClose
+                                : null,
+                          ),
+                          if (blocked != null && !closed)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    size: 18,
+                                    color: hasPhys
+                                        ? AppColors.warning
+                                        : AppColors.steelBlue,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      blocked,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: hasPhys
+                                                ? AppColors.warning
+                                                : AppColors.steelBlue,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       );
                     },
                   );
@@ -1013,38 +1104,61 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final isOut = value == 'out';
     Color? bg;
     Color? border;
-    Color? fg;
     if (active) {
       if (isOut) {
         bg = AppColors.error.withValues(alpha: 0.15);
-        border = AppColors.error.withValues(alpha: 0.5);
-        fg = const Color(0xFFE57373);
+        border = AppColors.error;
       } else {
         bg = AppColors.successLight.withValues(alpha: 0.15);
-        border = AppColors.successLight.withValues(alpha: 0.5);
-        fg = const Color(0xFF81C784);
+        border = AppColors.successLight;
       }
     }
     return Builder(
       builder: (context) {
         final theme = Theme.of(context);
+        // The palette red/green read on the light surface but fall below 3:1
+        // on the dark navy one — keep the lighter tones there.
+        final dark = theme.brightness == Brightness.dark;
+        final Color? fg = !active
+            ? null
+            : isOut
+            ? (dark ? _outOnDark : AppColors.error)
+            : (dark ? _inOnDark : AppColors.successLight);
         return InkWell(
           onTap: () => setState(() => _entryType = value),
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 9),
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
             decoration: BoxDecoration(
               color: bg ?? theme.colorScheme.surface,
-              border: Border.all(color: border ?? theme.dividerColor),
+              border: Border.all(
+                color: border ?? theme.dividerColor,
+                width: active ? 2 : 1,
+              ),
               borderRadius: BorderRadius.circular(8),
             ),
             alignment: Alignment.center,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: fg ?? AppColors.steelBlue,
-              ),
+            // The active choice also carries a check, not colour alone.
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (active) ...[
+                  Icon(Icons.check_circle, size: 18, color: fg),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: fg ?? AppColors.steelBlue,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -1059,18 +1173,25 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         return InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border.all(color: theme.dividerColor),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppColors.steelBlue,
+          // ≥40dp tall: these were ~26dp, below the touch minimum.
+          // IntrinsicWidth: `alignment` alone makes the Container fill the
+          // Wrap's full width.
+          child: IntrinsicWidth(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                border: Border.all(color: theme.dividerColor),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.steelBlue,
+                ),
               ),
             ),
           ),
@@ -1092,7 +1213,6 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           title,
           style: theme.textTheme.labelMedium?.copyWith(
             fontWeight: FontWeight.w700,
-            letterSpacing: 1.4,
             color: AppColors.steelBlue,
           ),
         ),
@@ -1115,6 +1235,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     },
   );
 }
+
+// Active cash-out / cash-in toggle text on the dark navy surface (the light
+// theme uses AppColors.error / successLight).
+const Color _outOnDark = Color(0xFFE57373);
+const Color _inOnDark = Color(0xFF81C784);
 
 // ── date/time helpers (long Thai date for the header) ────────────────────────
 const _thMonths = [

@@ -15,6 +15,25 @@
 #   BACKUP_KEEP_DAYS     Number of days to keep local backups (default: 7)
 #   POSTGRES_DB          Database name to dump (default: pos)
 #   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
+#   PRODUCT_IMAGES_DIR   Product-images directory to archive when no compose nginx mounts the
+#                        `product-images` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_VOLUMES       1 (default) = also archive the product-images and sale-photos volumes.
+#                        0 = database dump only (the pre-migration dump deploy.yml takes before
+#                        `migrate`: a migration changes the schema, never those files, so the
+#                        archives would only slow the deploy down). Anything but 0 means 1.
+#   BACKUP_PRE_MIGRATE_KEEP_DAYS  Days a nightly run keeps $APP_DIR/backups-pre-migrate dumps
+#                        (default: 30; see "Pre-migrate dumps" near the end).
+#   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
+#                        `sale-photos` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_TEXTFILE_DIR  node-exporter textfile directory for the backup freshness gauge
+#                        (default: $APP_DIR/node-textfile, created by provision.yml). See the end.
+#
+# Product images (contract §2): each run also writes ${POSTGRES_DB}_images_<ts>.tar.gz (+ .sha256)
+# from the `product-images` volume — Postgres holds only each image's key. Same `.partial` + `mv`,
+# prune and offsite rules as the dump. Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §5.4) the
+# same way: ${POSTGRES_DB}_sale_photos_<ts>.tar.gz from the `sale-photos` volume, read through the
+# worker (nginx never mounts it). 🔴 Only provision.yml (or a manual `install`) updates
+# /opt/pos/scripts — a CD deploy does not.
 #
 # Offsite upload (#363 — the dump above never left the VM before this):
 #   BACKUP_RCLONE_REMOTE  rclone remote:path to copy each backup to, e.g. "supabase-backup:pos-backups/mob04".
@@ -134,7 +153,15 @@ exec_pg_dump() {
 # 2026-09-29): it passes `gzip -t`, has no .uploaded marker, and prune would keep it forever once
 # offsite is on. `.partial` matches no upload glob; prune removes stale ones by age (SIGKILL case).
 PARTIAL_FILE="${BACKUP_FILE}.partial"
-trap 'rm -f "$PARTIAL_FILE"' EXIT
+# The product-images archive below uses the same `.partial` + `mv` pattern.
+IMAGES_FILE="$BACKUP_DIR/${POSTGRES_DB}_images_${TIMESTAMP}.tar.gz"
+IMAGES_CHECKSUM="${IMAGES_FILE}.sha256"
+IMAGES_PARTIAL="${IMAGES_FILE}.partial"
+# Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §5.4): its own volume, its own archive.
+SALE_PHOTOS_FILE="$BACKUP_DIR/${POSTGRES_DB}_sale_photos_${TIMESTAMP}.tar.gz"
+SALE_PHOTOS_CHECKSUM="${SALE_PHOTOS_FILE}.sha256"
+SALE_PHOTOS_PARTIAL="${SALE_PHOTOS_FILE}.partial"
+trap 'rm -f "$PARTIAL_FILE" "$IMAGES_PARTIAL" "$SALE_PHOTOS_PARTIAL"' EXIT
 
 echo "Dumping database and appending role ceiling configuration (#213)..."
 (
@@ -175,6 +202,108 @@ fi
 # shellcheck disable=SC2012
 BACKUP_SIZE="$(ls -lh "$BACKUP_FILE" | awk '{print $5}')"
 echo "  -> Backup created successfully ($BACKUP_SIZE)."
+
+# --- Product images (contract §2) -------------------------------------------------------------
+# The images live in the `product-images` volume, not in Postgres, so pg_dump above does not
+# carry them. Archived read-only through the nginx container (which mounts the volume `:ro` at
+# /srv/product-images) as a tar.gz with its own sha256 sidecar; same `.partial` + `mv` and the same
+# prune/offsite rules as the dump. Outside compose (tests, a bare host) PRODUCT_IMAGES_DIR names
+# the directory instead.
+#   * no volume to archive (no nginx service mounting it yet, no PRODUCT_IMAGES_DIR) -> one
+#     `::warning::`, no archive, the run still exits 0 — a host whose deploy predates images.
+#   * an archive that was attempted and failed -> loud `::error::` and a NON-ZERO exit at the end
+#     (the dump above is kept either way).
+#
+# --- Sale photos (10_SALE_PHOTO_EVIDENCE.md §5.4) ----------------------------------------------
+# Same rules for the `sale-photos` volume, read through the worker container (nginx never mounts
+# it — the photos are private) at /app/sale-photos, or SALE_PHOTOS_DIR outside compose. One
+# difference: when compose lists the worker but `exec` into it fails, that is a FAILED archive
+# (`::error::`, non-zero exit), not "no volume" — every deploy since the sale-photos release has
+# that mount, so an unreachable worker means the photos were not backed up.
+#
+# volume_source <service> <mount> <dir> <strict>: docker | dir | none | unreachable
+# (`unreachable` only when strict = 1: the service is listed but `exec … test -d` failed)
+volume_source() {
+  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+    local services
+    services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null || true)"
+    if grep -qx "$1" <<<"$services"; then
+      if docker compose "${COMPOSE_ARGS[@]}" exec -T "$1" test -d "$2" >/dev/null 2>&1; then
+        echo docker
+        return
+      fi
+      if [[ "$4" == 1 ]]; then
+        echo unreachable
+        return
+      fi
+    fi
+  fi
+  if [[ -n "$3" && -d "$3" ]]; then
+    echo dir
+    return
+  fi
+  echo none
+}
+
+# volume_tar <source> <service> <mount> <dir>
+volume_tar() {
+  case "$1" in
+    docker) docker compose "${COMPOSE_ARGS[@]}" exec -T "$2" tar -cf - -C "$3" . ;;
+    dir) tar -cf - -C "$4" . ;;
+  esac
+}
+
+# archive_volume <label> <volume> <service> <mount> <dir env name> <dir> <file> <checksum> <partial> <strict>
+# Sets ARCHIVE_STATE to absent | ok | failed.
+archive_volume() {
+  local label="$1" volume="$2" service="$3" mount="$4" dir_name="$5" dir="$6"
+  local file="$7" checksum="$8" partial="$9" strict="${10}" src
+  ARCHIVE_STATE=absent
+  src="$(volume_source "$service" "$mount" "$dir" "$strict")"
+  if [[ "$src" == none ]]; then
+    echo "::warning::No ${volume} volume to archive (no running ${service} service mounting ${mount}, and ${dir_name} unset) — this backup has no ${label}." >&2
+    return
+  fi
+  if [[ "$src" == unreachable ]]; then
+    ARCHIVE_STATE=failed
+    echo "::error::${label^^} ARCHIVE FAILED (compose lists the ${service} service but exec into it to read ${mount} failed) — this run's database dump is kept, but the ${label} are not backed up." >&2
+    return
+  fi
+  echo "Archiving ${label} ($src)..."
+  # WebP is already compressed: gzip -1 costs little and the archive is still a tar.gz.
+  if volume_tar "$src" "$service" "$mount" "$dir" | gzip -1 > "$partial"; then
+    mv "$partial" "$file"
+    chmod 0600 "$file"
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && sha256sum "$(basename "$file")" > "$(basename "$checksum")")
+    elif command -v shasum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && shasum -a 256 "$(basename "$file")" > "$(basename "$checksum")")
+    fi
+    if [[ -f "$checksum" ]]; then
+      chmod 0600 "$checksum"
+    fi
+    ARCHIVE_STATE=ok
+    # shellcheck disable=SC2012
+    echo "  -> ${label} archived ($(ls -lh "$file" | awk '{print $5}'))."
+  else
+    rm -f "$partial"
+    ARCHIVE_STATE=failed
+    echo "::error::${label^^} ARCHIVE FAILED ($src) — this run's database dump is kept, but the ${label} are not backed up." >&2
+  fi
+}
+
+IMAGES_STATE=absent
+SALE_PHOTOS_STATE=absent
+if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+  echo "BACKUP_VOLUMES=0: database dump only -- product images and sale photos are not archived by this run."
+else
+  archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
+    "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
+  IMAGES_STATE="$ARCHIVE_STATE"
+  archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
+    "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
+  SALE_PHOTOS_STATE="$ARCHIVE_STATE"
+fi
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
@@ -221,6 +350,16 @@ offsite_upload() {
   if [[ -f "$CHECKSUM_FILE" ]]; then
     copy_offsite "$CHECKSUM_FILE" || return 1
   fi
+  local archive
+  for archive in "$IMAGES_FILE" "$SALE_PHOTOS_FILE"; do
+    if [[ -f "$archive" ]]; then
+      echo "Uploading $(basename "$archive") to '$OFFSITE_LABEL'..."
+      copy_offsite "$archive" || return 1
+      if [[ -f "${archive}.sha256" ]]; then
+        copy_offsite "${archive}.sha256" || return 1
+      fi
+    fi
+  done
   echo "  -> Offsite upload confirmed ($OFFSITE_LABEL)."
 }
 
@@ -234,6 +373,12 @@ elif offsite_upload; then
   OFFSITE_STATE=ok
   : > "$UPLOAD_MARKER"
   chmod 0600 "$UPLOAD_MARKER"
+  for archive in "$IMAGES_FILE" "$SALE_PHOTOS_FILE"; do
+    if [[ -f "$archive" ]]; then
+      : > "${archive}.uploaded"
+      chmod 0600 "${archive}.uploaded"
+    fi
+  done
 else
   OFFSITE_STATE=failed
 fi
@@ -248,12 +393,12 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     while IFS= read -r -d '' marker; do
       base="${marker%.uploaded}"
       rm -f "$base" "${base}.sha256" "$marker"
-    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
     while IFS= read -r -d '' stale; do
       if [[ ! -f "${stale}.uploaded" ]]; then
         echo "::warning::Keeping $(basename "$stale") past the ${BACKUP_KEEP_DAYS}-day retention window -- its offsite upload was never confirmed." >&2
       fi
-    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
   else
     # Offsite is not configured at all -- prune exactly as before this ticket (age-based, no
     # confirmation concept applies), so an indefinitely-long "not configured yet" period does not
@@ -263,15 +408,72 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     # did not exist before #363, so this is still "prune as before #363".
     echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR..."
     find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+    # The product-images archives (contract §2), same age rule.
+    find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_images_*.tar.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz.sha256" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+    # The sale-photos archives (10_SALE_PHOTO_EVIDENCE.md §5.4), same age rule.
+    find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_sale_photos_*.tar.gz" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.sha256" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
   fi
   # A `.partial` is only ever left by a SIGKILL'd run (the EXIT trap covers every other exit). It is
   # never a backup, has no offsite copy to confirm, so prune it by age in both modes.
-  find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+  find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
 fi
 
+# --- Pre-migrate dumps (deploy.yml, BACKUP_VOLUMES=0) ------------------------------------------
+# deploy.yml's pre-migrate run prunes its own directory, but only when a later deploy has a
+# migration — months can pass between those, and the dumps hold customer data (PDPA). So the
+# nightly run (never a BACKUP_VOLUMES=0 run, which already prunes that directory as its own
+# BACKUP_DIR) also removes pre-migrate dumps older than BACKUP_PRE_MIGRATE_KEEP_DAYS (default 30):
+# only that one sibling directory, only its top level (-maxdepth 1), only this script's file names.
+PRE_MIGRATE_DIR="$APP_DIR/backups-pre-migrate"
+PRE_MIGRATE_KEEP_DAYS="${BACKUP_PRE_MIGRATE_KEEP_DAYS:-30}"
+if [[ "${BACKUP_VOLUMES:-1}" != 0 && "$PRE_MIGRATE_KEEP_DAYS" -gt 0 && -d "$PRE_MIGRATE_DIR" ]] &&
+  [[ "$(cd "$PRE_MIGRATE_DIR" && pwd -P)" != "$(cd "$BACKUP_DIR" && pwd -P)" ]]; then
+  echo "Pruning pre-migrate dumps older than $PRE_MIGRATE_KEEP_DAYS days in $PRE_MIGRATE_DIR..."
+  find "$PRE_MIGRATE_DIR" -maxdepth 1 -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_backup_*.sql.gz.partial" \) -mtime +"$PRE_MIGRATE_KEEP_DAYS" -exec rm -f {} +
+fi
+
+if [[ "$IMAGES_STATE" == failed || "$SALE_PHOTOS_STATE" == failed ]]; then
+  echo "=== Product images or sale photos NOT backed up -- see the ARCHIVE FAILED error above ==="
+  exit 1
+fi
+
+# --- Backup freshness gauge (Grafana rule "backup stale", 07 §10) ------------------------------
+# On a green run only (every exit-1 path above and below never reaches this), write
+# pos_backup_last_success_timestamp_seconds for node-exporter's textfile collector. Not for a
+# DB-only run (BACKUP_VOLUMES=0, the pre-migrate dump): that one is not the nightly backup, and
+# counting it would hide a nightly cron that stopped. tmp + mv, so node-exporter never reads half a
+# file. A missing directory (provision.yml not re-run yet) only warns: the backup itself is fine.
+write_freshness_gauge() {
+  local dir="${BACKUP_TEXTFILE_DIR:-$APP_DIR/node-textfile}" tmp
+  if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+    return
+  fi
+  if [[ ! -d "$dir" ]]; then
+    echo "::warning::$dir does not exist -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it creates the directory)." >&2
+    return
+  fi
+  # The backup is already complete here: a gauge that cannot be written (directory not writable by
+  # this user, disk full) must warn, never turn a good backup into a non-zero exit under `set -e`.
+  if ! tmp="$(mktemp "$dir/.pos_backup.prom.XXXXXX" 2>/dev/null)"; then
+    echo "::warning::cannot write in $dir -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it owns the directory)." >&2
+    return
+  fi
+  if ! { printf '# HELP pos_backup_last_success_timestamp_seconds Unix time of the last nightly backup-db.sh run that exited 0.\n# TYPE pos_backup_last_success_timestamp_seconds gauge\npos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" >"$tmp" &&
+    chmod 0644 "$tmp" && mv "$tmp" "$dir/pos_backup.prom"; }; then
+    rm -f "$tmp"
+    echo "::warning::writing $dir/pos_backup.prom failed -- the backup freshness gauge was not updated, so Grafana's \"backup stale\" alert may fire." >&2
+  fi
+}
+
 case "$OFFSITE_STATE" in
-  ok)       echo "=== Backup Complete (local + offsite) ===" ;;
-  disabled) echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ===" ;;
+  ok)
+    write_freshness_gauge
+    echo "=== Backup Complete (local + offsite) ==="
+    ;;
+  disabled)
+    write_freshness_gauge
+    echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ==="
+    ;;
   failed)
     echo "=== Backup Complete LOCALLY ONLY -- see the OFFSITE BACKUP error above (#363) ==="
     exit 1

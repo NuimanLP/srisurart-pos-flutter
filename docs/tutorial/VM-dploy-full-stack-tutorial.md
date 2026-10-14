@@ -1,11 +1,13 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**อัปเดต 2026-10-13 (release `main` `5c7f210` PR #714 = image หลาย arch #711, `CERT_SAN_IPS` #712, `host-setup.sh` #713 — บน `mob04` (amd64) ขั้นตอน deploy ไม่เปลี่ยน; Tailscale บน `mob04` — §1.2)** — **ตรวจกับโค้ดที่:** `origin/main` @ `5c7f210` · 2026-10-13 (ทบทวนโดย reviewer 3 มุม: ความตรงกับ repo, แหล่งทางการ, ความปลอดภัย/ลำดับ) — ตรวจรอบแรก `494ace3` · 2026-09-30 — **อัปเดต 2026-10-13 (release `main` `8a44a03` PR #704 = แผ่นถ่ายรูปมีกล้องในแอป + เรียงรูป #702 และแท็บซัพพลายเออร์แบบเริ่มที่ซัพฯ #703 — เฉพาะ client: ไม่มี migration, ไม่มีขั้นตอนมือ, `backup-db.sh` ไม่เปลี่ยน; deploy run `38275228902`; APK ใหม่ `apk-32a2544` — §6.7)** — **อัปเดต 2026-10-12 (รูปหลักฐานสินค้าตอนขาย — volume `sale-photos`, ตาราง `sale_photos` → Postgres 31 ตาราง, `backup-db.sh` เก็บ `pos_sale_photos_*.tar.gz`; `main` `c3e33aa` PR #699 — §3 ข้อ 8, §4.7b)** — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัย 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
 
 ## 0. หน้าแรก — อ่านหน้านี้ก่อนทำอะไร
+
+> **Raspberry Pi 5 แทน VM?** ดู `docs/tutorial/pi5-full-stack-tutorial.md` (2026-10-13 — `host-setup.sh` + image arm64; ยังไม่มี Pi จริงในระบบ, CD ไป Pi ยังไม่ต่อ)
 
 ### 0.1 สถานะวันนี้: FortiGate ไม่ตัด `ghcr.io` แล้ว (2026-09-29)
 
@@ -18,7 +20,7 @@
 * `docker save`/`load` ด้วยมือ = ทางกู้วันเดโมเท่านั้น **ห้ามบันทึกว่าเป็น CD**
 * ประวัติ: `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` §4.7
 
-**ทำไม gate ข้อ 5 ต้องมาก่อน:** ใน `deploy.yml` task ที่ **copy ไฟล์ compose / nginx.conf / platform-ui / postgres init / etcd-init.sh
+**ทำไม gate ข้อ 5 ต้องมาก่อน:** ใน `deploy.yml` task ที่ **copy ไฟล์ compose / nginx.conf / platform-ui / postgres init / etcd-init.sh / certgen.sh
 ลง `/opt/pos`** และ task ที่ **`rmdir` ไดเรกทอรี `etcd-init.sh` เก่า** รัน **ก่อน** `pull` · ถ้าล้มที่ `pull` VM จะเหลือไฟล์ config ใหม่วางคู่กับ
 container เก่า — ใครพิมพ์ `docker compose` บน VM หลังจากนั้นจะใช้ config ที่ไม่ตรงกับสิ่งที่รันอยู่
 
@@ -40,7 +42,8 @@ container เก่า — ใครพิมพ์ `docker compose` บน VM �
 | เขียน `/opt/pos` | **ไม่ได้** | ได้ (เจ้าของ) |
 | ใช้กับ | **`provision.yml` เท่านั้น** | **`deploy.yml` + คำสั่งตรวจ** |
 
-(วัดจริง: `docs/handoff_log/ticket-343-vm-deploy.md` §3) · `--check` ไม่เผยการใช้ user ผิด
+(วัดจริง: `docs/handoff_log/ticket-343-vm-deploy.md` §3) · `--check` ไม่เผยการใช้ user ผิด ·
+🔴 group `docker` = **เทียบเท่า root** (docs.docker.com/engine/install/linux-postinstall/) → เก็บ key ของ `deploy` ให้ดีเท่า key ของ `cloud`
 
 ### 0.4 ภาพรวม
 
@@ -52,9 +55,13 @@ notebook (worktree สะอาดที่ <sha>)                     │ docke
    └─ ssh เป็น deploy ─▶ deploy.yml -e image_tag=<sha> ─┴─▶ VM mob04 /opt/pos ─▶ /opt/pos/.current_sha = <sha>
 ```
 
+ตั้งแต่ `5c7f210` (#711): `:<sha>` เป็น **manifest list (amd64 + arm64)** — image server ทำโดย job `publish-image` จาก `<sha>-amd64` / `<sha>-arm64`
+หลังทั้งสองขาผ่าน, image web push ทั้งสอง platform ด้วย buildx ครั้งเดียว · `docker pull` บน `mob04` เลือกขา amd64 เอง — **ไม่มีอะไรต้องเปลี่ยนใน Ansible หรือ `.env`**
+· ทางหลักของการ deploy = CD (§6.3) · §3 = ทางสำรองด้วยมือ
+
 ### 0.5 เสร็จแล้วรู้ได้อย่างไร
 
-deploy สำเร็จ = **ทุกข้อ** ใน §4 ผ่าน และหลักฐานตาม §5 ถูกแปะใน #343/#344
+deploy สำเร็จ = **ทุกข้อ** ใน §4 ผ่าน และหลักฐานตาม §5 ถูกแปะใน #344 หรือ issue ของ release นั้น
 **ไม่นับเป็นหลักฐาน:** PLAY RECAP เขียว · ผล `--check` · run สีเขียวใน Actions
 
 ---
@@ -98,7 +105,7 @@ ans() {
     -e DEMO_SSH_HOST -e DEMO_SSH_USER -e DEMO_SSH_KEY_PATH=/tmp/k -e KEYFILE -e TAG \
     "${extra[@]}" \
     'alpine/ansible@sha256:22227b578da3371267201879f44de86569e9b531db536e1d9d2b83aed35b6cfc' \
-    sh -c '[ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
+    sh -c '[ ! -f /hostssh/known_hosts ] || { mkdir -p "$HOME/.ssh" && cp /hostssh/known_hosts "$HOME/.ssh/known_hosts"; } || exit 1; [ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
 }
 ```
 
@@ -107,7 +114,7 @@ export SSHDIR="$USERPROFILE\.ssh"
 ```
 
 เหตุผลของแต่ละชิ้น (วัดจริงใน `ticket-343` §2): bind mount ของ Windows เป็น world-writable → Ansible **เมิน `ansible.cfg` เงียบ ๆ** ถ้าไม่บังคับ
-`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
+`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `known_hosts` ถูกคัดเข้า container ด้วย เพราะ `ansible.cfg` ตรวจ host key แล้ว (2026-10-13, §1.4) · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
 ตัวแปรที่ใส่นำหน้าคำสั่ง (`DEMO_SSH_USER=deploy ans ...`) มีผลแค่คำสั่งนั้น ไม่ค้างใน shell
 
 `REPO` ตั้งจริงใน §3 ข้อ 4 (ชี้ไปที่ worktree สะอาด) · ทดสอบฟังก์ชันตอนนี้ด้วย repo หลัก (Git Bash ที่ root ของ repo · ไม่ใส่ `KEYFILE` = ไม่ copy key):
@@ -136,10 +143,24 @@ ansible [core 2.21.4]
 
 > run จริงกับ `mob04` ที่มีบันทึกทั้งหมดใช้ core 2.18.1 (container) · 2.21 (brew) ผ่าน `--syntax-check` แต่ยังไม่เคยรันกับ VM —
 > เจออาการแปลกให้ลองซ้ำด้วย container ก่อนสรุปว่าเป็นบั๊ก
+>
+> ⚠️ ansible-core **2.18 หมดอายุ (EOL) พฤษภาคม 2026** (docs.ansible.com — release_and_maintenance) · การ bump digest ของ container เป็นงานแยก
+> และต้องลองกับ VM ก่อนใช้จริง — ระหว่างนี้ใช้ digest เดิม
 
 ### 1.2 เครือข่าย: ต้องอยู่ในเครือข่ายมหาวิทยาลัยหรือต่อ VPN
 
-`172.30.58.20` (hostname `mob04`) เข้าจากนอกมหาวิทยาลัยไม่ได้เลย
+`172.30.58.20` (hostname `mob04`) เข้าจากนอกมหาวิทยาลัยไม่ได้ — **ยกเว้น HTTPS ผ่าน Tailscale (2026-10-13)** ข้างล่าง ·
+งาน ssh / deploy ยังต้องใช้เครือข่ายคณะหรือ VPN
+
+**Tailscale บน `mob04` (2026-10-13 — `docs/research/tailscale-remote-access-plan-2026-10-13.md`):**
+
+* `mob04` เป็น subnet router ของ `172.30.58.20/32` เท่านั้น ด้วย `--snat-subnet-routes=false` — 🔴 **ห้ามเปิด SNAT** (rate limit ต่อ IP ของ login
+  จะรวมทุกเครื่องเป็น bucket เดียว และ allowlist RFC1918 ของ nginx จะเห็นทุกคนเป็น LAN)
+* สมาชิก tailnet เข้าได้แค่ `https://172.30.58.20` (443) · SSH ผ่าน tailnet = **owner คนเดียว** · สมาชิกที่ต้อง ssh/deploy ยังต้องใช้เครือข่ายคณะ/VPN
+* dashboard (Grafana ฯลฯ) ผ่าน SSH tunnel เท่านั้น (§4.5) — ไม่ใช่ grant ของ tailnet
+* 🔴 **ห้ามรัน `tailscale up` / `--reset` หรือ `host-setup.sh` บน `mob04`** (ติดตั้งแล้วด้วยมือ — การ `up` ใหม่ล้าง flag ที่ตั้งไว้)
+* ตรวจ (owner, เป็น `cloud`): `ssh mob04 'sudo tailscale debug prefs | grep -i nosnat'` → ✅ `"NoSNAT": true`
+  (ถ้าชื่อ field ต่างไปในรุ่นที่ติดตั้ง ให้ดูทั้งผลของ `tailscale debug prefs`)
 
 ```bash
 nc -vz 172.30.58.20 22
@@ -156,7 +177,9 @@ ssh-keygen -t ed25519 -f ~/.ssh/deploy_ed25519 -C "deploy@mob04 <ชื่อค
 ```
 
 * ได้ `~/.ssh/deploy_ed25519` (private — **ห้ามออกจากเครื่อง**) และ `~/.ssh/deploy_ed25519.pub` (public — ส่ง owner ได้)
-* passphrase: Mac ใช้ได้กับ `ssh-add --apple-use-keychain` · ฟังก์ชัน `ans` บน Windows ไม่มี agent → key ที่มี passphrase จะค้างรอพิมพ์
+* passphrase: Mac ใช้ได้กับ `ssh-add --apple-use-keychain` + ใน `~/.ssh/config` ใส่ `UseKeychain yes` และ `AddKeysToAgent yes` ·
+  ฟังก์ชัน `ans` บน Windows ไม่มี tty และไม่มี agent → key ที่มี passphrase **ไม่ค้าง แต่ล้มทันที** ด้วย `Permission denied (publickey)` / `UNREACHABLE`
+  (เช่นเดียวกับ `-K` และคำถาม host key) → ใช้ key ไม่มี passphrase กับ `ans`
 * **Windows:** OpenSSH ของ Windows (`C:\Windows\System32\OpenSSH\ssh.exe`) ปฏิเสธ key ที่คนอื่นอ่านได้ (ssh ของ Git Bash ไม่สน) → ตั้ง ACL ใน PowerShell:
 
 ```powershell
@@ -193,13 +216,22 @@ export DEPLOY_KEY=~/.ssh/deploy_ed25519
 test -s "$DEPLOY_KEY" && test -s "$DEPLOY_KEY.pub" && echo "key ok" || echo "STOP: ไม่มี $DEPLOY_KEY หรือ .pub"
 ```
 
-`ansible.cfg` ตั้ง `host_key_checking = False` → **Ansible จะไม่ตรวจว่าคุยกับเครื่องจริง** · ssh ด้วยมือหนึ่งครั้งเพื่อให้ `known_hosts` จำ key ของ VM:
+`ansible.cfg` **ตรวจ host key** (เอา `host_key_checking = False` ออกแล้ว 2026-10-13) → host ที่ยังไม่อยู่ใน `~/.ssh/known_hosts` =
+Ansible หยุดด้วย `Host key verification failed` · ตรึง key ของ VM ก่อน — fingerprint ต้องตรงกับที่ **owner อ่านจาก console ของ VM**
+(`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` บน console ไม่ใช่ผ่าน SSH) และประกาศให้ทีม (07 §7 แถว "SSH host key"):
+
+```bash
+ssh-keygen -F 172.30.58.20 >/dev/null && echo "มี entry แล้ว — เทียบ fingerprint ด้านล่างอยู่ดี" ; ssh-keyscan -t ed25519 172.30.58.20 > /tmp/mob04.keyscan && ssh-keygen -lf /tmp/mob04.keyscan
+```
+
+✅ `SHA256:…` ตรงกับที่ owner ประกาศ**ทุกตัวอักษร** → (ถ้ายังไม่มี entry) `cat /tmp/mob04.keyscan >> ~/.ssh/known_hosts` ·
+❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม ถาม owner · Windows Git Bash: คำสั่งเดียวกัน (`~/.ssh` = `$SSHDIR`) — ฟังก์ชัน `ans` คัด `known_hosts` เข้า container
+
+แล้ว ssh ด้วยมือหนึ่งครั้ง (ไม่ควรถามเรื่อง fingerprint อีก — ถ้าถาม = key ยังไม่ถูกตรึง กลับไปทำข้อบน):
 
 ```bash
 ssh mob04-deploy 'id; docker ps --format "{{.Names}}" | head -3'
 ```
-
-ครั้งแรกจะถาม `Are you sure you want to continue connecting` พร้อม fingerprint → **เทียบกับที่ owner ประกาศ** ก่อนตอบ `yes`
 
 ✅ `id` มี group `docker` และเห็นชื่อ container รูป `srisurart-pos-<service>-<n>` (เช่น `api-1` → `srisurart-pos-api-1-1`,
 `nginx` → `srisurart-pos-nginx-1`, `platform-ui` → `srisurart-pos-platform-ui-1`)
@@ -289,7 +321,9 @@ test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SEC
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
 ห้ามมี `ALLOW_DEV_SECRETS`, `IMAGE_TAG`, ค่า `dev-only-*` · **ห้าม `export DEMO_ENV_FILE`** — ใส่นำหน้าคำสั่ง provision คำสั่งเดียว (§2.5)
 
-**คีย์ไม่บังคับ `HEALTHCHECKS_PING_URL`** (uptime heartbeat → Healthchecks.io, `07_CICD_DEPLOY.md §7b`) — รูปแบบ `https://hc-ping.com/<uuid>` · **เป็นความลับ** (ใครมี URL ก็ ping แทนได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ cron จะ log `::warning::` ทุก 5 นาทีโดยไม่ส่งอะไร (ไม่มีใครถูกแจ้งเมื่อ VM ดับ) · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์
+**คีย์ไม่บังคับ `ALERT_DISCORD_WEBHOOK`** (Grafana alerting + Gatus → Discord, `07_CICD_DEPLOY.md §10.5`, 2026-10-13) — รูปแบบ `https://discord.com/api/webhooks/<id>/<token>` · **เป็นความลับ** (ใครมี URL ก็โพสต์เข้าช่องได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ alert ทุกตัวยังประเมินปกติแต่ส่งไม่ถึงใคร · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์ · 🔴 ก่อนเปิดใช้ ตรวจว่า VM ออกไป Discord ผ่าน FortiGate ได้: `curl -v https://discord.com/api/v10/gateway` (HTTP 200 และ issuer ของใบ **ไม่ใช่** FortiGate) · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 — ลบออกจาก `DEMO_ENV_FILE` ได้ ·
+🔴 **ก่อนแก้ไฟล์ secrets ทุกครั้ง ทำ §2.5 ② (เทียบ hash กับ `/opt/pos/.env` บน VM) ก่อน** — ไฟล์ local ที่เก่ากว่าของจริง = provision เขียน
+รหัส DB/etcd ผิดทับ แล้วทั้ง deploy และ rollback พัง · ลำดับเต็มของ release แรกที่มี alerting: §2.6
 
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
@@ -319,15 +353,32 @@ grep -c $'\r' "$SECRETS_FILE"
 
 ✅ ไม่มี `MISSING` และได้ `0` ทั้งสาม · (สำเนาของ owner ตรวจแล้ว 2026-09-28 แบบดูชื่อคีย์เท่านั้น: ครบ 11 คีย์ + `CORS_ORIGINS`, `PLATFORM_ADMINS` ไม่ว่าง,
 ไม่มีของต้องห้าม — ไฟล์เปลี่ยนเมื่อไหร่ตรวจใหม่)
-❌ คีย์ `:?` ที่ขาดทำให้ **ทุก** คำสั่ง `docker compose` บน VM ล้ม (`<KEY> is required`) ไม่ใช่แค่ service นั้น
+❌ 10 คีย์ `:?` ใน `server/docker-compose.yml` ที่ขาดทำให้ **ทุก** คำสั่ง `docker compose` บน VM ล้ม (`<KEY> is required`) ไม่ใช่แค่ service นั้น ·
+`GRAFANA_ADMIN_PASSWORD` (`:?` เฉพาะใน `deploy/compose/monitoring.yml`) ขาด = POS ยัง deploy ได้ แต่บล็อก monitoring ล้มเป็น `WARNING` และ Grafana ไม่ขึ้น
+(`provision.yml` ยังบังคับครบ 11 ตัว)
 
 คีย์ที่ไม่ใช่ `:?` แต่มีผล: `CORS_ORIGINS` ต้องเป็น origin ที่เบราว์เซอร์ใช้เป๊ะ ๆ → `https://172.30.58.20` (§4.6) ·
-`PLATFORM_ADMINS=user:password` รหัส ≥ 12 ตัว (ผิดรูป = api ไม่ boot) · `PLATFORM_ADMIN_IPS` ไม่ต้องใส่ (default `172.30.0.20`) ถ้าใส่ต้องมี `172.30.0.20`
+`PLATFORM_ADMINS=user:password` รหัส ≥ 12 ตัว (ผิดรูป = api ไม่ boot) · `PLATFORM_ADMIN_IPS` ไม่ต้องใส่ (default `172.30.0.20`) ถ้าใส่ต้องมี `172.30.0.20` ·
+🔴 **`CERT_SAN_IPS` ต้องไม่ตั้งบน `mob04`** — ไม่ตั้ง = SAN `172.30.58.20` แบบเดิมทุกไบต์ (ไม่ออกใบใหม่) · ตั้งแล้วไม่มี `172.30.58.20` = แอป Android ต่อไม่ได้ ·
+คีย์นี้มีไว้สำหรับเครื่องที่ IP ต่างออกไป (Pi — `pi5-full-stack-tutorial.md` §5)
 
-#### สร้างไฟล์ใหม่จากศูนย์ — **เฉพาะ VM ที่ไม่มี volume** (ไม่ใช่ `mob04` วันนี้)
+#### สร้างไฟล์ใหม่จากศูนย์ — **เฉพาะ VM ใหม่ที่ไม่มี volume** · 🔴 **ห้ามใช้กับ `mob04` เด็ดขาด**
+
+🔴 บล็อกนี้เขียนลง **`NEW_SECRETS_FILE`** ไม่ใช่ `SECRETS_FILE` — `SECRETS_FILE` ข้างบนชี้ไฟล์จริงของ `mob04`; เขียนทับ = secret หาย →
+provision รอบหน้าส่งรหัส Postgres/etcd ใหม่ที่ไม่ตรงกับที่ volume อบไว้ (§2.3) → production ล่ม
 
 กฎ (`ticket-336-env-secrets.md` §2–3, `server/.env.example`): **hex เท่านั้น** (รหัสถูกแทนลงใน URL และ SQL literal — `/ + @ '` พัง) ·
 `openssl rand -hex 24` ทั่วไป, `-hex 32` สำหรับ `JWT_PLATFORM_SECRET` · JWT = RSA 2048 PKCS#8 **อยู่ใน `"..."`**
+
+```bash
+export NEW_SECRETS_FILE=~/secrets/newvm-$(date +%Y%m%d).env
+```
+
+ด่าน — ต้องไม่มี output (มีไฟล์อยู่แล้ว = หยุด):
+
+```bash
+[ ! -e "$NEW_SECRETS_FILE" ] || echo "STOP: มีไฟล์อยู่แล้ว"; [ ! -e ~/secrets/jwt.key ] || echo "STOP: มี jwt.key ค้างอยู่"
+```
 
 ```bash
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out ~/secrets/jwt.key
@@ -337,8 +388,10 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out ~/secrets/jwt.
 openssl rsa -in ~/secrets/jwt.key -pubout -out ~/secrets/jwt.pub
 ```
 
+`set -o noclobber` = มีไฟล์อยู่แล้ว `>` จะล้มแทนการเขียนทับ:
+
 ```bash
-( umask 077
+( set -o noclobber; umask 077
   {
     echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
     echo "POS_APP_PASSWORD=$(openssl rand -hex 24)"
@@ -358,14 +411,14 @@ openssl rsa -in ~/secrets/jwt.key -pubout -out ~/secrets/jwt.pub
     echo "PLATFORM_ADMINS=admin:$(openssl rand -hex 12)"
     printf 'JWT_PRIVATE_KEY="%s"\n' "$(cat ~/secrets/jwt.key)"
     printf 'JWT_PUBLIC_KEYS="%s"\n' "$(cat ~/secrets/jwt.pub)"
-  } > "$SECRETS_FILE" )
+  } > "$NEW_SECRETS_FILE" )
 ```
 
 ```bash
 rm ~/secrets/jwt.key ~/secrets/jwt.pub
 ```
 
-แล้วรันชุดตรวจข้างบนอีกรอบ
+แล้วรันชุดตรวจข้างบนอีกรอบโดยแทน `"$SECRETS_FILE"` ด้วย `"$NEW_SECRETS_FILE"` · แก้ `CORS_ORIGINS` ให้เป็น IP ของ VM ใหม่ (และตั้ง `CERT_SAN_IPS` ถ้า IP ไม่ใช่ `172.30.58.20`)
 
 ### 2.3 กับดัก volume: secret บางตัวถูก "อบ" ตอน bootstrap ครั้งแรก
 
@@ -377,7 +430,7 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 
 เปลี่ยนรหัสใน `.env` **ไม่ re-key** volume เดิม · re-key เป็นการตัดสินใจของ owner แยกต่างหาก — เจออาการนี้ **หยุดแล้วบันทึก** ห้าม `down -v`
 
-### 2.4 ติดตั้ง key ของสมาชิก (provision แบบ key-only)
+### 2.4 ติดตั้ง key ของสมาชิก (provision — ไม่เขียน .env แต่ติดตั้งสคริปต์ทั้ง 4 ตัว + ufw + cron ใหม่ทุกครั้ง)
 
 `provision.yml` task `Configure SSH authorized key for deploy user` อ่าน public key จาก `DEMO_SSH_KEY_PUB` · `authorized_key state: present`
 = **เพิ่มต่อท้าย ไม่ลบ key อื่น** · 🔴 ไม่ตั้ง `DEMO_SSH_KEY_PUB` = playbook หยิบ `~/.ssh/id_rsa.pub` ของเครื่องที่รันไปใส่ให้ `deploy` **เงียบ ๆ**
@@ -415,11 +468,31 @@ ssh mob04 'sudo -n ssh-keygen -lf /home/deploy/.ssh/authorized_keys'
 
 ### 2.5 provision พร้อม `.env` (มี backup + hash gate)
 
-`provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
-authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh`, `healthcheck-ping.sh` ลง `/opt/pos/scripts` →
-**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) + cron ทุก 5 นาทีของ `deploy` (`healthcheck-ping.sh | logger -t pos-healthcheck` — ดูผลที่ `sudo journalctl -t pos-healthcheck`)
+🔴 **รันจาก `deploy/ansible/` ของ worktree สะอาดที่ `origin/main` เท่านั้น** (สร้างแบบ §3 ข้อ 4) — ทุกครั้งที่ provision (รวม §2.4) playbook ติดตั้ง
+สคริปต์ ops 4 ตัว**จาก tree ที่รัน**ทับ `/opt/pos/scripts` + apt/ufw/cron ใหม่ · tree เก่าหรือมีไฟล์แก้ค้าง = ถอย `backup-db.sh` เงียบ ๆ
+(เช่น backup ไม่มีรูปสินค้า/รูปหลักฐานอีกต่อไป) · หลัง provision ทุกครั้ง เทียบ (สองบรรทัดต้องเหมือนกัน):
 
-🔴 **heartbeat ติดตั้งบน `mob04` แล้ว 2026-10-04 (ด้วยมือ, `07 §7b`)** — CD deploy ไม่อัปเดตให้: แก้สคริปต์แล้วต้องรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (§7b) · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
+```bash
+sha256sum deploy/scripts/backup-db.sh
+```
+
+```bash
+ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
+```
+
+(คำสั่งแรกรันที่ root ของ worktree)
+
+**`host-setup.sh` (#713):** รัน **ก่อน** `provision.yml` บน **เครื่องใหม่** เท่านั้น · บน `mob04` มันตรวจเจอ `vm` = รายงานอย่างเดียวไม่เขียนอะไร (ยกเว้น `--tailscale`)
+— ไม่ต้องรัน และ 🔴 ห้ามรัน `--tailscale` บน `mob04` (§1.2) · `provision.yml` ไม่ copy มันลง `/opt/pos/scripts` · รายละเอียด `07_CICD_DEPLOY.md` §6
+
+`provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
+authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh` ลง `/opt/pos/scripts` (และลบ `healthcheck-ping.sh` ที่ปลดแล้ว) →
+**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/node-textfile` 0755 (gauge ความสดของ backup ให้ node-exporter) → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) → ลบ cron heartbeat Healthchecks.io เดิม (ปลด 2026-10-13 — แทนด้วย Gatus + Grafana alerting, `07 §10.5`)
+
+⚠️ **UFW ไม่ได้กรองพอร์ตที่ container publish** — Docker ใส่กฎใน nat table ก่อน UFW (docs.docker.com/engine/network/packet-filtering-firewalls/) ·
+พอร์ตที่ต้องอยู่ในเครื่องต้อง bind `127.0.0.1:` ใน compose (แบบ 9090/3000/3100/3200 วันนี้) — ห้ามพึ่ง `ufw deny`
+
+~~heartbeat Healthchecks.io~~ ปลดแล้ว 2026-10-13 — `provision.yml` ลบ cron + `/opt/pos/scripts/healthcheck-ping.sh` เอง · 🔴 ก่อน provision ครั้งแรกหลังปลด ขอให้**เจ้าของบัญชี Healthchecks.io** (ไม่ใช่บัญชีของทีม) pause/ลบ check ก่อน — ไม่งั้นมันแจ้งเตือนไปหาเขา (ลำดับเต็ม §2.6)
 
 ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
 ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·
@@ -431,7 +504,13 @@ task เขียน `.env` เป็น `no_log` + `diff: false` แล้ว �
 **① backup `.env` บน VM ก่อน:**
 
 ```bash
-ssh mob04 'sudo -n cp -p /opt/pos/.env /opt/pos/.env.bak-$(date +%F)'
+ssh mob04 'sudo -n cp -p --no-clobber /opt/pos/.env /opt/pos/.env.bak-$(date +%Y%m%dT%H%M%S)'
+```
+
+(ชื่อมีเวลาถึงวินาที + `--no-clobber` = provision สองรอบในวันเดียวไม่ทับ backup ของรอบแรก) · กู้คืน (owner ตัดสิน) แล้ว deploy ใหม่ (§6.3):
+
+```bash
+ssh mob04 'sudo -n install -o deploy -g deploy -m 0600 /opt/pos/.env.bak-<ts> /opt/pos/.env'
 ```
 
 **② เทียบ hash — จะมีอะไรเปลี่ยนไหม** · `$(cat ...)` ตัด newline ท้ายไฟล์ทิ้ง แล้วตั้งแต่ #500 `provision.yml` **เติม newline ท้ายกลับหนึ่งตัว**
@@ -492,7 +571,9 @@ Windows:
 test -s "$SECRETS_FILE" && test -s "$DEPLOY_KEY.pub" && DEMO_ENV_FILE="$(cat "$SECRETS_FILE")" DEMO_SSH_KEY_PUB="$(cat "$DEPLOY_KEY.pub")" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud KEYFILE=mob04-SriStore ans ansible-playbook provision.yml
 ```
 
-`DEMO_ENV_FILE=...` นำหน้าคำสั่ง = มีผลแค่คำสั่งนี้ ไม่ค้างใน shell · shell history เก็บข้อความ `$(cat "$SECRETS_FILE")` ไม่ใช่ตัว secret — ใช้ได้
+`DEMO_ENV_FILE=...` นำหน้าคำสั่ง = มีผลแค่คำสั่งนี้ ไม่ค้างใน shell · shell history เก็บข้อความ `$(cat "$SECRETS_FILE")` ไม่ใช่ตัว secret — ใช้ได้ ·
+Windows: `ans` ส่ง `-e DEMO_ENV_FILE` = `.env` ทั้งไฟล์อยู่ใน config ของ container (`docker inspect` เห็น) — ห้ามเปิด `docker inspect` / Docker Desktop
+ดู container ของ ansible ระหว่าง provision (`--rm` ลบมันเมื่อจบ)
 
 ✅ recap `failed=0` · ❌ `UNREACHABLE` / อื่น ๆ → §6.4
 
@@ -516,28 +597,74 @@ PLATFORM_ADMINS=1
 > ไม่งั้นคีย์ใหม่ไปต่อท้ายบรรทัดสุดท้าย · ไม่ว่าไฟล์รุ่นไหน ตรวจด้วย `grep -c '^KEY='` เสมอ (`grep -c KEY` ไม่มี `^` ยังนับเจอคีย์ที่ติดท้ายบรรทัดอื่น
 > แต่ Compose บอกว่าขาด)
 
+### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
+
+> 🔴 **ยังไม่ได้ทำ (2026-10-14):** ชุด devops (PR #723 — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking) อยู่ใน
+> `develop` เท่านั้น เจ้าของสั่งพักไว้ · `main` และ `mob04` ยังเป็นรุ่นก่อน (ไม่มี Gatus, heartbeat Healthchecks.io ยังส่งอยู่) · ทุกอย่างใน
+> §2.6, แถว `3300` ของ §4.5 และขั้น 6b ใช้ได้**หลัง release ถัดไป** · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
+> `docker logs gatus`, ดู deploy แรกพร้อมคำสั่งเก็บกวาด rollback): `docs/handoff_log/session-2026-10-14-devops-develop.md`
+
+ต้นทางคือ `07_CICD_DEPLOY.md` §10.5 — ที่นี่คือคำสั่ง · 🔴 **ห้ามรัน `provision.yml` ก่อน merge**: ก่อน merge `origin/main` ยังเป็น playbook เก่า
+(ลง cron heartbeat กลับ, ไม่สร้าง `/opt/pos/node-textfile`, ลง `backup-db.sh` เก่า)
+
+1. VM: `df -h /` ต่ำกว่า 85% · `curl -v https://discord.com/api/v10/gateway` = HTTP 200 และ issuer **ไม่ใช่** FortiGate
+2. ขอให้เจ้าของบัญชี Healthchecks.io pause/ลบ check — จดชื่อไว้ใน handoff
+3. §2.5 ② เทียบ hash ของ `$SECRETS_FILE` กับ `/opt/pos/.env` — **ไม่ตรง = หยุด** · ตรงแล้วจึงแก้ไฟล์: ลบ `HEALTHCHECKS_PING_URL`, เพิ่ม `ALERT_DISCORD_WEBHOOK`
+4. host key ตรึงแล้ว (§1.4) และเครื่องที่รันมี collection ที่ `provision.yml` ใช้ (`ansible.posix.authorized_key`):
+
+```bash
+ansible-galaxy collection list ansible.posix
+```
+
+   (Windows: `ans ansible-galaxy collection list ansible.posix`) · ไม่มี = `ansible-galaxy collection install ansible.posix`
+5. merge `develop` → `main` (merge commit) → *Deploy (demo)* **รอ approve — ยังไม่กด** · cancel twin ที่ skip/รอ (07 §7)
+6. ระหว่างที่รอ: worktree สะอาดของ `origin/main` ที่**ดึงหลัง merge** (§3 ข้อ 4) → §2.5 ③ + ④ (`cloud`, ห้าม `--diff`) → ตรวจ:
+
+```bash
+ssh mob04 'sudo -n crontab -l -u deploy; ls -ld /opt/pos/node-textfile; ls /opt/pos/scripts'
+```
+
+   ✅ ไม่มีบรรทัด heartbeat · `drwxr-xr-x` · ไม่มี `healthcheck-ping.sh` · และ `sha256sum` ของ `backup-db.sh` สองฝั่งตรงกัน (§2.5 หัวข้อ)
+7. **seed gauge** (ไม่ทำ = rule "Nightly backup stale" แดง 2 นาทีหลัง deploy จนถึง backup 03:00):
+
+```bash
+ssh mob04 'sudo -n -u deploy env -i HOME=/home/deploy PATH=/usr/bin:/bin /opt/pos/scripts/backup-db.sh /opt/pos/backups; echo rc=$?; ls -l /opt/pos/node-textfile/pos_backup.prom'
+```
+
+   ✅ `rc=0` และมีไฟล์ `pos_backup.prom` · (ทางเลือก: ซ้อม pre-migrate dump ด้วย `BACKUP_VOLUMES=0` ลง `/opt/pos/backups-pre-migrate` — ไม่แตะ gauge)
+8. runner online → **approve** → ตรวจ §4 + `.current_sha` · log ของ run ต้องไม่มี `WARNING: /opt/pos/node-textfile …` (pre-flight ของ `deploy.yml`)
+   · tunnel `3300` → Gatus เขียวทุกตัว (platform-ui = 403 คือปกติ) · Grafana: 10 rule ไม่มี `Error`, "Nightly backup stale" = Normal ·
+   Contact points → `discord` → **Test** เข้าช่อง · แล้ว cancel run ที่ยังรอค้าง
+
+**PDPA:** dump ใน `/opt/pos/backups-pre-migrate` มีข้อมูลลูกค้าทั้งร้าน — backup กลางคืนลบที่เกิน 30 วันให้ · อยู่บนดิสก์ VM เดียว · ระยะเก็บ = owner ตัดสิน
+
 ---
 
-## 3. ทุกครั้งที่ deploy — happy path
+## 3. deploy ด้วยมือ (ทางสำรอง — ใช้เมื่อ runner offline เท่านั้น)
+
+> 🔴 **ทางหลัก = CD (§6.3):** merge เข้า `main` → owner approve run `Deploy (demo)` · ทางมือในหมวดนี้ **ไม่มี** ด่าน approve ของ environment `demo`,
+> ไม่ถือช่อง concurrency `deploy-demo`, ไม่ผ่าน `flock` ของ `pos-deploy` และ **ไม่มี rollback อัตโนมัติ** → ใช้เฉพาะเมื่อ runner offline
+> (`gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.name,.status]|@tsv'` ไม่ใช่ `online`) **และ owner อนุญาต** ·
+> ระหว่าง deploy ด้วยมือ owner ต้องไม่ approve run ใดเลย
 
 ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก (`gh` นอก git repo ต้องใส่ `-R NuimanLP/srisurart-pos-flutter`)
 
 > ✅ **ผ่านแล้ว 2026-09-30:** deploy ครั้งแรกหลังปลดบล็อกเกิดจริงผ่าน runner (`e50f4fa`, ok=48 failed=0) บน `/opt/pos` ที่ว่าง — migration ทั้งหมดรันแล้ว,
-> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` ดูด้วย `cat /opt/pos/.current_sha` (ล่าสุด 2026-10-01 = `4832172`) · กล่องข้างล่างเก็บไว้เป็นประวัติ
+> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` (ล่าสุดดูด้วย `cat /opt/pos/.current_sha` — อย่าเชื่อ SHA ในคู่มือ; 2026-10-13 = `5c7f210`, PR #714) · กล่องข้างล่างเก็บไว้เป็นประวัติ
 >
 > **(ประวัติ) deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
 > **500+ commit** (ณ 2026-09-29 · นับเองด้วย `git rev-list --count 8e873cd..origin/main`) และมี **ไฟล์ migration ใหม่ 11 ไฟล์** (+ `1788652800000-InitialSchema.ts`
 > ถูกแก้) ที่ย้อนไม่ได้ (ไม่มี down-migration) · ดูรายการ: `git diff --name-status 8e873cd origin/main -- server/src/db/migrations` · เป็นครั้งแรกที่จะ: ซ่อม `etcd-init.sh` ที่เป็นไดเรกทอรี
 > (`rmdir`) และเปิด auth ของ etcd, รัน migration `1788652804600` ที่ **บังคับ logout platform admin ทุกคนหนึ่งครั้ง** · ข้อ 8 (backup DB) จึงห้ามข้าม
 
-**1. ประกาศ + เคลียร์คิว** — ทีละคนเท่านั้น · ประกาศในแชททีมว่า "กำลัง deploy `<sha>`" · owner ปฏิเสธ/ยกเลิก run `Deploy (demo)` ที่ค้างรอ approve ก่อน
-(approve run เก่า = ส่ง SHA เก่าขึ้น):
+**1. ประกาศ + เคลียร์คิว** — ทีละคนเท่านั้น · ประกาศในแชททีมว่า "กำลัง deploy `<sha>`" · owner ปฏิเสธ/ยกเลิก run `Deploy (demo)` ที่ค้าง/กำลังรันก่อน
+(approve run เก่า = ส่ง SHA เก่าขึ้น · run ที่รันอยู่ = สอง deploy ชนกัน):
 
 ```bash
-gh run list --workflow "Deploy (demo)" --status waiting --json databaseId,headSha,createdAt
+gh run list --workflow "Deploy (demo)" --json databaseId,status,headSha -q '.[] | select(.status=="in_progress" or .status=="queued" or .status=="pending" or .status=="waiting")'
 ```
 
-✅ ว่าง `[]` (หรือ owner cancel แล้ว)
+✅ ไม่มี output (หรือ owner cancel แล้ว)
 
 **2. เลือก SHA = head ของ `main`**
 
@@ -568,16 +695,20 @@ Server CI	completed	success
 Flutter CI	completed	success
 ```
 
+(อาจมีแถว `Deploy (demo)` 1–2 แถวด้วย — ไม่ต้องสนใจ ดูแค่สองแถว CI)
+
 ```bash
-bash deploy/scripts/verify-ghcr-tags.sh "$TAG"
+bash deploy/scripts/verify-ghcr-tags.sh "$TAG" linux/amd64
 ```
 
 ```text
 ...
-Both server and web images for tag '<sha>' are verified on GHCR.
+Both server and web images for tag '<sha>' are verified on GHCR for linux/amd64.
 ```
 
-✅ ทั้งสอง CI `success` และสคริปต์ exit 0 · ❌ `in_progress` → รอ · `failure` → ห้ามใช้ SHA นี้ · สคริปต์ exit 1 = image ยังไม่ครบ, exit 2 = ถาม GHCR ไม่ได้
+✅ ทั้งสอง CI `success` และสคริปต์ exit 0 · ❌ `in_progress` → รอ · `failure` → ห้ามใช้ SHA นี้ · สคริปต์ exit 1 = image ยังไม่ครบ (รอ CI) ·
+exit 2 = ถาม GHCR ไม่ได้ (`Could not verify ...`) **หรือ** tag ไม่มี image `linux/amd64` (`was not built for linux/amd64`) — กรณีหลังรอไปก็ไม่ช่วย ·
+release ก่อน `5c7f210` เป็น image เดี่ยว นับเป็น amd64 → ผ่าน (rollback ใช้ได้)
 (สคริปต์รันจาก notebook — พิสูจน์ว่า image มี ไม่ได้พิสูจน์ว่า VM ดึงได้ นั่นคือข้อ 5)
 
 **4. worktree สะอาดที่ `$TAG`** — `deploy.yml` copy ทุกไฟล์จาก tree ที่รัน (`repo_root = playbook_dir/../..`) ไม่ใช่จาก GHCR ·
@@ -608,13 +739,23 @@ export REPO="$(cd "$MAIN/../pos-deploy" && pwd -W)"
 ✅ `git -C "$MAIN/../pos-deploy" rev-parse HEAD` เท่ากับ `$TAG`
 
 **5. 🛑 gate: VM ดึง image ของ `$TAG` จาก GHCR ได้จริง** — ข้อ 3 พิสูจน์จาก notebook ว่า image มี ข้อนี้พิสูจน์ว่า **VM** ดึงได้
-(ผ่าน FortiGate ของคณะ) ด้วย `docker pull` จริงของ SHA เต็ม ไม่ใช่แค่ดูใบรับรอง:
+(ผ่าน FortiGate ของคณะ) ด้วย `docker pull` จริงของ SHA เต็ม ไม่ใช่แค่ดูใบรับรอง · ดูดิสก์ก่อน (pull กินที่):
+
+```bash
+ssh mob04-deploy 'df -h /'
+```
+
+✅ เหลือหลาย GB · ❌ ดิสก์น้อย → แจ้ง owner ห้าม `prune --volumes` เอง
 
 ```bash
 ssh mob04-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-server:$TAG" && echo "gate ok" || echo "STOP: VM ดึง image ไม่ได้"
 ```
 
-✅ `gate ok` (ตรวจแล้ว 2026-09-29: `docker pull` SHA เต็มจาก `mob04` สำเร็จ และ TLS ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`,
+```bash
+ssh mob04-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-web:$TAG" && echo "gate web ok" || echo "STOP: VM ดึง image web ไม่ได้"
+```
+
+✅ `gate ok` และ `gate web ok` (ตรวจแล้ว 2026-09-29: `docker pull` SHA เต็มจาก `mob04` สำเร็จ และ TLS ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`,
 `github.com`, `api.github.com`, `*.actions.githubusercontent.com` verify ผ่าน — ใบของ FortiGate มี SAN `*.ghcr.io`/`ghcr.io` แล้ว) ·
 image ที่ดึงมาแล้วแค่อยู่ใน cache ให้ข้อ 9 ใช้ต่อ ไม่ได้เปลี่ยนอะไรที่รันอยู่
 🛑 `STOP` → **จบตรงนี้** เก็บ output เป็นหลักฐาน (§5) · ถ้าเห็น `x509: certificate is not valid for any names` = FortiGate กลับมาตัดอีก (§6.4)
@@ -651,7 +792,7 @@ ssh mob04-deploy 'docker network inspect srisurart-pos_default --format "{{json 
 ssh mob04-deploy 'df -h /; docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}"'
 ```
 
-✅ ดิสก์เหลือหลาย GB · เก็บรายการ container ไว้เป็นหลักฐาน "ก่อน" · ❌ ดิสก์น้อย → แจ้ง owner ห้าม `prune --volumes` เอง
+✅ ดิสก์ยังเหลือหลาย GB หลัง pull ข้อ 5 · เก็บรายการ container ไว้เป็นหลักฐาน "ก่อน" · ❌ ดิสก์น้อย → แจ้ง owner ห้าม `prune --volumes` เอง
 
 **7. `.env` บน VM ครบ** — `deploy` เป็นเจ้าของไฟล์ `0600` จึงอ่านเองได้ไม่ต้อง sudo · พิมพ์แค่จำนวน:
 
@@ -659,7 +800,8 @@ ssh mob04-deploy 'df -h /; docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}
 ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_PLATFORM_SECRET JWT_PRIVATE_KEY JWT_PUBLIC_KEYS BULL_BOARD_PASSWORD ETCD_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD K6_REMOTE_WRITE_BASIC_AUTH_USER K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD; do printf "%s=%s\n" "$k" "$(grep -c "^$k=" /opt/pos/.env)"; done; stat -c "%A %U:%G %n" /opt/pos/.env'
 ```
 
-✅ ทุกตัว `=1` และ `-rw------- deploy:deploy` · 🛑 มี `=0` → แจ้ง owner (§2.5) — deploy จะล้มที่คำสั่ง compose แรกด้วย `<KEY> is required`
+✅ ทุกตัว `=1` และ `-rw------- deploy:deploy` · 🛑 มี `=0` → แจ้ง owner (§2.5) — 10 คีย์ของ `docker-compose.yml` ขาด = deploy ล้มที่คำสั่ง compose แรกด้วย `<KEY> is required` ·
+`GRAFANA_ADMIN_PASSWORD` ขาด = POS ขึ้น แต่ monitoring เป็น `WARNING` และ Grafana ไม่ขึ้น
 
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
 🔴 **แก้แล้วใน `main` (#501):** `backup-db.sh`/`restore-db.sh` resolve `IMAGE_TAG` จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง —
@@ -667,36 +809,58 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 `/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release — CD ไม่อัปเดตสคริปต์บน VM · PR #519 `b089f36` (เขียน `.partial` แล้ว `mv`) ก็ต้องลงเองแบบนี้ (ลงบน `mob04` แล้ว 2026-09-30, sha256 ตรง `origin/main`): `sudo install -o deploy -g deploy -m 0755` จาก `origin/main` แล้วเทียบ sha256) หลังจากนั้นเรียกเฉย ๆ ได้:
 
 ```bash
-ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
+ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -8'
 ```
+
+(ข้อนี้ใช้สคริปต์ **ที่อยู่บน VM แล้ว** · ถ้า release นี้ต้องการ `backup-db.sh` รุ่นใหม่ ลงมัน **หลัง** deploy ตาม §4.8 — ไม่ใช่ตรงนี้)
 
 **เฉพาะ VM ที่สคริปต์ยังเป็นรุ่นก่อน #501** (ยังไม่ได้ provision ใหม่ — ไม่ใช่ `mob04` แล้ว): ต้องส่ง `IMAGE_TAG` เอง — ไม่ส่ง = compose ล้มเงียบ
 แล้วสคริปต์เก่าไปจบที่ `::error::Neither active docker compose postgres container nor local pg_dump command found.`:
 
 ```bash
-ssh mob04-deploy 'IMAGE_TAG=$(cat /opt/pos/.current_sha) /opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
+ssh mob04-deploy 'IMAGE_TAG=$(cat /opt/pos/.current_sha) /opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -8'
 ```
 
-ผลที่คาดหวัง (สคริปต์รุ่นใหม่ เรียกเฉย ๆ · บรรทัดแรกไม่ขึ้นถ้าส่ง `IMAGE_TAG` เอง):
+ผลที่คาดหวัง (สคริปต์รุ่นปัจจุบัน เรียกเฉย ๆ · บรรทัดแรกไม่ขึ้นถ้าส่ง `IMAGE_TAG` เอง):
 
 ```text
 IMAGE_TAG was unset; resolved from /opt/pos/.current_sha: <sha>
 === Srisurart POS Database Backup ===
 ...
   -> Backup created successfully (<size>).
+Archiving product images (docker)...
+  -> product images archived (<size>).
+Archiving sale photos (docker)...
+  -> sale photos archived (<size>).
 ::warning::Offsite upload is disabled (BACKUP_RCLONE_REMOTE is not set) — this backup stays on this VM only. ...
 ...
 === Backup Complete (local only -- offsite upload not configured, see the warning above) ===
 ```
 
-✅ มี `Backup created successfully` และไฟล์ `pos_backup_<YYYYmmdd_HHMMSSZ>.sql.gz` (+ `.sha256`) บนสุดของ `ls` → **จดชื่อไฟล์** ·
-บรรทัด `::warning::` เรื่อง offsite เป็นเรื่องปกติ (สคริปต์ exit 0) — backup นี้อยู่บน VM เท่านั้น
+สามไฟล์ต่อรอบ (ชื่อขึ้นต้นด้วย `pos_` = ชื่อฐานข้อมูล, `<ts>` = `YYYYmmdd_HHMMSSZ` เดียวกัน, แต่ละไฟล์มี `.sha256` คู่):
+
+| ไฟล์ | มาจาก | ถ้าไม่มี |
+|---|---|---|
+| `pos_backup_<ts>.sql.gz` | `pg_dump` | สคริปต์ล้ม |
+| `pos_images_<ts>.tar.gz` (PR #680) | volume `product-images` ผ่าน mount `:ro` ของ `nginx` — รูปไม่อยู่ใน `pg_dump` | ไม่มี volume → `::warning::No product-images volume to archive ...` + exit 0 (**ไม่มีรูปใน backup นั้น**) · เก็บแล้วพัง → `::error::PRODUCT IMAGES ARCHIVE FAILED ...` + exit ≠ 0 |
+| `pos_sale_photos_<ts>.tar.gz` (PR #698/#699) | volume `sale-photos` **ผ่าน container `worker`** (`docker compose exec -T worker tar -cf - -C /app/sale-photos .` — nginx ไม่ mount: รูปหลักฐานเป็นส่วนตัว) | ไม่มี `worker`/volume → `::warning::No sale-photos volume to archive ...` + exit 0 · `worker` มีแต่ `exec … test -d /app/sale-photos` ล้ม → `::error::SALE PHOTOS ARCHIVE FAILED ...` + exit ≠ 0 |
+
+กฎ `.partial` / prune / offsite เดียวกันทั้งสามไฟล์ · `restore-db.sh` **ยังไม่กู้รูป** — ต้องแตก `pos_images_*` / `pos_sale_photos_*` ลง volume เอง (ยังไม่มีขั้นตอนที่พิสูจน์แล้ว)
+
+ตรวจความครบ (แทน `<ts>` ด้วยเวลาของไฟล์บนสุดใน `ls`):
+
+```bash
+ssh mob04-deploy 'cd /opt/pos/backups && for f in $(ls -t *_<ts>.*gz); do gzip -t "$f" && sha256sum -c "$f.sha256"; done'
+```
+
+✅ สามบรรทัด `pos_backup_<ts>.sql.gz: OK`, `pos_images_<ts>.tar.gz: OK`, `pos_sale_photos_<ts>.tar.gz: OK` → **จดชื่อไฟล์** ·
+บรรทัด `::warning::` เรื่อง offsite เป็นเรื่องปกติ (สคริปต์ exit 0) — 🔴 backup ทั้งหมดนี้อยู่บนดิสก์ VM ใบเดียวกันเท่านั้น
 ❌ `No such file` → ยังไม่มี `/opt/pos/scripts` ให้ owner รัน provision (§2.4)
 ❌ `::error::IMAGE_TAG is required by deploy/compose/vm.override.yml but is unset, and /opt/pos/.current_sha is missing or empty. ...`
 → VM ไม่มี `.current_sha` (ยังไม่เคย deploy สำเร็จ) · หยุด ถาม owner
 ❌ `::error::docker compose could not resolve the compose configuration (...)` ตามด้วยข้อความของ compose → อ่านบรรทัดถัดไป
 (เช่น `<KEY> is required` = `.env` ขาดคีย์ ข้อ 7)
-❌ error อื่น → หยุด ห้าม deploy โดยไม่มี backup
+❌ error อื่น / ไฟล์ไม่ครบสาม / `FAILED` จาก `sha256sum -c` → หยุด ห้าม deploy โดยไม่มี backup
 
 **9. deploy** (ห้ามทำถ้าข้อ 5 เป็น STOP)
 
@@ -715,7 +879,8 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansib
 * ใช้เวลา ~10–20 นาทีครั้งแรก · ช่วง `pull` เงียบนานเป็นปกติ
 * `FAILED - RETRYING: [vm-demo]: Wait for api-1 health check to pass (25 retries left).` ซ้ำหลายรอบ = ปกติระหว่าง api boot
 * ลำดับ task ทั้งหมด: §6.1
-* `</dev/null` ท้ายคำสั่ง Mac: ถ้าไม่ใส่ ansible-core อาจปฏิเสธ stdio แบบ non-blocking (§6.4) — วัดจริงตอน rollback 2026-09-30 (#343)
+* `</dev/null` ท้ายคำสั่ง Mac: ถ้าไม่ใส่ ansible-core อาจปฏิเสธ stdio แบบ non-blocking (§6.4) — วัดจริงตอน rollback 2026-09-30 (#343) ·
+  `</dev/null` แก้แค่ stdin — ถ้า error ชี้ `<stdout>`/`<stderr>` ให้ต่อท้าย `</dev/null 2>&1 | cat` (§6.4)
 
 ✅ recap `failed=0` + `Successfully deployed release '<sha>' to vm-demo.` — **ยังไม่ใช่หลักฐาน** ไปข้อ 10
 ❌ จดชื่อ task ที่ล้ม → §6.4 · ถ้าล้มหลัง rolling restart เริ่มแล้ว VM อาจรัน api สองเวอร์ชันปนกัน → แก้แล้วรันคำสั่งเดิม, rollback (§6.2)
@@ -725,7 +890,7 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansib
 
 **10. ตรวจผล** — §4 ทุกข้อ
 
-**11. แปะหลักฐาน** — §5 ใน #343/#344
+**11. แปะหลักฐาน** — §5 ใน #344 หรือ issue ของ release นั้น (#343 ปิดแล้ว 2026-09-30)
 
 **12. เก็บกวาด + ประกาศจบ**
 
@@ -803,7 +968,7 @@ ssh mob04-deploy 'curl -s -o /dev/null -w "prometheus=%{http_code}\n" http://127
 ✅ ทั้งคู่ `200` · ดูด้วยตาผ่าน SSH tunnel (เปิดค้างไว้หน้าต่างหนึ่ง):
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 mob04-deploy
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 -L 3300:127.0.0.1:3300 mob04-deploy
 ```
 
 | URL บน notebook | คือ | login |
@@ -812,8 +977,9 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 | `http://localhost:9090` | Prometheus | — |
 | `http://localhost:3100` | Bull-Board | `BULL_BOARD_USER`/`_PASSWORD` (owner) |
 | `http://localhost:3200` | platform-ui | platform admin (หลัง migration `1788652804600` ทุกคนต้อง login ใหม่ — ปกติ) |
+| `http://localhost:3300` | Gatus (**หลัง release ชุด devops — ยังไม่มีบน `mob04`**, §2.6) — uptime ของทุก service (ต้องเขียวหลัง ~3 นาที) · Grafana → Alerting → Alert rules ต้องเห็น 10 rule ไม่มี `Error` (§10.5 ของ 07) | — (ผูก loopback เท่านั้น) |
 
-**4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
+**4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ, ต่อ VPN, หรือ Tailscale ที่ login เข้า tailnet ของร้าน — §1.2; ไม่ต้อง build APK ใหม่ เพราะที่อยู่/SAN เดิม) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
 
 ✅ หน้า login ขึ้น และ login/ขายทดสอบได้
 ❌ หน้าโหลดได้แต่ทุก POST ล้ม → `CORS_ORIGINS`: `Origin` ที่ไม่อยู่ในรายการ API ยังตอบ แต่ไม่ส่ง header `Access-Control-Allow-Origin` (`server/src/app.setup.ts`, #516) → เบราว์เซอร์บล็อกคำตอบ; เบราว์เซอร์ส่ง `Origin` กับ POST
@@ -827,9 +993,92 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 
 > 2026-09-30: `Origin` แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (`00d3488`, run `36717963989`) ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
 
+**4.7 รูปสินค้า (เมื่อ release มี PR #680)** — volume, Nginx `/img/` และ header:
+
+```bash
+# volume ถูกสร้างแล้ว (ชื่อมี prefix ของ compose project)
+ssh mob04-deploy 'docker volume inspect srisurart-pos_product-images --format "{{.Name}} {{.Mountpoint}}"'
+# api/worker เขียนได้ (rw) และ nginx อ่านได้อย่างเดียว (ro)
+ssh mob04-deploy 'docker inspect srisurart-pos-api-1-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep product-images'
+ssh mob04-deploy 'docker inspect srisurart-pos-nginx-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep product-images'
+# ไฟล์ที่ไม่มี = 404 ธรรมดา (ไม่มี Cache-Control ยาว) — ใช้ UUID/คีย์ปลอมที่รูปแบบถูกต้อง
+ssh mob04-deploy 'curl -sk -D - -o /dev/null https://127.0.0.1/img/00000000-0000-0000-0000-000000000000/00000000000000000000000000000000_t.webp'
+```
+
+✅ บรรทัดที่สองเห็น `/app/product-images rw=true` · บรรทัดที่สามเห็น `/srv/product-images rw=false` · คำสั่ง `curl` ได้ `HTTP/2 404` และ**ไม่มี** `cache-control: ...immutable`
+(nginx เปิด `http2 on` → curl พิมพ์ `HTTP/2` และชื่อ header เป็นตัวพิมพ์เล็ก)
+หลังเจ้าของอัปโหลดรูปจริงหนึ่งรูป (เมนู สินค้า/สต็อก → แก้ไข → เลือกรูป) ให้ลองดึงรูปนั้น — URL คือ `https://172.30.58.20/img/<tenantId>/<imageKey>_t.webp`
+(`tenantId` = UUID ของร้าน, `imageKey` = 32 ตัวอักษร hex ที่ `GET /api/v1/products` ส่งมาในช่อง `imageKey`):
+
+```bash
+ssh mob04-deploy 'curl -sk -D - -o /dev/null https://127.0.0.1/img/<tenantId>/<imageKey>_t.webp | grep -iE "^HTTP|cache-control|content-type|x-content-type"'
+```
+
+✅ `HTTP/2 200` · `content-type: image/webp` · `cache-control: public, max-age=31536000, immutable` · `x-content-type-options: nosniff`
+❌ ได้ 404 ทั้งที่แอปแสดงรูป → ชื่อ volume ของ api กับ nginx ไม่ตรงกัน หรือ nginx ยังไม่ถูก recreate (deploy task 13 ทำทุกครั้ง) · ❌ `/img/` ได้หน้า SPA แทน 404 → `nginx.conf` บน VM เป็นรุ่นเก่า
+ไม่มี login ที่ `/img/` โดยออกแบบ (URL = UUID ของร้าน + แฮช 128 บิต เดาไม่ได้) · รูปไม่ผ่าน `pg_dump` จึงต้องดู `pos_images_*.tar.gz` ใน §3 ข้อ 8
+
+**4.7b รูปหลักฐานตอนขาย (เมื่อ release มี PR #698)** — volume `sale-photos` ต้องมีที่ api และ worker แต่ **ไม่มีที่ nginx**:
+
+```bash
+ssh mob04-deploy 'docker volume ls | grep sale-photos'
+ssh mob04-deploy 'docker inspect srisurart-pos-api-1-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep sale-photos'
+ssh mob04-deploy 'docker inspect srisurart-pos-worker-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep sale-photos'
+# nginx ต้องไม่มี mount นี้ — ผลลัพธ์ต้องว่าง
+ssh mob04-deploy 'docker inspect srisurart-pos-nginx-1 --format "{{range .Mounts}}{{.Destination}}{{println}}{{end}}" | grep sale-photos || echo "nginx: no sale-photos mount (ถูกต้อง)"'
+```
+
+✅ api/worker เห็น `/app/sale-photos rw=true` · nginx เห็นข้อความ `nginx: no sale-photos mount` · ❌ nginx มี mount นี้ = ผิดดีไซน์ (รูปหลักฐานต้องเข้าได้ผ่าน API ที่ล็อกอินเท่านั้น) รายงาน owner
+ไม่มี login ที่ `/img/` สำหรับรูปสินค้า แต่รูปหลักฐานอยู่นอก `/img/` เสมอ — `/img/<tenantId>/<key>_t.webp` ของ key รูปหลักฐานต้องได้ 404 · ชื่อ container ขึ้นกับชื่อ compose project บน VM (ปรับตามที่ `docker ps` แสดง)
+
+**ขนาดไฟล์ที่ import ได้:** ตอนนี้ import backup รับ `.zip` ได้ถึง **200 MB** (และ `.json` เดิม 10 MB) — Nginx ยก `client_max_body_size 200m` **เฉพาะ** `POST /api/v1/backup/import`
+และ `POST /api/v1/platform/tenants/<uuid>/import` (path อื่นยัง 10 MB) และไม่ buffer body ที่ Nginx (`proxy_request_buffering off`) — ถ้า import ใหญ่ ๆ ได้ `413`
+ที่ path อื่นนอกสองตัวนี้ คือพฤติกรรมที่ถูกต้อง
+
+**4.8 ลง `backup-db.sh` รุ่นใหม่บน VM (เฉพาะ release ที่เปลี่ยนสคริปต์ — ทำหลัง 4.1–4.7b ผ่าน)**
+
+🔴 **CD deploy ไม่อัปเดต `/opt/pos/scripts`** (เฉพาะ `provision.yml` §2.5 หรือติดตั้งด้วยมือแบบข้างล่าง) — สคริปต์เก่ากว่า PR #680 ทำ backup
+**ไม่มีรูปและไม่มีข้อความเตือนใดเลย** · 🔴 **ลำดับ: ลง "หลัง" deploy ที่ส่ง `worker` รุ่นที่มี `/app/sale-photos` ขึ้นไปแล้วเท่านั้น** — ลงก่อน = compose เห็น `worker`
+แต่ `exec … test -d /app/sale-photos` ล้ม → `::error::SALE PHOTOS ARCHIVE FAILED ...` + exit ≠ 0 **ทุกคืน** (dump ยังอยู่)
+
+ตรวจก่อนว่า volume ถูกสร้างและ worker mount แล้ว:
+
+```bash
+ssh mob04-deploy 'docker volume ls | grep sale-photos'
+```
+
+✅ เห็น `srisurart-pos_sale-photos` · ❌ ไม่เห็น = deploy ของ release นี้ยังไม่ถึง → **ห้ามลงสคริปต์**
+
+ลง (owner — ใน root ของ worktree สะอาดที่ `$TAG` จาก §3 ข้อ 4) · สำเนาเก่าตั้งชื่อตาม release ที่รันอยู่:
+
+```bash
+scp deploy/scripts/backup-db.sh mob04:/tmp/backup-db.sh
+```
+
+```bash
+ssh mob04 'sudo cp -a /opt/pos/scripts/backup-db.sh "/opt/pos/scripts/.backup-db.sh.prev-$(sudo cut -c1-7 /opt/pos/.current_sha)" && sudo install -o deploy -g deploy -m 0755 /tmp/backup-db.sh /opt/pos/scripts/backup-db.sh && rm -f /tmp/backup-db.sh'
+```
+
+(owner/group ต้องเป็น `deploy` เพราะ cron รันเป็น `deploy`) · เทียบ sha256 กับต้นฉบับ (สองบรรทัดต้องเหมือนกัน):
+
+```bash
+sha256sum deploy/scripts/backup-db.sh
+```
+
+```bash
+ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
+```
+
+แล้วรันหนึ่งครั้งและตรวจความครบแบบ §3 ข้อ 8 (`head -8` + ลูป `gzip -t` / `sha256sum -c`) — ต้องได้ครบสามไฟล์
+ลงผิดลำดับแล้ว cron ล้ม: ถอยด้วยสำเนา `.backup-db.sh.prev-*` หรือ deploy ให้เสร็จก่อนแล้วรันซ้ำ — ไม่ต้องแก้ข้อมูล
+
+ประวัติ: ลำดับนี้รันจริงบน `mob04` 2026-09-30 (PR #519), 2026-10-10 หลัง deploy `e77356f` (sha256 `e2fc4c39…`, สำเนาเก่า `.backup-db.sh.prev-ef07e27`,
+รันในสภาพ cron — `env -i`, cwd `/home/deploy`, เป็น `deploy` — ได้ dump + `pos_images_…` ผ่าน `gzip -t` + sha256) และ 2026-10-12
+(sha256 `e70debda…`, สำเนาเก่า `.backup-db.sh.prev-ec31121`) · user `cloud` อ่าน `/opt/pos/backups` ไม่ได้ — ใช้ `sudo -u deploy` หรือ `ssh mob04-deploy`
+
 ---
 
-## 5. หลักฐานที่แปะใน ticket (#343 / #344)
+## 5. หลักฐานที่แปะใน ticket (#344 หรือ issue ของ release นั้น)
 
 **pre-flight (ข้อ 1–8):**
 
@@ -837,7 +1086,7 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 วันที่ / ผู้ทำ:
 TAG (origin/main):            <40-hex>
 CI (gh run list --commit):    Server CI success · Flutter CI success
-verify-ghcr-tags.sh:          "Both server and web images ... verified"
+verify-ghcr-tags.sh:          "Both server and web images ... verified on GHCR for linux/amd64."
 ansible -m ping (deploy):     SUCCESS / pong
 docker pull gate (ข้อ 5):       ...srisurart-pos-server:<TAG> → gate ok
 .current_sha ก่อน:            <sha>
@@ -848,7 +1097,7 @@ network IPAM:                 [...IPRange 172.30.0.128/25...]
 **หลัง deploy:** ทุกบรรทัดข้างบน และเพิ่ม:
 
 ```text
-backup ก่อน deploy:           /opt/pos/backups/pos_backup_<...>.sql.gz
+backup ก่อน deploy:           /opt/pos/backups/pos_backup_<ts>.sql.gz + pos_images_<ts>.tar.gz + pos_sale_photos_<ts>.tar.gz (sha256 OK)
 คำสั่ง deploy:                ansible-playbook deploy.yml -e image_tag=<TAG>  (จาก worktree ที่ <TAG>)
 PLAY RECAP:                   (แปะ แต่ไม่นับเป็นหลักฐานเดี่ยว)
 .current_sha หลัง:            <TAG>                         ← ต้องเท่ากัน
@@ -867,7 +1116,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ## 6. Reference
 
-### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `494ace3` — รันครบจริงบน `mob04` แล้ว 2026-09-30: runner `ok=48 failed=0`)
+### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `5c7f210` · 2026-10-13 — รันครบจริงบน `mob04` ครั้งแรก 2026-09-30: runner `ok=48 failed=0`)
 
 | # | task (ชื่อที่เห็นใน output) | ทำอะไร |
 |---|---|---|
@@ -875,8 +1124,9 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 2 | `Check currently deployed SHA on VM` → `Checksum the VM's .env` → `Decide whether .env changed since the last deploy` → `Early exit on duplicate release deployment` | `.current_sha` = tag, ไม่มี `force_redeploy` **และ** sha256 ของ `.env` = `/opt/pos/.env_applied_sha256` → จบ play พร้อมข้อความ `Skipping duplicate deployment` · `.env` เปลี่ยน (หรือยังไม่มีไฟล์ marker) → rollout SHA เดิมต่อ (#506) |
 | 3 | `Inspect the existing compose network` → `Refuse to deploy onto a network created before ip_range was added` | กัน network รุ่นเก่า (ยังไม่แตะอะไร) |
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, สร้าง `docker/nginx` (#508), `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
-| 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
-| 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
+| 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` → `Ensure the certgen directory exists` → `Copy certgen script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) · copy `certgen.sh` |
+| 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 (รวม `certgen.sh`) เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
+| 6b | `Check whether database migrations are pending (new image)` → `Back up the database before applying migrations` | (หลัง release ชุด devops — §2.6) `migrate.js status` ด้วย image ใหม่ · มี migration ค้าง (หรือเช็คล้ม) = dump DB อย่างเดียวลง `/opt/pos/backups-pre-migrate/` (30 วัน) ก่อน `migrate` · ไม่มีค้าง = task backup ขึ้น `skipping` (ปกติ) · dump ล้ม = deploy ล้มก่อนแตะ schema · dump นี้คือทางย้อนเดียวของ migration (07 §7 "กู้ฐานข้อมูลหลัง migration เสีย" — เจ้าของตัดสิน, ข้อมูลหลัง dump หาย) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
 | 8 | `Issue the TLS certificate (certgen)` → `Ensure backing datastores, htpasswd-gen and etcd are running` | `run --rm --no-deps certgen` (ล้ม = deploy ล้ม) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` |
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
@@ -911,8 +1161,16 @@ git merge-base --is-ancestor bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f "$OLDTAG" 
 ```
 
 ```bash
-bash deploy/scripts/verify-ghcr-tags.sh "$OLDTAG"
+bash deploy/scripts/verify-ghcr-tags.sh "$OLDTAG" linux/amd64
 ```
+
+schema ต้องไม่ถอย — ไม่มี migration ใหม่ระหว่างสอง release (`$CURRENT` จาก §3 ข้อ 6):
+
+```bash
+git diff --name-status "$OLDTAG" "$CURRENT" -- server/src/db/migrations
+```
+
+✅ ไม่มี output · 🛑 มีไฟล์ → **หยุด** owner ตัดสิน (ไม่มี down-migration — code เก่าบน schema ใหม่)
 
 แล้วทำ §3 ข้อ 1, 4 (worktree ที่ **`$OLDTAG`** — ได้ compose/nginx/playbook ของ release นั้นด้วย), 5, 8 และรัน (Mac):
 
@@ -920,8 +1178,26 @@ bash deploy/scripts/verify-ghcr-tags.sh "$OLDTAG"
 test -s "$DEPLOY_KEY" && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" ansible-playbook deploy.yml -e image_tag="$OLDTAG" -e force_redeploy=true </dev/null
 ```
 
+Windows (`REPO` ชี้ worktree ที่ `$OLDTAG`):
+
+```bash
+DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansible-playbook deploy.yml -e image_tag="$OLDTAG" -e force_redeploy=true
+```
+
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
 `pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ `workflow_dispatch` พิสูจน์แล้ว · **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
+
+🔴 **rollback ไป SHA ก่อน release alerting (2026-10-13)** — `deploy.yml` ของ release เก่าไม่รู้จัก Gatus: container `gatus` ค้างรันต่อ (ยังส่ง Discord),
+node-exporter กลับไปไม่มี textfile collector, Prometheus ไม่มี job `gatus`, และ Grafana **ไม่ลบ** rule ที่ provision จากไฟล์ทั้งที่ไฟล์ถูกลบ →
+"Gatus down" + "Nightly backup stale" แจ้งทุก 4 ชม. · เก็บกวาดหลัง rollback (ในนาม `deploy`; ขั้นเต็ม 07 §7 แถว "rollback ข้าม release alerting"):
+
+```bash
+ssh mob04-deploy 'docker ps -a --filter label=com.docker.compose.service=gatus --format "{{.Names}}"'
+```
+
+แล้ว `docker rm -f <ชื่อนั้น>` · จากนั้นเขียน `/opt/pos/deploy/grafana/provisioning/alerting/rollback-delete-rules.yml` (`apiVersion: 1` +
+`deleteRules:` ครบ 10 uid ใน `pos-alerts.yml`, `orgId: 1`) แล้ว restart container grafana · ห้ามลบผ่าน provisioning API (Grafana 11.2 ปฏิเสธ rule ที่ provenance
+= `file`) · deploy ไปข้างหน้าครั้งถัดไปลบไฟล์นั้นเองและ provision rule กลับครบ
 
 ### 6.3 CD อัตโนมัติ
 
@@ -938,7 +1214,17 @@ gh workflow run deploy.yml -R NuimanLP/srisurart-pos-flutter --ref main -f image
 gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --json databaseId,status,headSha,event,createdAt
 ```
 
-**หลัง merge เข้า `main` Deploy ยิง 2 รอบ** (จาก Server CI และ Flutter CI) — รอบแรกมักข้าม (ขึ้นเขียว) เพราะ image web ยังไม่ถูกสร้าง → approve รอบที่สอง · ยกเลิกรันเก่าที่ค้าง waiting ก่อน (ถือช่อง `deploy-demo`) · branch: PR เข้า `develop` ก่อน แล้ว `develop` → `main` ด้วย **merge commit เท่านั้น** (squash/rebase ทำให้ SHA ของ floor หายจากประวัติ `main`)
+**ก่อน approve — runner ต้อง online:**
+
+```bash
+gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.name,.status]|@tsv'
+```
+
+✅ `mob04-demo	online` · ❌ `offline` ทั้งที่ service `active` (log ของ runner มี `BrokerServer` … `Operation canceled`) → owner ในนาม `cloud`:
+`ssh mob04 'sudo systemctl restart actions.runner.NuimanLP-srisurart-pos-flutter.mob04-demo.service'` แล้วตรวจซ้ำ · ยัง offline → ทางมือ §3 (owner อนุญาต)
+
+**หลัง merge เข้า `main` Deploy ยิง 2 รอบ** (จาก Server CI และ Flutter CI) — รอบแรกมักข้าม (ขึ้นเขียว) เพราะ image web ยังไม่ถูกสร้าง → approve รอบที่สอง · ยกเลิกรันเก่าที่ค้าง waiting ก่อน (ถือช่อง `deploy-demo`) ·
+🔴 **หลัง deploy เสร็จ ยกเลิก run แฝดที่ยังรอ approve ทันที** — ไม่งั้นมันถือช่อง `deploy-demo` และ release ถัดไปค้าง `pending` (2026-10-10: run `37786086586` ถือช่องไว้ 2 วัน) · branch: PR เข้า `develop` ก่อน แล้ว `develop` → `main` ด้วย **merge commit เท่านั้น** (squash/rebase ทำให้ SHA ของ floor หายจากประวัติ `main`)
 
 ดู log งาน `resolve release` ว่าบรรทัด `Release to deploy:` เป็น SHA ที่ตั้งใจ **ก่อน** owner approve (GitHub → Actions → run นั้น → Review deployments → `demo`) ·
 ถ้ามี run อื่นรอ approve อยู่ ให้ยกเลิกก่อน (§3 ข้อ 1) · ตรวจผลด้วย §4 (`.current_sha` คือหลักฐาน ไม่ใช่สีของ run)
@@ -951,9 +1237,12 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 | [36687687309](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36687687309) | rollback `494ace3` → `e50f4fa` | `failed=0`, schema เหมือนเดิม |
 | [36688248109](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36688248109) | SHA เดิมซ้ำ (`.env` ไม่เปลี่ยน) | จบที่ `Skipping duplicate deployment.` (`ok=7 changed=0`) — container ไม่ถูกแตะ |
 
-### 6.3b สถานะ `mob04` หลัง #616 (2026-10-06)
+### 6.3b ประวัติ #616 UUID cutover บน `mob04` (2026-10-06 — ทำครั้งเดียว ห้ามทำซ้ำ)
 
-`.current_sha` = `65861ea` (develop → main) · ฐานข้อมูลถูก backup (`/opt/pos/backups/`, สำเนาอยู่เครื่อง owner) แล้วล้างทั้งหมด · migration `EntityIdsToUuid` ปฏิเสธฐานข้อมูลที่ไม่ว่าง จึงต้องล้างก่อน deploy · **ยังไม่มี tenant** → owner สร้างผ่าน platform-ui (รหัสชั่วคราวหมดอายุใน 10 นาที) · tenant id ตัวพิมพ์เล็กเท่านั้น (#621) · CORS อนุญาต `X-Device-Token` (#618) ·
+**ประวัติ:** วันนั้น deploy `65861ea` (develop → main) · ฐานข้อมูลถูก backup ไว้ที่ `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` แล้วล้างทั้งหมด
+เพราะ migration `EntityIdsToUuid` ปฏิเสธฐานข้อมูลที่ไม่ว่าง · 🔴 **ไม่มีสำเนาออกนอก VM** (โฟลเดอร์ของ owner หายไปแล้ว ตรวจ 2026-10-07; #363 parked) ·
+**วันนี้ `mob04` มีข้อมูลจริงของ tenant `ศรีสุราษฎร์เจริญยนต์`** → 🔴 **ห้ามล้างฐานข้อมูลหรือ volume ใด ๆ ใน deploy ปกติ** ·
+`.current_sha` ปัจจุบันดูด้วย `cat /opt/pos/.current_sha` (§4.1) · tenant ใหม่สร้างผ่าน platform-ui (รหัสชั่วคราวหมดอายุใน 10 นาที) · tenant id ตัวพิมพ์เล็กเท่านั้น (#621) · CORS อนุญาต `X-Device-Token` (#618) ·
 ไฟล์ backup/snapshot จากแอปเดิม (id เช่น `p1`, `s-0001`) ถูก server ปฏิเสธตอน import: `400 INVALID_ID` · เครื่องลูกข่ายก่อนวันนี้ต้องล้าง (Incognito / Clear site data; Android ล้าง storage แล้วลง APK ใหม่ — §6.7) เพราะ outbox เก่าส่ง/discard ไม่ได้ ·
 บันทึก: `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md` · runbook: `runbook-616-uuid-cutover-mob04.md`
 
@@ -962,7 +1251,7 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `config file = None` | Mac: ไม่ได้อยู่ใน `deploy/ansible/` · Windows: ไม่ได้บังคับ `ANSIBLE_CONFIG` (mount world-writable) | `cd` ให้ถูก · ใช้ฟังก์ชัน `ans` |
-| `Host key verification failed` | `ansible.cfg` ไม่ถูกอ่าน · หรือ host key ใน `known_hosts` ไม่ตรง | แก้ข้อบน · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
+| `Host key verification failed` | ยังไม่ได้ตรึง host key (§1.4 — `ansible.cfg` ตรวจ host key ตั้งแต่ 2026-10-13) · Windows: `known_hosts` ไม่อยู่ใน `$SSHDIR` · หรือ host key ใน `known_hosts` ไม่ตรง | ทำ §1.4 (เทียบ fingerprint กับ console) · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
 | `UNREACHABLE` + timeout | ไม่ได้ต่อ VPN | §1.2 |
 | `UNREACHABLE` กับ `127.0.0.1` | ลืม `DEMO_SSH_HOST` (default `127.0.0.1`) | ใส่ `DEMO_SSH_HOST=172.30.58.20` |
 | `Permission denied (publickey)` | key/user ไม่ตรงคู่ · key ยังไม่ติดตั้ง · ACL บน Windows | ตาราง §0.3 · §2.4 · `icacls` §1.3 |
@@ -986,7 +1275,10 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 
 ### 6.5 กฎห้ามทำ
 
-- [ ] ห้าม `docker compose down -v` / `docker volume rm srisurart-pos_*`
+- [ ] ห้าม `docker compose down -v` / `docker volume rm srisurart-pos_*` · ห้าม `docker volume prune` / `docker system prune --volumes`
+- [ ] ห้ามลบ volume `certs-ca` — CA ใหม่ = APK ทุกเครื่องที่แจกไปต่อไม่ได้จนกว่าจะ commit CA ใหม่และ build APK ใหม่
+- [ ] ห้ามลบ volume `srisurart-pos_product-images` — รูปสินค้าไม่อยู่ใน `pg_dump` และไม่มีที่อื่นนอกจาก volume นี้กับ `pos_images_*.tar.gz` บนดิสก์ VM เดียวกัน
+- [ ] ห้ามลบ volume `srisurart-pos_sale-photos` — รูปหลักฐานตอนขายไม่อยู่ใน `pg_dump` ไม่มีใครลบรูปได้ในแอป และไม่มีที่อื่นนอกจาก volume นี้กับ `pos_sale_photos_*.tar.gz` บนดิสก์ VM เดียวกัน
 - [ ] ห้าม `--diff` กับ `provision.yml` · ห้าม `export DEMO_ENV_FILE`
 - [ ] ห้ามรัน `provision.yml` เป็น `deploy` หรือ `deploy.yml` เป็น `cloud`
 - [ ] ห้ามรัน `deploy.yml` จาก working tree ที่ไม่ใช่ worktree สะอาดที่ `$TAG` · ห้ามรันเมื่อ gate `docker pull` ของ §3 ข้อ 5 เป็น STOP
@@ -1017,8 +1309,22 @@ APK ไม่ได้มากับ deploy — ต้องสั่ง workfl
 2. GitHub → Actions → **Android APK** → Run workflow → เลือก branch `main` (บน branch อื่น job ไม่รัน)
 3. รอจนเขียว แล้วเปิด Releases → prerelease `apk-<sha7>` → ดาวน์โหลด `srisurart-pos-<sha7>.apk`
 4. ย้ายไฟล์เข้าเครื่อง Android → เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" (unknown sources) ให้แอปที่ใช้เปิดไฟล์ → ติดตั้ง · รุ่นใหม่ติดตั้งทับรุ่นเก่าได้เพราะเซ็นด้วยกุญแจเดิม
-5. เครื่องต้องอยู่ในเครือข่ายคณะหรือต่อ VPN จึงเปิดแอปแล้วเข้า `https://172.30.58.20` ได้
+5. เครื่องต้องอยู่ในเครือข่ายคณะ, ต่อ VPN, หรือเปิด Tailscale ที่ login เข้า tailnet ของร้าน (§1.2) จึงเปิดแอปแล้วเข้า `https://172.30.58.20` ได้ — ไม่ต้อง build APK ใหม่ (ที่อยู่/SAN เดิม)
 
-ก่อนใช้ APK ใหม่: ล้าง storage ของแอปเก่าก่อน (#616 — outbox เก่าส่งไม่ได้)
+ล้าง storage ของแอปเก่าก่อนใช้ APK ใหม่ — **เฉพาะเครื่องที่ใช้งานครั้งสุดท้ายก่อน 2026-10-06** (#616 เปลี่ยน id เป็น UUID, outbox ของแอปรุ่นก่อนนั้นส่ง/discard ไม่ได้) · เครื่องที่ติดตั้ง/ใช้หลังวันนั้นติดตั้งทับได้เลย ไม่ต้องล้าง
+
+**ชื่อ release = `apk-<sha7>` ของ commit ที่ build** — เลขใหม่สุด (ดูวันที่ build) คือรุ่นล่าสุด เช่น `apk-32a2544` (build 2026-10-13 จาก `main` `32a2544`, run `38325443859`; โค้ดเดียวกับ release `8a44a03`) · ยังไม่ได้ลองบนมือถือจริง
+
+**ครั้งแรกที่ใช้กล้อง** (ปุ่ม **ถ่ายรูป** ในแผ่น **รูปหลักฐานสินค้า**, หรือไอคอนสแกนบาร์โค้ด): Android ขึ้นหน้าต่างขออนุญาตใช้กล้อง → กดอนุญาต · ถ้ากดไม่อนุญาต แอปแสดง `ไม่ได้รับอนุญาตให้ใช้กล้อง` กับคำแนะนำ `อนุญาตให้แอปหรือเบราว์เซอร์ใช้กล้อง แล้วกด ลองอีกครั้ง` และ `หรือปิดหน้านี้ แล้วใช้ปุ่ม เลือกรูปจากเครื่อง` (เลือกรูปจากเครื่องแทนได้) — เปิดสิทธิ์เองได้ที่ ตั้งค่า → แอป → Srisurart POS → สิทธิ์
+
+**สิทธิ์ที่แอปขอ** (จาก `aapt dump badging` ของ `apk-32a2544`): package `com.srisurart.srisurart_pos` · versionCode 1 · minSdk 24 (Android 7.0) · targetSdk 36 · `INTERNET`, `CAMERA`, `READ_EXTERNAL_STORAGE`, `ACCESS_NETWORK_STATE` และสิทธิ์ภายในของ AndroidX (`…DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`) · **ไม่มี `RECORD_AUDIO` / `WRITE_EXTERNAL_STORAGE`** (manifest ตัดทิ้งด้วย `tools:node="remove"` เพราะ plugin `camera` ดึงมารวมให้ — ห้ามลบบรรทัดนั้น)
+
+**ตรวจสิทธิ์เอง** (PowerShell; เลขรุ่น build-tools ใช้ตามที่ติดตั้งอยู่ใน `…\Sdk\build-tools\` · ถ้าไม่มี `aapt.exe` ใช้ `aapt2.exe dump badging` แทน):
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\37.0.0\aapt.exe" dump badging srisurart-pos-32a2544.apk | Select-String "package:|sdkVersion|uses-permission"
+```
+
+ผ่านเมื่อ: เห็น `CAMERA` และไม่เห็น `RECORD_AUDIO` กับ `WRITE_EXTERNAL_STORAGE`
 
 ข้อควรรู้: workflow ล้มถ้า release `apk-<sha7>` ของ commit นั้นมีอยู่แล้ว (ลบ release ก่อน) · ล้มถ้า secret `ANDROID_KEYSTORE_B64` ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit

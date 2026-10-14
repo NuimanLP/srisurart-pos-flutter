@@ -56,6 +56,8 @@ export interface TenantImportJobPayload extends BaseJobPayload {
   requestedByUserId?: string;
   /** The owner asked to replace the shop's data (`POST /backup/import?mode=replace`). */
   replace?: boolean;
+  /** The file was a backup ZIP, kept at `importZipPath(tenantId, importJobId)` for its images. */
+  zip?: boolean;
 }
 
 export interface SaleCreatedJobPayload extends BaseJobPayload {

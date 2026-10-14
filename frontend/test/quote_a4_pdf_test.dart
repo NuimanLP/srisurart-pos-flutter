@@ -72,4 +72,43 @@ void main() {
     final out = Platform.environment['QUOTE_PDF_OUT'];
     if (out != null) File(out).writeAsBytesSync(bytes);
   });
+
+  test('a long quote flows onto more than one A4 page', () async {
+    final d = DateTime(2026, 10, 11);
+    final view = QuoteA4View(
+      quote: QuoteRow(
+        id: 'q2',
+        quoteNo: 'QT-0002',
+        status: 'open',
+        date: d,
+        validUntil: d.add(const Duration(days: 7)),
+        subtotal: 6000,
+        discount: 0,
+        total: 6000,
+      ),
+      items: [
+        for (var i = 0; i < 60; i++)
+          QuoteItemRow(
+            rowId: i + 1,
+            quoteId: 'q2',
+            name: 'อะไหล่ลำดับที่ ${i + 1}',
+            qty: 1,
+            price: 100,
+          ),
+      ],
+      settings: const SettingsRowData(
+        id: 1,
+        shopName: 'ร้านศรีสุรัตน์',
+        shopNameEN: 'Srisurart Autopart',
+        taxRate: 0.07,
+        quoteValidDays: 7,
+      ),
+    );
+    final bytes = await view.buildPdf(PdfPageFormat.a4);
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    final pages = RegExp(
+      r'/Type\s*/Page\b',
+    ).allMatches(String.fromCharCodes(bytes));
+    expect(pages.length, greaterThan(1));
+  });
 }

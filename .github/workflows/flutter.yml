@@ -71,7 +71,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: deploy/scripts/push-changes-kind.sh
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         # PR only — on a push its 'false' string would win the `||` below over the push step.
         if: github.event_name == 'pull_request'
@@ -82,6 +82,8 @@ jobs:
               - '.github/workflows/flutter.yml'
               # Client-request fixtures the Flutter tests read (PR #581).
               - 'docs/Backend_design/fixtures/client-requests/**'
+              # build-web builds + Trivy-scans the web image on a PR too.
+              - 'deploy/web.Dockerfile'
 
   analyze-and-test:
     name: analyze + test
@@ -96,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -171,7 +173,7 @@ jobs:
     # against OSV. Fails on any known vulnerability in a locked dependency.
     steps:
       - uses: actions/checkout@v5
-      - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+      - uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
         with:
           scan-args: |-
             --lockfile=frontend/pubspec.lock
@@ -192,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -220,7 +222,10 @@ jobs:
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
     # A manual branch run is the pre-merge proof path for changes to this image:
     # it publishes only the immutable SHA tag below, never the moving main tag.
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.analyze-and-test.result == 'success' && needs.codegen-check.result == 'success' && needs.deps-audit.result == 'success' }}
+    # On a pull_request (that touched frontend/ or web.Dockerfile) it runs too, build-only: the web
+    # build, the image, its smoke test and the Trivy image scan gate the PR; the artefact upload,
+    # GHCR login and push are skipped (same shape as server.yml's build-image legs).
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request') && needs.analyze-and-test.result == 'success' && needs.codegen-check.result == 'success' && needs.deps-audit.result == 'success' }}
     # Level 3 (CLAUDE.md): the artifact is produced on every green build, and
     # ci.5 (#62) adds the web image — static files only, same <sha>/main tag
     # discipline as the server image (07_CICD_DEPLOY.md §3). The downloadable
@@ -240,8 +245,12 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # On a PR this job runs PR code with packages: write; nothing here needs the token in
+          # .git/config (same as server.yml build-image).
+          persist-credentials: false
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -269,12 +278,14 @@ jobs:
           test -f build/web/drift_worker.js || { echo "::error::drift_worker.js missing from build/web"; exit 1; }
 
       - uses: actions/upload-artifact@v6
+        if: github.event_name != 'pull_request'
         with:
           name: pos-web-${{ github.sha }}
           path: frontend/build/web
           retention-days: 14
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -286,9 +297,6 @@ jobs:
         run: |
           docker build -f ../deploy/web.Dockerfile \
             -t "$WEB_IMAGE:${{ github.sha }}" .
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            docker tag "$WEB_IMAGE:${{ github.sha }}" "$WEB_IMAGE:main"
-          fi
 
       - name: smoke test the web image
         # The image must be exactly the build output: the entry point, both web
@@ -307,12 +315,59 @@ jobs:
           [ "$(docker image inspect "$WEB_IMAGE:${{ github.sha }}" --format '{{len .Config.ExposedPorts}}')" = 0 ] \
             || { echo "::error::web image exposes a port"; exit 1; }
 
-      - name: push web image
+      # On every event (PR included), before any push: a fixable HIGH/CRITICAL stops the PR or the
+      # release. Fix by bumping the busybox digest in deploy/web.Dockerfile, never an ignore file
+      # (ADR-0013). Honest limit: busybox ships no package database, so Trivy finds no OS packages
+      # to match CVEs against; this scan covers whatever it can identify in the image (and would
+      # start covering OS packages the day the base changes to a distro image). What is scanned is
+      # the single-arch linux/amd64 image built above; the push below is a separate buildx rebuild
+      # of the same COPY-only Dockerfile and build/web, and its linux/arm64 half is never scanned.
+      - name: Trivy — web image CVEs (amd64 build; a finding stops the job before the push)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          # The trivy binary is pinned too, not left to the action (trivy-action supply-chain
+          # incident 2026-03-19, CVE-2026-33634). Same version as server.yml's Trivy steps.
+          version: v0.70.0
+          scan-type: image
+          image-ref: ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # Multi-arch (2026-10-13, 07 §3): the pushed tag is a manifest list of linux/amd64 (mob04) +
+      # linux/arm64 (a Raspberry Pi 5). web.Dockerfile is a pinned multi-arch busybox + one COPY,
+      # with no RUN, so the arm64 half needs no QEMU — but a multi-platform push needs a
+      # docker-container builder, which the default `docker` driver is not.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        if: github.event_name != 'pull_request'
+
+      - name: push web image (linux/amd64 + linux/arm64)
+        if: github.event_name != 'pull_request'
+        # Same Dockerfile and the same build/web the smoke test above passed; the main tag is still
+        # main-only, and a workflow_dispatch still pushes only the immutable <sha> tag. No
+        # provenance/SBOM attestations, so the list holds exactly the two images.
         run: |
-          docker push "$WEB_IMAGE:${{ github.sha }}"
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            docker push "$WEB_IMAGE:main"
+          tags=(-t "$WEB_IMAGE:${{ github.sha }}")
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            tags+=(-t "$WEB_IMAGE:main")
           fi
+          docker buildx build -f ../deploy/web.Dockerfile \
+            --platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
+            "${tags[@]}" --push .
+
+      - name: assert the pushed tag holds linux/amd64 and linux/arm64
+        if: github.event_name != 'pull_request'
+        run: |
+          ref="$WEB_IMAGE:${{ github.sha }}"
+          platforms=$(docker buildx imagetools inspect --raw "$ref" \
+            | jq -r '.manifests[]?.platform | "\(.os)/\(.architecture)"')
+          for want in linux/amd64 linux/arm64; do
+            if ! grep -qx "$want" <<<"$platforms"; then
+              echo "::error::$ref has no $want image (has: $(paste -sd' ' - <<<"$platforms"))"
+              exit 1
+            fi
+          done
+          echo "$ref: $(paste -sd' ' - <<<"$platforms")"
 
   flutter-ci-status:
     name: flutter-ci-status
@@ -355,7 +410,7 @@ jobs:
           fi
           # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
           # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.frontend }}" == "true" && "${{ needs.build-web.result }}" != "success" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "$GITHUB_REF" == "refs/heads/main" && "${{ needs.changes.outputs.frontend }}" == "true" && "${{ needs.build-web.result }}" != "success" ]]; then
             echo "::error::build-web did not run on a main push: ${{ needs.build-web.result }}"
             exit 1
           fi

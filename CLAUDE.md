@@ -44,13 +44,42 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 "main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
-🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
-`main` `847e7ef` (PR #665, merge commit, 2026-10-08), deployed to `mob04` (run `37660353755`, details
-`docs/handoff_log/session-2026-10-08-owner-import.md`); the owner lifted the freeze for exactly that one request
-(shop-owner backup import) — the release before it was `53fdd1b` (PR #658,
-`docs/handoff_log/session-2026-10-07-final-release.md`). Do not start feature work; only fixes the owner
-asks for. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
-misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
+🔴 **The development freeze was lifted by the owner on 2026-10-10; normal development resumed** (it had run since
+2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
+owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
+`develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `5c7f210`
+(PR #714, merge commit, 2026-10-13)**: multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
+(PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" below — deployed to `mob04` (run `38393626652`, `.current_sha`
+checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`); `main` = `62e3688` since (docs-only PR #716, no deploy).
+🔴 **`develop` is ahead of `main` with a PARKED devops bundle (owner, 2026-10-14):** PR #723 (merge commit `840d9d4`) =
+#717 Semgrep + SHA-pinned actions, #718 pre-migrate DB dump, #719 Grafana alerting → Discord + Gatus (retires the
+Healthchecks.io heartbeat), #720 ansible-lint + Trivy config/web scan + SSH host-key checking, #721 review fixes — **not
+released to `main`, not on `mob04`**. Releasing it needs the owner-run order in `07 §10.5` plus the pre-release checklist in
+`docs/handoff_log/session-2026-10-14-devops-develop.md` (Discord egress / webhook-token-in-logs check first). Any other
+`develop` → `main` merge now carries this bundle too. Also in `develop` only (2026-10-14): PR #722 (`cfd4a11`, `host-setup.sh`
+follow-ups) and PR #724 (`3dbc197`, Semgrep scan-error/skipped-file warning step + stale heartbeat refs). Before it `8a44a03`
+(PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
+supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
+below), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
+`docs/handoff_log/session-2026-10-13-camera-suppliers.md`). Before it `c3e33aa`
+(PR #699, merge commit, 2026-10-12): camera barcode scan (PR #697) + sale photo evidence (PR #698; rules in "Camera
+barcode scan" / "Sale photo evidence" below), deployed to `mob04` (run `38260777086`, `.current_sha` checked over SSH, the
+new `backup-db.sh` installed by hand the same day; `docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md`). Before
+it `ec31121` (PR #696, 2026-10-12, run `38189738827`): the owner-ratified Thai strings of the UI/UX pass (PR #695). Before that `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
+presentation-only UI/UX polish of every screen (PR #693; audits in `docs/research/ui-ux-audit-2026-10-11/`,
+`docs/handoff_log/session-2026-10-12-ui-ux-polish.md`). Before that `2dabbcf`
+(PR #691, merge commit, 2026-10-11), create-PO supplier search (PR #690), deployed to `mob04` (run `38103562796`,
+`.current_sha` checked over SSH once the VPN returned; `docs/handoff_log/session-2026-10-11-ui-zoom.md` Release 2). The release before it,
+`bf02582` (PR #687, 2026-10-11), whole-screen zoom up to 3x for elderly users (PR #686), deployed to `mob04` (run
+`38100697523`, `.current_sha` checked over SSH). The release before that, `e77356f` (PR #683, 2026-10-10, run `38066101954`): the first
+try `ac9d4dd` (#681) rolled back because sharp's prebuilt binaries need x86-64-v2 and `mob04` is a `qemu64` CPU; fixed by
+PR #682 (`docs/handoff_log/session-2026-10-10-product-images.md`). A Raspberry Pi 5 move is only a plan
+(`docs/research/pi5-migration-plan.md`, owner undecided): the installer and arm64 images exist
+(`docs/tutorial/pi5-full-stack-tutorial.md`) but **no Pi is in service** and `mob04` stays production. 🔴 **`develop` → `main` showing
+"conflict" while `git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into
+`develop` with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to**
+(a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
@@ -118,8 +147,9 @@ frontend/
       utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 26 Drift tables, schemaVersion 13 (20 ported sa_* stores + #24's
-                                 credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects) — recounted 2026-09-28
+      db/tables.dart           ← 27 Drift tables, schemaVersion 15 (20 ported sa_* stores + #24's
+                                 credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects
+                                 + #676 PaymentAccounts; v15 = Products.imageKey) — recounted 2026-10-10
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -128,10 +158,11 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (22 entries:
-                                 17 repos incl. AuthRepository, + ApiClient/BootstrapService/
-                                 DocCounterSeeder/SyncFacade); `useApi` swaps in the #56 API repos
-      blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (25 entries:
+                                 20 repos incl. AuthRepository and PaymentAccountsRepository, +
+                                 ApiClient/BootstrapService/DocCounterSeeder/SyncFacade) — recounted
+                                 2026-10-10; `useApi` swaps in the #56 API repos
+      blocs/                    ← Cubits (ThemeMode, FontScale, UiZoom, PendingQuote, Cart)
       screens/                  ← 14 screen files: 12 in the AppShell nav + /devices + /login
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
                                   label printer, closing report)
@@ -308,9 +339,11 @@ develops against a demo tenant.
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
-  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v15 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
-  exactly — ops queued before v13 have no row and take the legacy recompute path).
+  exactly — ops queued before v13 have no row and take the legacy recompute path; v14 = #676
+  `payment_accounts` cache + `Sales.paymentAccountId`; v15 = product images, `Products.imageKey` — the
+  server's content hash only, bytes never in Drift; v7's `TableMigration(products)` lists it in `newColumns`).
 - ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
   by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
   `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS
@@ -442,8 +475,9 @@ develops against a demo tenant.
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
   #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
-- **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
-  `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
+- **Postgres has 31 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
+  + `payment_accounts` (#676) + `sale_photos` (migration `1788652805200`, 2026-10-12); recounted 2026-10-10 — product images add the column `products.image_key`
+  (migration `1788652805100`), not a table; `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
@@ -671,6 +705,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `refs/heads/main`, active, **no bypass actors**) refuses squash/rebase into `main` — so admins
   cannot push directly to `main` either. Verify: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main`.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
+- **Backup before migration (2026-10-13, `agent ร่าง`; in `develop` via PR #723 — parked, never run on `mob04`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
+  (or the check fails), a DB-only `backup-db.sh` (`BACKUP_VOLUMES=0`, shipped to the VM with `ansible.builtin.script` because `/opt/pos/scripts`
+  is stale until `provision.yml`) into `/opt/pos/backups-pre-migrate/` (sibling of `backups/`, 30 days, no offsite). A failed dump stops the deploy before
+  any container/schema change. 🔴 It is the only undo for a migration (no down-migrations); restoring is an owner decision and loses every write after the dump (07 §7).
 - **Secret scan = gitleaks** (job `secrets` in `server.yml`, 2026-10-01): never path-gated,
   scans the commits each PR/push adds (`-v --redact`), and `server-ci-status` requires its
   `success`. Allowlists live in `.gitleaks.toml` (placeholder patterns) and
@@ -681,6 +719,18 @@ on void/return paths. Keep this order in any new write touching more than one of
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
+- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *proposed*; in `develop` via PR #723 —
+  CI-side, so it already gates every PR whose merge result contains it, i.e. every PR into `develop`): never
+  path-gated, `server-ci-status` requires `success`, `build-image` needs it. Pinned image digest
+  (`--metrics=off`) + pinned `semgrep/semgrep-rules` commit; **any ERROR-severity result fails**,
+  WARNING/INFO only go to SARIF. False positive → inline `nosemgrep: rule-id -- reason` (a marker
+  without both fails the job); `.semgrepignore` holds vendored/generated paths only and, like the
+  gitleaks allowlists, is read from the PR **base**; a `.semgrepignore` anywhere but the root fails the
+  job (Semgrep honours nested ones, so a PR could hide its own code); the marker check is
+  case-insensitive and also catches the short form Semgrep accepts. Never put `${{ github.ref }}` (or other
+  `github.*` user-controlled context) inside `run:` — use `$GITHUB_REF` / an `env:` entry. Every
+  third-party action is pinned by commit SHA with a `# vX` comment (trivy binary via `version:`);
+  bump = `gh api repos/<o>/<r>/commits/<tag> --jq .sha`, version ≥ 2 weeks old.
 - In Actions expressions `0` is falsy: `cond && 0 || 1` is always `1` — use strings (`'0'`). This silently disabled the docs-only push skip until it was fixed (2026-10-01).
 - **Quality gates (2026-10-03, PRs #579/#581/#582 — table in `07_CICD_DEPLOY.md §2c`):**
   a UI write that can fail silently gets a surfacing catch — never an `_allowlist` entry
@@ -689,6 +739,18 @@ on void/return paths. Keep this order in any new write touching more than one of
   migration is never edited — add a new one. 🔴 Two PRs green alone can be red
   together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
   `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
+- **IaC lint + web image scans (2026-10-13, in `develop` via PR #723 — parked, not released to `main`):** `ci-guards` runs
+  **ansible-lint** (`deploy/ansible/.ansible-lint`: profile `production`, offline; hash-pinned
+  `deploy/ansible/lint-requirements.txt` on CPython 3.12 pinned by `actions/setup-python` + sha256-checked `ansible.posix`;
+  pip wheels and the Galaxy tarball are cached, and a cache hit is still hash-checked) over every playbook in `deploy/ansible/` —
+  fix the playbook, or `# noqa: <rule> <reason>` on that line; never a `skip_list`. `audit` Trivy-config-scans
+  `deploy/web.Dockerfile`; `build-web` Trivy-scans the web image on PRs too (build-only, no push) — only the single-arch **amd64** build is
+  scanned; the pushed amd64+arm64 list is a buildx rebuild of the same COPY-only Dockerfile, its arm64 half unscanned. DS-0002 is met by
+  `USER 65534` in the image while `web-sync` runs `user: "0:0"` on purpose (root-owned `web` volume) — never call the
+  deploy rootless. 🔴 The lint edits to `deploy.yml` (explicit `changed_when`, folded long lines) are proven **only by a
+  real deploy + `.current_sha`** — none happens until the owner releases this branch. `ansible.cfg` no longer sets
+  `host_key_checking = False`: pin the host key first (ssh-keyscan vs the console fingerprint, 07 §7 "SSH host key");
+  CD is unaffected (`ansible_connection=local`).
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
@@ -703,7 +765,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   fallback for when the #67 runner is offline, not a competing trigger policy.
 - **A red `server-ci-status` on `main` = no images on GHCR = every Deploy run skips while
   reporting success** (2026-09-30: `pnpm audit --audit-level=high` blocked every deploy
-  until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only".
+  until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only". Release-gating jobs
+  also download from outside at run time, so an outage there is a red run too: PyPI + Galaxy (`ci-guards`, cached and
+  hash-checked), Docker Hub (`nginx-check`'s grafana/prometheus/gatus/node-exporter pulls, the semgrep image), GitHub
+  (`sast`'s `semgrep-rules` fetch, the gitleaks/actionlint/shellcheck releases) and the Trivy DB (`mirror.gcr.io`, then
+  `ghcr.io` — Trivy v0.70.0's own default order, left as is). Re-run; never weaken the gate.
 - **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
@@ -720,7 +786,9 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
   A code merge to `main` fires Deploy twice (once per CI workflow); the first usually skips green
-  because the other image is not on GHCR yet — approve the second (2026-10-06).
+  because the other image is not on GHCR yet — approve the second (2026-10-06). When both runs reach the
+  gate, the unapproved twin keeps waiting and blocks the *next* release — cancel it right after the deploy
+  (2026-10-10: run `37786086586` of `1d70d1c` held the slot for 2 days).
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
@@ -760,7 +828,25 @@ on void/return paths. Keep this order in any new write touching more than one of
   until the CA asset is recommitted and APKs rebuilt. `ca.key` lives only in `certs-ca`. `frontend/assets/certs/pos-ca.crt`
   holds the CA since 2026-10-03 (first certgen deploy `7ea0178`; SHA-256 `87:7B:B8:F7:…:54:CF:83:65`) — it must match
   `certs-ca/ca.crt` on the VM (`07_CICD_DEPLOY.md` §5 "TLS"). Never add `badCertificateCallback`.
-  A VM IP change = edit the SAN in `server/docker/certgen/certgen.sh`.
+  A host IP change = set `CERT_SAN_IPS` in that host's `.env` (no code edit since PR #712), plus `CORS_ORIGINS`, then
+  `provision.yml` + a redeploy; the APK's `API_BASE_URL` is hardcoded in `android-apk.yml`.
+- **Multi-arch images + Raspberry Pi 5 host (2026-10-13, PRs #711/#712/#713, release #714 `5c7f210`;
+  `docs/tutorial/pi5-full-stack-tutorial.md`):** server/web `:<sha>` and `:main` are **amd64+arm64 manifest lists**. Server: made by
+  `publish-image` only after both per-arch legs (`:<sha>-amd64`/`:<sha>-arm64`, each built + smoke + sharp check — arm64 under
+  `qemu-aarch64 -cpu cortex-a76` — + Trivy) pass; `server-ci-status` is red if `publish-image` was skipped on a `main` code push.
+  Web: pushed for both platforms by one buildx build (no per-arch legs, no Trivy).
+  Releases before `5c7f210` are amd64 only. `verify-ghcr-tags.sh <sha> [linux/amd64|linux/arm64]` (no platform = old check).
+  `CERT_SAN_IPS` (comma-separated IPv4; unset = `172.30.58.20`, byte-identical SAN on `mob04`). `deploy/scripts/host-setup.sh`
+  runs before `provision.yml`: **never formats** (prints `sfdisk`/`mkfs.ext4` for the owner), refuses page size ≠ 4096
+  (Raspberry Pi OS on a Pi 5 = 16K; use Ubuntu Server 26.04/24.04), mounts the data disk at `/srv/pos-data` and moves Docker
+  `data-root` to `/srv/pos-data/docker` with a `RequiresMountsFor=/srv/pos-data` drop-in (plus `log-driver local`; Docker is restarted only when `daemon.json`/drop-in actually change, so a re-run is safe) — 🔴 never remove it (Docker would
+  start on an empty SD dir); backups stay on the boot disk (nothing leaves the host — #363 parked).
+  A runner on a Pi must set `RUNNER_NAME` + `RUNNER_LABELS` (script refuses on aarch64 otherwise) and **never share
+  `srisurart-demo-deploy`**. 🔴 **Pi CD is not wired:** `deploy.yml` runs on `mob04`'s label and passes no platform.
+- **Tailscale on `mob04` (2026-10-13, `docs/research/tailscale-remote-access-plan-2026-10-13.md`):** subnet router for
+  `172.30.58.20/32` only (`tag:pos-server`, Personal plan = non-commercial). 🔴 `--snat-subnet-routes=false` is required —
+  never re-enable SNAT (every phone would share one IP: per-IP login rate limit + nginx's RFC1918 allowlist). SSH over the
+  tailnet is the owner's only; dashboards (Grafana/Prometheus/Bull-Board/platform-ui) only through an SSH tunnel.
 
 **Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
 - `http_requests_total` and `http_request_duration_seconds` are **named by the existing
@@ -807,13 +893,47 @@ on void/return paths. Keep this order in any new write touching more than one of
   `promtool check config` step in `server.yml` `nginx-check` is the real gate — keep its image
   digest equal to `monitoring.yml`'s. Keep local-only files out of `deploy/prometheus/` and
   `deploy/grafana/` (deploy.yml copies those trees wholesale).
-- **Uptime heartbeat (#596, 2026-10-04):** `deploy/scripts/healthcheck-ping.sh`, cron every 5 min as
-  `deploy` from `provision.yml` (`journalctl -t pos-healthcheck`). **Installed on `mob04` by hand
-  2026-10-04** (07 §7b: script sha256 `77f79d62…` = `origin/main`, key appended to `/opt/pos/.env`,
-  cron entry with the `#Ansible:` marker so `provision.yml` adopts it; first cron run 15:20 UTC
-  silent = healthy ping). 🔴 A CD deploy never updates it — re-install after a script change. The ping URL is a secret: only in `/opt/pos/.env`, passed to
-  curl on stdin (`-K -`) never argv; a URL holding a quote/backslash/space is refused (`::error::`),
-  not escaped. Unset = `::warning::` exit 0 (same rule as offsite backup).
+- ~~Uptime heartbeat (#596, Healthchecks.io)~~ — **retired 2026-10-13** (not the team's account):
+  script/test deleted, `provision.yml` removes the cron (same `name:`, `state: absent`) and the VM copy.
+  🔴 **Retired in `develop` only (PR #723, parked):** `main` still ships `healthcheck-ping.sh` and its cron, and on
+  `mob04` the hand-installed copy (2026-10-04, sha256 `77f79d62…`, key in `/opt/pos/.env`) **keeps pinging every 5 min
+  until the release's `provision.yml` run** — not re-checked over SSH on 2026-10-14. Until then a `provision.yml` from
+  `origin/main` re-installs it; the account owner pauses the check before the release (07 §10.5).
+- **Alerting → Discord + Gatus (2026-10-13, `agent ร่าง`, ADR-0013 addendum *proposed*; 07 §10.5; in `develop` via PR #723 —
+  parked: no Gatus, no alert rule, no `node-textfile` on `mob04` yet).**
+  Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
+  point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
+  `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),
+  platform-ui (**403** = up: its nginx allows only the bridge gateway, so every container gets 403), bull-board (401),
+  Postgres/Redis×2/etcd TCP, Grafana, Prometheus. Rules: API instance down uses
+  `up{job="api-metrics"}` — **never `api-readiness`** (always 0); anything a rolling deploy can trip has `for:` ≥ 5m;
+  deleting a rule from the file does not delete it (use `deleteRules:`); annotations are not env-interpolated and
+  never carry tenant/customer data. `ALERT_DISCORD_WEBHOOK` is a secret (`/opt/pos/.env` only); unset = a
+  placeholder (Grafana refuses an empty Discord URL) + `provision.yml` warning. Gatus trusts the private CA via
+  `SSL_CERT_DIR=/pos-ca` (never `SSL_CERT_FILE`); `deploy/gatus-ca/pos-ca.crt` must stay a byte copy of
+  `frontend/assets/certs/pos-ca.crt` (CI `cmp`); config dir-mounted, never a single file. **Backup freshness:**
+  `backup-db.sh` writes `pos_backup_last_success_timestamp_seconds` to `/opt/pos/node-textfile` (0755, from
+  `provision.yml`) only on a green run that is not DB-only (`BACKUP_VOLUMES=0`); rule "backup stale" > 26h, no data
+  = Alerting. 🔴 **First-release order (07 §10.5):** merge `develop`→`main` first (Deploy waits for approval) → in that
+  window run `provision.yml` as `cloud` from a **clean `origin/main`** worktree (before the merge `origin/main` holds the
+  old playbook: heartbeat cron back, no `node-textfile`, old `backup-db.sh`) → seed the gauge by running `backup-db.sh`
+  once as `deploy` in cron's env → then approve. `deploy.yml` warns (never fails) when `node-textfile` is missing or
+  `/opt/pos/scripts/backup-db.sh` differs from the release's copy. Before provision: ask the Healthchecks.io account
+  owner to pause/delete the check (not the team's account — removing the cron makes it page *them*), and compare the
+  local `DEMO_ENV_FILE` sha256 with the VM's `/opt/pos/.env` (stale file = wrong DB/etcd passwords). The nightly
+  `backup-db.sh` also prunes `/opt/pos/backups-pre-migrate` past 30 days (top level only; those dumps hold customer
+  data — PDPA, owner's retention call). 🔴 **Rollback past this release** (old `deploy.yml`) leaves an orphan `gatus`
+  container and the 10 file-provisioned rules in Grafana (which never deletes a rule whose file vanished) → "Gatus
+  down"/"backup stale" page every 4h: `docker rm -f` the gatus container and drop a `deleteRules:` file (07 §7 row
+  "rollback ข้าม release alerting"); the provisioning API cannot delete a `file`-provenance rule. CI: `monitoring-alerting.test.sh`
+  (nginx-check) boots prometheus+grafana+gatus from `monitoring.yml` and checks rules load and evaluate without
+  `error`, Gatus config loads, and the Gatus amd64 binary is `GOAMD64=v1` (mob04 = qemu64). 🔴 Gatus runs on the host
+  it watches: a dead host pages nobody until a second host (Pi 5) exists — documented, not claimed. Owner steps on
+  `mob04` (Discord egress `curl -v https://discord.com/api/v10/gateway`, webhook, `DEMO_ENV_FILE`, provision) in 07 §10.5.
+  🔴 A webhook send that fails at the network level puts the **full webhook URL (token) in `docker logs gatus`** (Go
+  error text) — never paste those logs unredacted; leaked = rotate the webhook. Every rule is `execErrState: Alerting`,
+  never `Error` (Grafana 11.2's Error skips `for:` — one failed evaluation while a deploy recreates Prometheus would
+  page a DatasourceError), and none is `for: 0s`. p95 and 5xx rules only evaluate above 0.05 req/s.
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly
@@ -844,7 +964,82 @@ on void/return paths. Keep this order in any new write touching more than one of
 - `setState(() { x = …; })`, never the arrow form, **when the assigned value is a
   `Future`** — the arrow form trips a Flutter assertion (compiled out in release builds,
   which is why it hid for a while).
+- **Whole-screen zoom (#686):** `UiZoom` wraps the app in `MaterialApp.builder`. Code that needs the real
+  window size must use `MediaQueryData.fromView(View.of(context))`; everything else uses `MediaQuery`
+  (the zoomed logical screen). The route smoke test runs every screen at 3x on 1920x1080 and 2x on
+  1366x768 — a new screen must pass both. The zoom card's Thai strings are `agent ร่าง` (owner to ratify).
+- **Look at the built web app, not only the tests (#693, 2026-10-12):** three layout bugs passed 1848 tests and were only
+  seen by eye (a `Container(alignment:)` inside a `Wrap` fills the whole row — wrap it in `IntrinsicWidth`). For a local
+  look: `flutter build web --no-tree-shake-icons --no-web-resources-cdn` (CanvasKit from gstatic is blocked in the app's
+  browser pane), serve `build/web`, and unregister the service worker + clear caches before re-checking a rebuild — `sw.js`
+  otherwise serves the previous build.
 
+- **Product images (owner request 2026-10-10, PR #680; 02 §3.2/§3.10, 07 §9):** one picture per product, **owner-only**
+  (`403 OWNER_ONLY`) and online-only (`PUT`/`DELETE /products/:id/image`, raw jpeg/png/webp ≤ 3 MB, idempotent over the body
+  bytes). `products.image_key` is **content-addressed** — first 32 hex of the sha256 of the stored preview — so a new image is
+  a new immutable URL; sharp writes `<tenantId>/<key>_t.webp` (256) and `_p.webp` (1024) to the `product-images` volume,
+  nginx serves them read-only at `/img/` (public, `immutable`, no login: the UUID + 128-bit key is the secret).
+  🔴 Removing an old key's files is **after commit, best-effort, never inside the transaction**, and only when no product of
+  that tenant still references the key **and the files are older than `ORPHAN_GRACE_MS` (10 min)** — a concurrent upload of
+  the same bytes may be about to commit them (`image-store.ts`; only a refused upload deletes its own just-created files at
+  once; the import sweep also skips files newer than the job). Decode is capped at 24 MP (`INPUT_PIXEL_LIMIT`, api 384 MB /
+  worker 256 MB) with `failOn: 'error'`; Node `requestTimeout` = `IMPORT_REQUEST_TIMEOUT_MS` (15 min) so a slow 200 MB import
+  is not cut at the 300 s default. Drift v15 deletes the `products` sync cursor so upgraded clients re-pull existing keys.
+  🔴 **`mob04` is a `QEMU Virtual CPU version 2.5+` (= `qemu64`: no SSSE3/SSE4/POPCNT, below x86-64-v2)** — never ship a
+  prebuilt native binary that assumes v2. `server/Dockerfile` builds **libvips 8.18.7** (sha256-pinned tarball, only
+  jpeg/png/webp/exif/lcms/zlib) and compiles sharp against it, and deletes every prebuilt `@img/sharp-*`; `server.yml`
+  `build-image` runs `server/docker/sharp-check/check.cjs` under `qemu-x86_64 -cpu qemu64` before Trivy/push (PR #682,
+  after `ac9d4dd` rolled back on 2026-10-10). Trivy does not track the self-built libvips — bump it by hand for CVEs
+  (sharp's `src/common.h` sets the minimum libvips). 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
+  images through the same private-CA trust as `ApiClient`** (`installPosTrust` / `HttpOverrides`) — never a
+  `badCertificateCallback`. Owner backup is now a **ZIP** (`data.json` + `images/<key>.webp`; import takes `.zip` ≤ 200 MB or
+  legacy `.json` ≤ 10 MB, the nginx limit is raised only on the two import locations; ZIP entries are whitelisted and capped).
+  🔴 **`backup-db.sh` also archives the volume as `pos_images_<ts>.tar.gz`, but a CD deploy does not update
+  `/opt/pos/scripts`** — install it by hand (`sudo install -o deploy -g deploy -m 0755`) or via `provision.yml`, else backups
+  silently omit images; **`restore-db.sh` does not restore images yet**. Never `down -v` (the images are not in `pg_dump`).
+- **Sale photo evidence (owner request 2026-10-12, PR #698; design + API contract `docs/Backend_design/10_SALE_PHOTO_EVIDENCE.md`
+  §4, which binds both sides — change §4 first, in its own PR):** optional, **after payment** (receipt button
+  `ถ่ายรูปหลักฐานสินค้า`), ≤ 5 photos per bill, **online-only v1** (photos live in memory while the sheet is open; a failed
+  upload keeps the sheet open and `ลองอีกครั้ง` resends the **same photoId + `Idempotency-Key`**; the button is disabled
+  while Degraded or while the bill's `sale.create` is still in `outbox_ops`). Viewing is **same-device only** (Returns /
+  Reports read sales from Drift; no server bill lookup). `sale_photos` (migration `1788652805200`, Postgres 31 tables) is
+  **append-only** for `pos_app` (no DELETE route), has **no FK to `sales`** and is **not in `REPLACED_TABLES`**, so a replace-
+  import keeps the photos; the import's file sweep stays bound to `productImages`. 🔴 Sale photos are **not** public like
+  product images: separate volume `sale-photos` mounted on api + worker only (**never nginx** — `nginx-img.test.sh` proves
+  `/img/` 404s), read through `GET /sales/:id/photos/:photoId/{t|p}` with `Cache-Control: no-store`; the file path comes only
+  from the token's tenant + the stored `image_key`. The PUT always answers **200**; replay is by key **and** permanently by
+  `photoId` + `source_sha256`; the 5-limit is counted under the `sales` row `FOR UPDATE`. The raw body is buffered only for
+  `drole === 'pos'` tokens. The query (`takenAt`/`sortOrder`) is deliberately outside the fingerprint — so the client freezes a
+  photo's `sortOrder` at its **first send attempt** (the lowest slot 0–4 not held by a saved/retryable/uploading photo — never
+  max+1, which reached 5 and was refused) and resends it on every retry; staff may reorder tiles only before the first
+  `บันทึก` (owner 2026-10-12). Capture = in-app camera (`camera` package, `sale_photo_camera.dart`, all platforms incl. the PC
+  webcam; `image_picker` removed; the camera counts only shots the sheet accepted) + `file_picker`. 🔴 The Android manifest
+  strips `RECORD_AUDIO`/`WRITE_EXTERNAL_STORAGE` that `camera_android_camerax` merges in (`tools:node="remove"`) — keep it. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
+  is unbounded — follow-up); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
+  `pos_sale_photos_<ts>.tar.gz` **through the worker container** (a failed exec = `::error::` + non-zero exit) — install it on
+  the VM only **after** the deploy that ships a worker with `/app/sale-photos`; installed on `mob04` 2026-10-12 (sha256
+  `e70debda…`, previous copy `.backup-db.sh.prev-ec31121`). Not in the owner backup ZIP; `restore-db.sh` does not restore
+  them. Open owner items: PDPA customer notice, the `agent ร่าง` strings, the X1 real-device trial.
+- **Camera barcode scan (owner request 2026-10-12, PR #697):** one shared `BarcodeScanButton` (`mobile_scanner` 7.4.2) on
+  products search, the checkout scan field (goes through `_submitBarcode` → `_handleBarcode`, the same path as typing / a USB
+  scanner) and the create-PO search (adds a line only on an exact part number). Matches `partNo` only — there is no barcode
+  column; PO receiving has no search, so no button. 🔴 **Web never fetches a decoder from a CDN:** native `BarcodeDetector`
+  where present, else **zxing-wasm 3.1.3 bundled in `frontend/web/zxing/`** (`VERSION.txt` holds npm integrity + sha256;
+  precached by `sw.js`) — Windows desktop Chrome/Edge have no `BarcodeDetector`, so the bundle is what makes the shop PC
+  work. Bumping `mobile_scanner` = re-check the zxing version it pins and update the bundle. Support is checked **before**
+  any camera permission prompt. The iOS `NSCameraUsageDescription` is one key shared with sale photos
+  (`ใช้กล้องเพื่อสแกนบาร์โค้ดและถ่ายรูปหลักฐานสินค้า`, `agent ร่าง`).
+- **Supplier-first tab (owner request 2026-10-12, PR #703; plan + as-built `docs/research/supplier-first-plan-2026-10-12.md`):**
+  Products → `ซัพพลายเออร์` opens on `ตามซัพฯ` (supplier list → that supplier's products); the old per-product view stays behind
+  `ตามสินค้า`. Code lives in `products_suppliers_tab.part.dart` (a `part` of `products_screen.dart`). A "supplier" is the group
+  of `Suppliers` quote rows by `supplierKey()` (`core/utils/supplier_name.dart`, trim + lower-case) — the **same key** the
+  create-PO dialog uses; no supplier entity, no schema change (rename/merge and contact details are "later"). Cheapest =
+  integer-satang `cost + freight`, compared only against **other** suppliers. 🔴 **One stock rule: `stockLevel()`**
+  (`low_stock_alert.dart`; out = `stock <= 0`, low = `stock <= minStock`) — the Stock tab, `lowStockBuckets` and the PO
+  dialog's low-stock list all use it; never inline `stock <= minStock` in new code. `สร้างใบสั่งซื้อ (n)` passes a `PoPrefill`
+  **class** via go_router `extra` (never a String/Map — it would be serialised into history and reopen on back). Writes keep
+  the API-build rules (Degraded refused at press, `_busy`, no local write, dialog keeps values on error, add body byte-stable
+  for `PendingWrites`). Owner question open: supplier routes have no role check (any role can edit costs).
 - **Local cache is tenant-scoped (API build, #539):** `AppMeta tenant_id` + `TenantCacheGuard`;
   a switch resets via `resetTenantCache`/`resetPulledCache` and is **refused with unsent work**
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and

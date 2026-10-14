@@ -233,7 +233,8 @@ rm -rf .tmp-nginx
 
 job `nginx-check` ใน CI ยังรันสิ่งต่อไปนี้ด้วย (ดู `.github/workflows/server.yml`) — รันเองได้จาก root ของรีโป:
 
-- สคริปต์ deploy ที่ stub คำสั่งจริง: `deploy/scripts/test/certgen.test.sh`, `backup-db.test.sh`, `healthcheck-ping.test.sh` (stub `curl`: ping/`/fail` ถูกต้อง, URL ไม่ถูกพิมพ์ออก, ไม่ตั้ง URL = `::warning::` เท่านั้น) — **ผ่านเมื่อ** exit code 0
+- 🆕 `deploy/scripts/test/nginx-img.test.sh` (PR #680, step ชื่อ *nginx /img/ + import body-limit behaviour* ใน `server.yml`) — เปิด nginx image จริงกับ `nginx.conf` จริง แล้วยิง `curl`: `/img/<uuid>/<32 hex>_{t,p}.webp` ต้องได้ไฟล์จาก volume พร้อม `Cache-Control: public, max-age=31536000, immutable` + `X-Content-Type-Options: nosniff`, path/รูปแบบอื่นใต้ `/img/` ต้อง 404 (ไม่ใช่หน้า SPA) และเฉพาะสอง location ของ import เท่านั้นที่รับ body เกิน 10 MB · ต้องมี `docker`, `openssl`, `curl` · รัน: `deploy/scripts/test/nginx-img.test.sh`
+- สคริปต์ deploy ที่ stub คำสั่งจริง: `deploy/scripts/test/certgen.test.sh`, `backup-db.test.sh` (🆕 ตั้งแต่ PR #680 ครอบคลุม `pos_images_*.tar.gz` + sha256, prune, ไม่มี volume = เตือนแต่ exit 0, tar พัง = exit ≠ 0) (+ gauge ความสดของ backup 2026-10-13), `monitoring-alerting.test.sh` (boot prometheus + grafana + gatus จริงจาก `monitoring.yml`: rule ครบและไม่มี health `error`, Gatus โหลด config, binary `GOAMD64=v1` — ต้องมี Docker) — **ผ่านเมื่อ** exit code 0
 - `promtool check config` ของ `deploy/prometheus/prometheus.yml` ทั้งแบบที่ VM ใช้ และแบบมี overlay `deploy/prometheus-local/local-scrape.yml` (image `prom/prometheus` ตามที่ปักไว้ใน workflow ต้องมี Docker)
 
 ### 2.6 Image smoke test + Trivy image — "ตรวจรถก่อนออกจากโรงงาน"
@@ -256,6 +257,109 @@ trivy image --severity HIGH,CRITICAL --ignore-unfixed pos-server:local
 ```
 
 - **ทำงานเฉพาะบน `main`** และต้องรอให้ test 2.1–2.5 ผ่านทั้งหมดก่อน
+
+### 2.7 🆕 Test ของรูปสินค้า + backup ZIP (PR #680) — "ตรวจว่ารูปเข้า-ออกครบ ไม่หลุดไปที่อื่น"
+
+ฟีเจอร์: เจ้าของร้านอัปโหลดรูปสินค้า (หนึ่งรูปต่อสินค้า), Nginx เสิร์ฟที่ `/img/…`, backup ของร้านเป็น `.zip` (`data.json` + `images/<imageKey>.webp`) และ import รับ `.zip` หรือ `.json` เดิม
+
+| ไฟล์ (ที่ `server/`) | ชนิด | ตรวจอะไร |
+|---|---|---|
+| `test/product-images.e2e-spec.ts` | e2e (Postgres/Redis จริง + sharp จริง) | `PUT`/`DELETE /products/:id/image`: ได้ไฟล์ `_t`/`_p` ลง volume และ `imageKey` ออกใน wire + keyset pull · `Idempotency-Key` เดิม+ไบต์เดิม = replay, ไบต์ต่าง = `409` · เปลี่ยน/ลบแล้วไฟล์เก่าหายเฉพาะเมื่อไม่มีสินค้าอื่นอ้าง key · ไม่ใช่ owner = `403 OWNER_ONLY` · สินค้าของร้านอื่น = `404` และไม่ทิ้งไฟล์ · ไม่ใช่ JPEG/PNG/WebP = `400 PRODUCT_IMAGE_INVALID` · เกิน 3 MB = `413 PRODUCT_IMAGE_TOO_LARGE` · กลุ่ม *backup ZIP*: export แล้ว import กลับสร้างไฟล์รูปคืน, `.json` เดิมยังใช้ได้, รูปที่ ZIP ไม่มีหรือ sharp ไม่รับ = ไม่มีรูป, ZIP อันตราย = `400 BACKUP_ZIP_INVALID` ก่อนเริ่มงานและไม่เก็บไฟล์อัปโหลด |
+| `src/product-images/image-pipeline.spec.ts`, `image-store.spec.ts` | unit | ย่อ/แปลงเป็น WebP ตามขนาด, หมุนตาม EXIF แล้วล้าง metadata (รวม GPS), ไบต์เท่าเดิมได้ key เท่าเดิม, ปฏิเสธ SVG/GIF/ไฟล์ตัดครึ่ง/ภาพพิกเซลเกินลิมิต · ที่อยู่ไฟล์ `<tenantId>/<key>_t.webp`, ปฏิเสธ id ที่ปีนออกนอก volume |
+| `src/backup/snapshot-zip.spec.ts`, `zip-upload.spec.ts` | unit | ZIP: เขียน/อ่านกลับ, ปฏิเสธ path ปีนขึ้น, entry นอก `data.json`/`images/<32 hex>.webp`, ZIP ไม่มี `data.json`, ชื่อซ้ำ, ไม่ใช่ ZIP, entry ใหญ่เกินจากขนาดที่ประกาศ, zip bomb, เกิน 20,000 entry · upload: สตรีมลงไฟล์, ประกาศเกิน/โตเกินลิมิต = `413` โดยไม่ทิ้งไฟล์, `.json` ผ่านไปเฉย ๆ |
+| `src/app.setup.spec.ts` | unit | raw body ของ `PUT …/image` (3 MB) และ ZIP ของ import (200 MB) อ่านเฉพาะ owner ที่ตรวจ token แล้ว (ZIP: บนเครื่องที่ผูกแล้วเท่านั้น) และเฉพาะ content type ที่รับ |
+| `src/idempotency/idempotency-routes.spec.ts` | architecture spec | `PUT`/`DELETE …/image` ต้องมี idempotency claim (ห้ามแก้ให้ผ่านเฉย ๆ) |
+
+รัน:
+
+```bash
+pnpm test src/product-images src/backup src/app.setup.spec.ts
+```
+
+```bash
+pnpm test:e2e test/product-images.e2e-spec.ts
+```
+
+(e2e ต้องเตรียม Postgres/Redis ตามข้อ 2.3 และต้องมี `sharp` ที่ลงด้วย `pnpm install` แล้ว) · ผ่านเมื่อไม่มี test แดง
+
+#### 🆕 รูปหลักฐานสินค้าตอนขาย + สแกนบาร์โค้ดด้วยกล้อง (PR #697/#698/#699, 2026-10-12)
+
+ฟีเจอร์: หลังชำระเงินถ่าย/เลือก 1–5 รูปผูกกับบิล (`PUT /sales/:saleId/photos/:photoId`, `GET …/photos`, `GET …/photos/:photoId/t|p`), เก็บใน volume `sale-photos` (nginx ไม่ mount), ตาราง `sale_photos` (append-only ของ `pos_app`); และปุ่มกล้องสแกนบาร์โค้ดในหน้าขาย/สินค้า/สร้าง PO
+
+| ไฟล์ | ชนิด | ตรวจอะไร |
+|---|---|---|
+| `server/test/sale-photos.e2e-spec.ts` | e2e (Postgres/Redis จริง + sharp จริง) | `PUT` → `GET` list → `GET` bytes (ไฟล์อยู่ใน `sale-photos` ไม่ใช่ `product-images`, ไม่มี EXIF) · replay ด้วย key เดิม / photoId เดิม (key ใหม่ + ไบต์เดิม = 200, ไบต์ต่าง = `409 CLIENT_ID_REUSED`) · รูปที่ 6 = `409 SALE_PHOTO_LIMIT` และคำขอพร้อมกันได้ครบ 5 ไม่ใช่ 6 · ลำดับการปฏิเสธ §4.3 (เครื่อง `backoffice` = `403 DEVICE_ROLE_FORBIDDEN`, ร้านถูกระงับ, > 3 MB = `413`, ไฟล์ไม่ใช่รูป/เกิน 4 MP = `400`, บิลไม่มี = `404 SALE_NOT_FOUND`) · ร้านอื่นอ่านได้ `[]`/404 · replace-import ไม่แตะแถวและไฟล์ · อ่านรูปไม่ถือ connection ของ pool (`DB_POOL_SIZE=1`) |
+| `server/src/sale-photos/sale-photos.controller.spec.ts`, `src/product-images/image-pipeline.spec.ts`, `image-store.spec.ts` | unit | controller ตามลำดับการปฏิเสธ · pipeline มี semaphore ช่องเดียวและเพดานพิกเซลของรูปหลักฐาน · store รับรากของ volume |
+| `server/src/idempotency/idempotency-routes.spec.ts`, `src/app.setup.spec.ts` | architecture / unit | route `PUT …/photos/:photoId` ต้องมี idempotency claim · raw body ของรูปหลักฐานอ่านเฉพาะ token ของเครื่อง `pos` |
+| `deploy/scripts/test/backup-db.test.sh`, `nginx-img.test.sh` | shell (stub) | `backup-db.sh`: มี/ไม่มี volume `sale-photos` (`pos_sale_photos_*.tar.gz`, `.partial` ไม่ค้าง, `::error::` เมื่อ worker เข้าไม่ได้) · nginx: key ของรูปหลักฐานผ่าน `/img/` ได้ 404 |
+| `frontend/test/barcode_scan_button_test.dart` | widget | ปุ่มกล้องส่งค่าที่สแกนเข้า callback (scanner เป็น seam — กล้องจริงรันใน test ไม่ได้) |
+| `frontend/test/sale_photo_sheet_test.dart`, `receipt_photo_button_test.dart`, `sale_photos_repository_test.dart` | widget / unit | แผ่นถ่ายรูป (ส่งทีละรูป, ลองอีกครั้งด้วย photoId+key เดิม, 4xx ไม่มีปุ่มลองใหม่, ครบ 5 รูป), ปุ่ม/เหตุผล disabled บนใบเสร็จ, repository กับ fake |
+
+```bash
+pnpm test:e2e test/sale-photos.e2e-spec.ts
+pnpm test src/sale-photos src/product-images
+bash deploy/scripts/test/backup-db.test.sh
+```
+
+(e2e ต้องเตรียม Postgres/Redis ตามข้อ 2.3 เช่นเดียวกับ `product-images.e2e-spec.ts`) · กล้องจริง (ถ่ายรูป/สแกน) ทดสอบด้วยมือบน APK หรือเว็บ HTTPS เท่านั้น — ไม่มี test อัตโนมัติ
+
+#### 🆕 กล้องในแผ่นรูปหลักฐาน + เรียงรูป + แท็บซัพพลายเออร์แบบเริ่มที่ซัพฯ (PR #702/#703, release `8a44a03`, 2026-10-13)
+
+ฝั่ง client ล้วน (ไม่มี test ฝั่ง server เพิ่ม) · `flutter test` ทั้งชุด 1988 ตัว ณ #703
+
+| ไฟล์ | ชนิด | ตรวจอะไร |
+|---|---|---|
+| `frontend/test/sale_photo_camera_test.dart` | widget (fake camera platform) | เปิดกล้องหลังก่อน · ไม่เปิดเสียง · ถ่ายต่อหลายรูป · คืนกล้องเมื่อปิดหน้า / สลับกล้อง / แอปถูก pause · สถานะ error · กรณีปิดหน้าระหว่างกำลังเปิดกล้อง (race) |
+| `frontend/test/sale_photo_sheet_test.dart` (เพิ่ม) | widget | สองปุ่ม `ถ่ายรูป` / `เลือกรูปจากเครื่อง` · เรียงรูปด้วยลาก/ลูกศร ◀ ▶ · `sortOrder` = ช่องว่างต่ำสุด 0–4 รวมกรณี "A ถูกปฏิเสธ, B–E บันทึกแล้ว, ลบ A, เพิ่ม F" |
+| `frontend/test/suppliers_tab_test.dart` (23 ตัว) | widget | จัดกลุ่มตามซัพฯ · ราคาเท่ากันระดับสตางค์ · ค้นหา · ถูกสุด/แพงกว่า · แก้/เพิ่ม/ลบ · Degraded ปิดการแก้ · ปุ่มกลับบนจอ 390 px และผ่าน router จริง · ส่งต่อให้ใบสั่งซื้อ · zoom 1280 / 3x-1920 / 2x-1366 / 3x-1366 / 390 |
+| `frontend/test/purchase_orders_screen_test.dart` (เพิ่ม) | widget | `สร้างใบสั่งซื้อ (n)` เติมซัพฯ + สินค้าใกล้หมดลงหน้าต่างสร้างใบสั่งซื้อ |
+| `frontend/test/route_smoke_test.dart` | widget | หน้ากล้องผ่านทุกขนาดจอ/zoom ของ smoke test |
+
+```bash
+cd frontend
+flutter test test/sale_photo_camera_test.dart test/sale_photo_sheet_test.dart test/suppliers_tab_test.dart test/purchase_orders_screen_test.dart
+dart analyze
+```
+
+ผ่านเมื่อไม่มี test แดง และ `dart analyze` ไม่พบปัญหา · กล้องจริง (พรีวิว/การหมุนภาพ/หน้าต่างขออนุญาตบน Android-iOS, webcam บน `mob04`) ต้องลองด้วยมือ — ไม่มี test อัตโนมัติ
+
+### 2.8 🆕 Semgrep (SAST) + ansible-lint (2026-10-13, PR #717/#720 — อยู่ใน `develop`) — "ตรวจลายมือโค้ดหาจุดอันตราย + ตรวจสูตร deploy"
+
+- **สถานะ:** ทั้งสองเป็นด่านของ CI (job `sast` และ `ci-guards` ใน `server.yml`) จึง**บังคับแล้วกับทุก PR ที่เข้า `develop`** ·
+  ฝั่ง VM ของชุดเดียวกัน (Gatus, pre-migrate dump, host-key checking) ยัง**ไม่ release** — ดู `docs/handoff_log/session-2026-10-14-devops-develop.md`
+- **Semgrep คืออะไร:** อ่านซอร์สโค้ดหาแพตเทิร์นอันตราย (เช่น SQL ต่อ string, `${{ github.* }}` ใน `run:` ของ workflow) ·
+  ผล **ERROR = แดง** · WARNING/INFO ขึ้นแค่ code scanning · false positive ปิดเฉพาะบรรทัดด้วย `nosemgrep: rule-id -- เหตุผล` (ขาด rule id หรือเหตุผล = แดง)
+- **รันเอง** (จาก root ของรีโป ต้องมี Docker — image และ commit ของกฎต้องตรงกับ `SEMGREP_IMAGE` / `SEMGREP_RULES_SHA` ใน `server.yml`
+  ถ้า workflow bump แล้ว ให้ใช้ค่าใหม่):
+
+```bash
+RULES_SHA=a84ff9cc2453ca91d581380de4b8b3f272f6f4be
+mkdir -p /tmp/semgrep-rules /tmp/semgrep-out
+curl -sSfL "https://codeload.github.com/semgrep/semgrep-rules/tar.gz/$RULES_SHA" | tar -xz -C /tmp/semgrep-rules --strip-components 1
+docker run --rm -v "$PWD:/src" -v /tmp/semgrep-rules:/rules:ro -v /tmp/semgrep-out:/out -w /src \
+  semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b \
+  semgrep scan --metrics=off --disable-version-check \
+  --config /rules/typescript --config /rules/javascript --config /rules/dockerfile \
+  --config /rules/yaml/github-actions --config /rules/yaml/docker-compose/security \
+  --config /rules/generic/nginx/security --json-output=/out/semgrep.json .
+jq '[.results[] | select(.extra.severity == "ERROR")] | length' /tmp/semgrep-out/semgrep.json
+```
+
+- **ผ่านเมื่อเห็น:** ตัวเลขสุดท้าย = `0` (ลองรันแล้ว 2026-10-14 บน `develop` @ `840d9d4`: ERROR 0 · WARNING 52 · INFO 72)
+- **ansible-lint คืออะไร:** ตรวจ playbook ใน `deploy/ansible/` ด้วย profile `production` (`deploy/ansible/.ansible-lint`) · แก้ที่ playbook
+  หรือใส่ `# noqa: <rule> <เหตุผล>` บนบรรทัดนั้น — ห้ามใช้ `skip_list`
+- **รันเอง** — package ใน `lint-requirements.txt` ปักด้วย hash สำหรับ CPython 3.12 จึงรันใน container `python:3.12` ง่ายสุด
+  (ใน CI collection `ansible.posix` 2.2.2 ติดตั้งจาก tarball ของ Galaxy ที่ตรวจ sha256 — ที่นี่ใช้ `ansible-galaxy` ดึงตรง เพื่อดูผลเท่านั้น):
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src/deploy/ansible python:3.12 sh -c '
+  pip install -q --require-hashes --no-deps --only-binary :all: -r lint-requirements.txt &&
+  ansible-galaxy collection install ansible.posix:2.2.2 >/dev/null &&
+  ansible-lint'
+```
+
+- **ผ่านเมื่อเห็น:** `Passed: 0 failure(s), 0 warning(s) … Profile 'production' was required, and it passed.` (ลองรันแล้ว 2026-10-14 บน `develop` @ `840d9d4`)
+- `monitoring-alerting.test.sh` (Grafana alert rule + Gatus) อยู่ใน job `nginx-check` แล้ว — ดู §2.5
 
 ---
 
@@ -335,6 +439,27 @@ flutter build web --no-tree-shake-icons
 ```
 
 - **ผ่านเมื่อเห็น:** `✓ Built build/web` (บน CI ใช้เวลา compile 41.4 วินาที)
+
+### 3.7 🆕 Test ของรูปสินค้า (PR #680) — "การ์ดสวย รูปโหลดได้ ไม่ข้ามด่านความปลอดภัย"
+
+| ไฟล์ (ที่ `frontend/`) | ตรวจอะไร |
+|---|---|
+| `test/checkout_product_card_test.dart` | การ์ดสินค้าหน้า **ขายสินค้า**: ไม่ overflow ที่ 390 px / 1280 px ทั้งโหมดสว่าง-มืด (ชื่อยาว, สินค้าหมดมีม่าน) · URL รูปคือ `/img/<tenant>/<key>_t.webp`, ปุ่มดูรูปเปิด `_p.webp` และ**ไม่**เพิ่มลงตะกร้า · รูปโหลดไม่ได้ = ไอคอนแทน ไม่มี error · ไม่มีรูป/build ออฟไลน์ = ไม่ยิง request และไม่มีปุ่มดูรูป · ⭐ ยังกดได้บนม่านสินค้าหมด |
+| `test/product_image_trust_test.dart` | รูปโหลดผ่านความเชื่อใจ CA ส่วนตัวเดียวกับ `ApiClient` (`installPosTrust` / `HttpOverrides`) — ใบรับรองจาก issuer อื่นยังถูกปฏิเสธ (ไม่มี `badCertificateCallback`) · 🔶 **ต้องมี `openssl` ใน PATH** (สร้างใบรับรองต่อรอบ) ไม่มีจะถูกข้ามพร้อมเหตุผล |
+| `test/product_image_editor_test.dart` | ส่วน **รูปสินค้า** ในหน้าต่างแก้ไขสินค้า: owner+ออนไลน์เปลี่ยน/ลบได้ (ลบมีกล่องยืนยัน = `DELETE`) · แคชเชียร์เห็นรูปแต่ปุ่มถูกล็อกพร้อมเหตุผล · ออฟไลน์ล็อกพร้อมข้อความ · build Drift ไม่มีส่วนนี้ · `shrinkProductPhoto` ให้ JPEG ด้านยาว ≤ 1600 px และปฏิเสธไฟล์ที่ไม่ใช่รูป |
+| `test/product_image_repository_test.dart` | `productImageUrl`/`getImageUrls`, `setImage`/`removeImage` ผ่าน `ApiProductsRepository`: `PUT` ส่ง JPEG ดิบพร้อม `Idempotency-Key`, เขียนลง Drift เฉพาะ `imageKey` จากคำตอบ, 5xx จอดความพยายามไว้ใช้ key เดิม, รูปใหม่แทนรูปที่จอดไว้ |
+| `test/schema_v15_migration_test.dart` | v14 → v15 เพิ่ม `products.image_key` เป็น NULL และสินค้าเดิมครบ |
+| `test/owner_import_repository_test.dart` (กลุ่ม *product images*), `test/api_client_test.dart` (`sendBytes`/`getBytes`), `test/api_exception_never_escapes_test.dart`, `test/contract/client_requests_contract_test.dart` | ส่ง `.zip` ดิบเป็น `application/zip` / `.json` เป็น `application/json`, export โพลล์งานแล้วโหลด `.zip`, ข้อความ 200 MB, ไม่มี `ApiException` หลุด, fixture คำขอ (`products.image-delete.json`, `backup.export.json`) ตรงกับที่ client ส่งจริง |
+
+```bash
+flutter test test/checkout_product_card_test.dart test/product_image_editor_test.dart test/product_image_repository_test.dart test/schema_v15_migration_test.dart
+```
+
+```bash
+flutter test test/product_image_trust_test.dart
+```
+
+(ตัวหลังต้องมี `openssl` — Windows: ตัวที่มากับ Git Bash อยู่ใน `usr\bin` ของโฟลเดอร์ติดตั้ง; macOS/Linux มีอยู่แล้ว) · ถ้าแก้ตาราง Drift ต้องรัน codegen บน path ASCII (ข้อ 3.4) แล้ว commit `database.g.dart`
 
 ---
 
@@ -488,6 +613,9 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/jobs/107022509504/logs
 | เวลาทีละ test | `server/` | `pnpm vitest run --reporter=verbose` |
 | integration test | `server/` | ขั้น 2.3 (compose up → build → migrate → `pnpm test:e2e`) |
 | สแกนช่องโหว่ server | `server/` | `pnpm audit --audit-level=high` |
+| nginx `/img/` + body limit ของ import | root | `deploy/scripts/test/nginx-img.test.sh` (ต้องมี docker, openssl, curl) |
+| test รูปสินค้า server | `server/` | `pnpm test src/product-images src/backup` แล้ว `pnpm test:e2e test/product-images.e2e-spec.ts` |
+| 🆕 test รูปหลักฐานตอนขาย server | `server/` | `pnpm test src/sale-photos` แล้ว `pnpm test:e2e test/sale-photos.e2e-spec.ts` |
 | ตรวจโค้ด Flutter | `frontend/` | `dart analyze --fatal-infos` |
 | test Flutter | `frontend/` | `flutter test --reporter expanded` |
 | สแกนช่องโหว่ Flutter | root | `osv-scanner --lockfile=frontend/pubspec.lock` |

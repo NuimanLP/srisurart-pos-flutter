@@ -1177,6 +1177,66 @@ void main() {
       expect(firstAborted, isFalse);
     });
   });
+
+  group('raw bytes (product images, backup zip)', () {
+    test('sendBytes sends the bytes unencoded under its own Content-Type, with auth and extra headers',
+        () async {
+      tokenStorage.accessToken = 'valid-jwt-token';
+      late http.Request seen;
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async {
+          seen = req;
+          return http.Response(
+              jsonEncode({'status': 'success', 'data': {'id': 'p1'}}), 200);
+        }),
+        tokenStorage: tokenStorage,
+      );
+      final bytes = [0xFF, 0xD8, 0xFF, 0x00, 0x01];
+      final res = await client.sendBytes('PUT', '/api/v1/products/p1/image', bytes,
+          contentType: 'image/jpeg', headers: {'Idempotency-Key': 'k1'});
+      expect(res, {'id': 'p1'});
+      expect(seen.method, 'PUT');
+      expect(seen.bodyBytes, bytes);
+      expect(seen.headers['content-type'], 'image/jpeg');
+      expect(seen.headers['authorization'], 'Bearer valid-jwt-token');
+      expect(seen.headers['idempotency-key'], 'k1');
+    });
+
+    test('sendBytes: a refusal is an ApiException like any write', () async {
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async => http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': 'PRODUCT_IMAGE_TOO_LARGE', 'message': 'big'}
+            }),
+            413)),
+        tokenStorage: tokenStorage,
+      );
+      await expectLater(
+        client.sendBytes('PUT', '/x', [1], contentType: 'image/png'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.statusCode, 'status', 413)
+            .having((e) => e.code, 'code', 'PRODUCT_IMAGE_TOO_LARGE')),
+      );
+    });
+
+    test('getBytes returns the 2xx body as bytes and throws ApiException otherwise',
+        () async {
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async => req.url.path == '/ok'
+            ? http.Response.bytes([0x50, 0x4B, 3, 4], 200)
+            : http.Response(
+                jsonEncode({'code': 'NOT_FOUND', 'message': 'gone'}), 404)),
+        tokenStorage: tokenStorage,
+      );
+      expect(await client.getBytes('/ok'), [0x50, 0x4B, 3, 4]);
+      await expectLater(client.getBytes('/gone'),
+          throwsA(isA<ApiException>().having((e) => e.statusCode, 's', 404)));
+    });
+  });
 }
 
 /// Runs [onRead] inside every access-token read, before it returns — the

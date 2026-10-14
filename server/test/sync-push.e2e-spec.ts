@@ -796,6 +796,7 @@ describe('POST /sync/push (e2e)', () => {
                 pointsGranted: 25,
                 date: expect.any(String),
                 shiftId: testId('sh_off_001'),
+                paymentAccountId: null,
                 products: [{ id: testId('p1'), stock: 45 }],
                 items: [{ lineNo: 1, productId: testId('p1'), costAtSale: '50.00' }],
                 movements: [

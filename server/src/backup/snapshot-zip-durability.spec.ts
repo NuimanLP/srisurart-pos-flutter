@@ -1,10 +1,10 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The replace-mode import deletes a shop's data right after `writeExportFile` returns the
+ * The replace-mode import deletes a shop's data right after `writeExportZip` returns the
  * pre-import copy, so a copy that is short on disk must throw — never return.
  */
 const fault = vi.hoisted(() => ({ shortWrite: false, statDelta: 0 }));
@@ -32,9 +32,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-const { writeExportFile } = await import('./export-file.js');
+const { writeExportZip } = await import('./snapshot-zip.js');
+const TENANT = '0192f000-0000-7000-8000-00000000abcd';
 
-describe('writeExportFile durability', () => {
+describe('writeExportZip durability', () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'export-file-'));
@@ -46,18 +47,19 @@ describe('writeExportFile durability', () => {
   });
 
   it('writes the whole file and returns its size', async () => {
-    const res = await writeExportFile(join(dir, 'ok.json'), { a: 1, b: 'ข' });
-    expect(res.sizeBytes).toBe(Buffer.byteLength('{"a":1,"b":"ข"}', 'utf8'));
+    const file = join(dir, 'ok.zip');
+    const res = await writeExportZip(file, { a: 1, b: 'ข' }, TENANT);
+    expect(res.sizeBytes).toBe((await readFile(file)).length);
   });
 
   it('throws on a write that makes no progress, and leaves no file behind', async () => {
     fault.shortWrite = true;
-    await expect(writeExportFile(join(dir, 'short.json'), { a: 1 })).rejects.toThrow(/short write/);
+    await expect(writeExportZip(join(dir, 'short.zip'), { a: 1 }, TENANT)).rejects.toThrow(/short write/);
     expect(await readdir(dir)).toEqual([]);
   });
 
   it('throws when the file on disk is not the size it wrote', async () => {
     fault.statDelta = -1;
-    await expect(writeExportFile(join(dir, 'size.json'), { a: 1 })).rejects.toThrow(/bytes on disk, expected/);
+    await expect(writeExportZip(join(dir, 'size.zip'), { a: 1 }, TENANT)).rejects.toThrow(/bytes on disk, expected/);
   });
 });
