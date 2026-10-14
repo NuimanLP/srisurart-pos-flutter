@@ -32,7 +32,7 @@
       <dt>ใครใช้</dt><dd>ทีม IT / ผู้ดูแลระบบ</dd>
       <dt>เข้าทาง</dt><dd>เปิดเฉพาะ <code>127.0.0.1</code> — บน VM ต้องใช้ SSH tunnel (<code>ssh -L 3000:127.0.0.1:3000</code>, <code>9090</code>, <code>3100</code>)</dd>
       <dt>รหัส</dt><dd>Grafana: <code>GRAFANA_ADMIN_USER</code>/<code>GRAFANA_ADMIN_PASSWORD</code> · Bull-Board: <code>BULL_BOARD_USER</code>/<code>BULL_BOARD_PASSWORD</code> · Prometheus: ไม่มีรหัส (จึงห้ามเปิดออกนอก loopback)</dd>
-      <dt>ข้อควรรู้</dt><dd><strong>ไม่มีระบบแจ้งเตือนอัตโนมัติ</strong> (ไม่มี Alertmanager โดยตั้งใจ เพราะงบ RAM 6 GB) — ต้องเปิดดูเอง</dd>
+      <dt>ข้อควรรู้</dt><dd><strong>บน <code>mob04</code> ตอนนี้ยังไม่มีระบบแจ้งเตือนอัตโนมัติ</strong> — ต้องเปิดดูเอง (ไม่มี Alertmanager โดยตั้งใจ เพราะงบ RAM 6 GB) · แจ้งเตือนเข้า Discord ด้วย Grafana alerting + <strong>Gatus</strong> (<code>127.0.0.1:3300</code>, tunnel <code>ssh -L 3300:127.0.0.1:3300</code>) เสร็จแล้วใน <code>develop</code> (PR #723, 2026-10-14) แต่<strong>ยังไม่ release</strong> — ใช้ได้หลัง release ถัดไป (ภาค 04 หัวข้อ Alerting)</dd>
     </dl>
   </div>
 
@@ -153,7 +153,7 @@
   </table>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>ไม่มี alert อัตโนมัติ — ต้องมีคนเปิดดู</li>
+      <li>ไม่มี alert อัตโนมัติบน <code>mob04</code> — ต้องมีคนเปิดดู · หลัง release ชุด devops (PR #723): Grafana ส่ง 10 rule + Gatus เข้า Discord · Grafana → Alerting → Alert rules ต้องไม่มี <code>Error</code> และ Gatus ต้องเขียวทุกตัว (platform-ui = 403 คือปกติ) · Gatus รันบนเครื่องเดียวกัน — VM ดับทั้งเครื่องจะไม่มีใครถูกแจ้ง</li>
       <li>แดชบอร์ด infrastructure (log + Postgres/Redis/container) มีเฉพาะเครื่อง dev — ไม่มีบน <code>mob04</code> (เพดาน RAM เพิ่ม ~1.1 GB เป็น owner decision)</li>
       <li>แผง k6 ว่างจนกว่าจะรันทดสอบโหลด 3 เครื่อง (#380)</li>
       <li>แผง Disk ว่างบน Docker Desktop</li>

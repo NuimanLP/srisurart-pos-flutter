@@ -323,6 +323,44 @@ dart analyze
 
 ผ่านเมื่อไม่มี test แดง และ `dart analyze` ไม่พบปัญหา · กล้องจริง (พรีวิว/การหมุนภาพ/หน้าต่างขออนุญาตบน Android-iOS, webcam บน `mob04`) ต้องลองด้วยมือ — ไม่มี test อัตโนมัติ
 
+### 2.8 🆕 Semgrep (SAST) + ansible-lint (2026-10-13, PR #717/#720 — อยู่ใน `develop`) — "ตรวจลายมือโค้ดหาจุดอันตราย + ตรวจสูตร deploy"
+
+- **สถานะ:** ทั้งสองเป็นด่านของ CI (job `sast` และ `ci-guards` ใน `server.yml`) จึง**บังคับแล้วกับทุก PR ที่เข้า `develop`** ·
+  ฝั่ง VM ของชุดเดียวกัน (Gatus, pre-migrate dump, host-key checking) ยัง**ไม่ release** — ดู `docs/handoff_log/session-2026-10-14-devops-develop.md`
+- **Semgrep คืออะไร:** อ่านซอร์สโค้ดหาแพตเทิร์นอันตราย (เช่น SQL ต่อ string, `${{ github.* }}` ใน `run:` ของ workflow) ·
+  ผล **ERROR = แดง** · WARNING/INFO ขึ้นแค่ code scanning · false positive ปิดเฉพาะบรรทัดด้วย `nosemgrep: rule-id -- เหตุผล` (ขาด rule id หรือเหตุผล = แดง)
+- **รันเอง** (จาก root ของรีโป ต้องมี Docker — image และ commit ของกฎต้องตรงกับ `SEMGREP_IMAGE` / `SEMGREP_RULES_SHA` ใน `server.yml`
+  ถ้า workflow bump แล้ว ให้ใช้ค่าใหม่):
+
+```bash
+RULES_SHA=a84ff9cc2453ca91d581380de4b8b3f272f6f4be
+mkdir -p /tmp/semgrep-rules /tmp/semgrep-out
+curl -sSfL "https://codeload.github.com/semgrep/semgrep-rules/tar.gz/$RULES_SHA" | tar -xz -C /tmp/semgrep-rules --strip-components 1
+docker run --rm -v "$PWD:/src" -v /tmp/semgrep-rules:/rules:ro -v /tmp/semgrep-out:/out -w /src \
+  semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b \
+  semgrep scan --metrics=off --disable-version-check \
+  --config /rules/typescript --config /rules/javascript --config /rules/dockerfile \
+  --config /rules/yaml/github-actions --config /rules/yaml/docker-compose/security \
+  --config /rules/generic/nginx/security --json-output=/out/semgrep.json .
+jq '[.results[] | select(.extra.severity == "ERROR")] | length' /tmp/semgrep-out/semgrep.json
+```
+
+- **ผ่านเมื่อเห็น:** ตัวเลขสุดท้าย = `0` (ลองรันแล้ว 2026-10-14 บน `develop` @ `840d9d4`: ERROR 0 · WARNING 52 · INFO 72)
+- **ansible-lint คืออะไร:** ตรวจ playbook ใน `deploy/ansible/` ด้วย profile `production` (`deploy/ansible/.ansible-lint`) · แก้ที่ playbook
+  หรือใส่ `# noqa: <rule> <เหตุผล>` บนบรรทัดนั้น — ห้ามใช้ `skip_list`
+- **รันเอง** — package ใน `lint-requirements.txt` ปักด้วย hash สำหรับ CPython 3.12 จึงรันใน container `python:3.12` ง่ายสุด
+  (ใน CI collection `ansible.posix` 2.2.2 ติดตั้งจาก tarball ของ Galaxy ที่ตรวจ sha256 — ที่นี่ใช้ `ansible-galaxy` ดึงตรง เพื่อดูผลเท่านั้น):
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src/deploy/ansible python:3.12 sh -c '
+  pip install -q --require-hashes --no-deps --only-binary :all: -r lint-requirements.txt &&
+  ansible-galaxy collection install ansible.posix:2.2.2 >/dev/null &&
+  ansible-lint'
+```
+
+- **ผ่านเมื่อเห็น:** `Passed: 0 failure(s), 0 warning(s) … Profile 'production' was required, and it passed.` (ลองรันแล้ว 2026-10-14 บน `develop` @ `840d9d4`)
+- `monitoring-alerting.test.sh` (Grafana alert rule + Gatus) อยู่ใน job `nginx-check` แล้ว — ดู §2.5
+
 ---
 
 ## 3. Test ฝั่ง Flutter — รันในโฟลเดอร์ `frontend/`

@@ -1,6 +1,7 @@
 # คู่มือตั้ง full stack บน Raspberry Pi 5 (8 GB) — ฉบับมือใหม่
 
 **ตรวจกับโค้ดที่:** `origin/main` @ `5c7f210` (release PR #714 — tree เดียวกับ `origin/develop` @ `b582fe8`) · 2026-10-13 · ทบทวนโดย reviewer 3 มุม (ความตรงกับ repo, แหล่งทางการ, ความปลอดภัย/ลำดับ) 2026-10-13
+🔴 **2026-10-14 — ส่วน Gatus / Discord alert (`GATUS_POS_URL`, `GATUS_CA_DIR`, `ALERT_DISCORD_WEBHOOK`, ข้อ 5b/7b, port `13300`) ใช้ได้หลัง release ชุด devops เท่านั้น:** มันอยู่ใน `develop` (PR #723) ซึ่งเจ้าของสั่งพักไว้ — `origin/main` ที่คู่มือนี้ checkout (`TAG`) ยังไม่มี Gatus และ `provision.yml` ของ `main` ยังลง cron heartbeat · สถานะ: `docs/handoff_log/session-2026-10-14-devops-develop.md`
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §3 (multi-arch), §5 (TLS / `CERT_SAN_IPS`), §6 (`host-setup.sh`), §6.2 (runner) ·
 แผนย้าย: `docs/research/pi5-migration-plan.md` · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 **คู่มือพี่น้อง:** `docs/tutorial/VM-dploy-full-stack-tutorial.md` (VM `mob04`) — คำสั่งของ Pi เขียนไว้ครบในคู่มือนี้แล้ว ·
@@ -556,7 +557,7 @@ pi_guard && [[ "$SECRETS_FILE" == */pi5-demo.env ]] && test -s "$SECRETS_FILE" &
 
 ทำอะไร (ตามโค้ด): apt ติด Docker Engine + compose plugin (repo `download.docker.com/linux/ubuntu`, arch `aarch64→arm64`) → UFW
 (อนุญาตแค่ 22/80/443) → user `deploy` (group `docker`) + authorized key → `/opt/pos/...` → copy สคริปต์ ops 4 ตัวจาก worktree ลง `/opt/pos/scripts` →
-ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที
+ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที (`main` ปัจจุบัน · หลัง release ชุด devops PR #723: สคริปต์เหลือ 3 ตัว, สร้าง `/opt/pos/node-textfile`, **ลบ** cron + สคริปต์ heartbeat แทนการลง)
 
 ✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (host key ตรึงไว้แล้วใน §2 ข้อ 6 — key ของเครื่องเดียวกัน ไม่ขึ้นกับ user) + ตรวจ:
 
