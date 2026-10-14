@@ -317,7 +317,7 @@ jobs:
           nskip=$(jq '(.paths.skipped // []) | length' "$json")
           echo "Semgrep scan errors: $nerr, skipped files: $nskip"
           if [[ "$nerr" != 0 ]]; then
-            jq -r '(.errors // [])[] | "  \(.type // "error") \(.path // "-"): \((.message // "") | gsub("\n"; " ") | .[0:160])"' "$json" | head -20
+            jq -r '(.errors // [])[] | "  \(.type | if type == "array" then .[0] else (. // "error") end) \(.path // "-")\(if (.spans // [])[0] then ":\(.spans[0].start.line)" else "" end)"' "$json" | sort | uniq -c | head -20
           fi
           if [[ "$nskip" != 0 ]]; then
             jq -r '(.paths.skipped // [])[] | "  skipped \(.path) (\(.reason // "?"))"' "$json" | head -20
