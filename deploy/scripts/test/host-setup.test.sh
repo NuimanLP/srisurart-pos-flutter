@@ -195,14 +195,16 @@ check "LVM member disk: refused" test "$rc" -eq 1
 run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
 check "ext4: new fstab verified before it is installed" logged 'findmnt --verify --tab-file '"$PI"'/etc/fstab.pos-new'
 check "ext4: no .pos-new left behind" test ! -e "$PI/etc/fstab.pos-new"
+check "ext4: docker restarted (was active)" logged 'systemctl restart docker'
 run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
 check "ext4: exits 0 (second run)" test "$rc" -eq 0
+check "ext4 second run: docker NOT restarted (nothing changed)" test -z "$(grep 'restart docker' "$STUB_LOG")"
+check "ext4 second run: says unchanged" has 'unchanged: /etc/docker/daemon.json'
 check "ext4: fstab line exactly once" test "$(grep -cxF 'UUID=data-uuid-1 /srv/pos-data ext4 defaults,noatime,nofail 0 2' "$PI/etc/fstab")" = 1
 check "ext4: fstab backed up" grep -q '^/dev/mmcblk0p2' "$PI/etc/fstab.pos-bak"
-check "ext4: daemon.json content" test "$(cat "$PI/etc/docker/daemon.json")" = '{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}'
+check "ext4: daemon.json content" test "$(cat "$PI/etc/docker/daemon.json")" = '{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}'
 check "ext4: drop-in content" test "$(cat "$PI/etc/systemd/system/docker.service.d/10-pos-data.conf")" = "$(printf '[Unit]\nRequiresMountsFor=/srv/pos-data')"
 check "ext4: mounted" logged 'mount /srv/pos-data'
-check "ext4: docker restarted (was active)" logged 'systemctl restart docker'
 check "ext4: HDD warning (ROTA=1)" has '27 W'
 check "ext4: backups stay on the boot disk (said)" has 'backups stay'
 run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda1
@@ -241,6 +243,7 @@ check "exfat: prints mkfs for the existing partition" has 'sudo mkfs.ext4 -L pos
 check "exfat: names model + serial" has 'SanDisk'
 run "$P2" STUB_ARCH=arm64 -- --data-disk /dev/sdb1
 check "exfat partition named: re-run hint names the partition" has '--data-disk /dev/sdb1'
+check "exfat: re-run hint runs through bash" has 'then re-run: sudo bash '
 run "$P2" STUB_ARCH=arm64 -- --data-disk /dev/sdc
 check "blank disk: refused" test "$rc" -eq 1
 check "blank disk: prints sfdisk gpt" has "sudo sfdisk --wipe always /dev/sdc"
