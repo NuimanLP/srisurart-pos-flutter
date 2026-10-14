@@ -310,6 +310,21 @@ jobs:
             exit 1
           fi
           echo "no ERROR-severity Semgrep findings"
+      - name: surface Semgrep scan errors and skipped files (warning only, never fails)
+        run: |
+          json="$RUNNER_TEMP/semgrep-out/semgrep.json"
+          nerr=$(jq '(.errors // []) | length' "$json")
+          nskip=$(jq '(.paths.skipped // []) | length' "$json")
+          echo "Semgrep scan errors: $nerr, skipped files: $nskip"
+          if [[ "$nerr" != 0 ]]; then
+            jq -r '(.errors // [])[] | "  \(.type // "error") \(.path // "-"): \((.message // "") | gsub("\n"; " ") | .[0:160])"' "$json" | head -20
+          fi
+          if [[ "$nskip" != 0 ]]; then
+            jq -r '(.paths.skipped // [])[] | "  skipped \(.path) (\(.reason // "?"))"' "$json" | head -20
+          fi
+          if [[ "$nerr" != 0 || "$nskip" != 0 ]]; then
+            echo "::warning::Semgrep could not fully scan: $nerr scan error(s), $nskip skipped file(s) - those files are not covered by the gate (see the log above)"
+          fi
       - name: upload SARIF (code scanning; never decides the gate)
         # Not on fork PRs (their token cannot write security events). continue-on-error: the
         # gate step above is the verdict; code scanning is a view of the same results.

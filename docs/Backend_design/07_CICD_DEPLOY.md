@@ -816,6 +816,9 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 15:20 UTC รันแล้ว ไม่มี log ใน `journalctl -t pos-healthcheck` (= ปกติ) · ยังไม่ได้ทดสอบเคส `/fail` บน VM
 (ข้อ "ตรวจบน VM" ท้ายหัวข้อ) · 🔴 CD deploy ไม่อัปเดตสคริปต์ — แก้สคริปต์เมื่อไหร่ต้องติดตั้งซ้ำ
 
+> ประวัติเท่านั้น: ตารางข้างล่างบรรยายของที่ **ถูกลบแล้ว** — `deploy/scripts/healthcheck-ping.sh` และ
+> `deploy/scripts/test/healthcheck-ping.test.sh` ไม่อยู่ใน repo อีก, `provision.yml` ลบสคริปต์บน VM (`state: absent`) และ cron ให้
+
 VM เป็นฝ่าย **ส่งสัญญาณออกไป** ทุก 5 นาที ถ้าสัญญาณหยุด Healthchecks.io แจ้งเตือน — จึงรู้ได้แม้ VM
 ดับทั้งเครื่อง (ตัวเฝ้าที่รันบน VM เดียวกันทำไม่ได้)
 
