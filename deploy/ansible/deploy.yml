@@ -4,6 +4,7 @@
 # 1. Checks if release is already running (early exit if identical SHA and .env unchanged)
 # 2. Synchronizes Compose definitions and Nginx configurations
 # 3. Pulls GHCR release images
+# 3b. If migrations are pending, dumps the database to /opt/pos/backups-pre-migrate first
 # 4. Executes database migrations ('migrate' container: schema before code)
 # 5. Performs rolling restart of api-1 -> api-2 -> api-3 with health checks
 # 6. Restarts worker and bull-board
@@ -15,7 +16,9 @@
 #    Prometheus/Grafana recreate below)
 # 8. Verifies overall deployment health via GET /health/ready through Nginx
 # 9. Records deployed SHA in /opt/pos/.current_sha
-# 10. Copies the monitoring config, brings up the overlay and probes it on loopback. Steps 2-9 never
+# 10. Warns when provision.yml has not prepared this release (node-textfile/ missing, or the installed
+#     backup-db.sh differs from this release's), copies the monitoring config, brings up the overlay
+#     and probes it on loopback. Steps 2-9 never
 #     load monitoring.yml, so a monitoring image pull, config copy or missing GRAFANA_ADMIN_PASSWORD
 #     cannot block a POS release; a failure in step 10 only warns (07 §6). With
 #     enable_monitoring=false it removes monitoring containers left from an earlier deploy instead.
@@ -84,7 +87,10 @@
     - name: Decide whether .env changed since the last deploy
       ansible.builtin.set_fact:
         env_checksum: "{{ env_stat.stat.checksum | default('') }}"
-        env_changed: "{{ env_stat.stat.exists and (env_stat.stat.checksum | default('')) != ((env_applied_file.content | b64decode | trim) if (env_applied_file is succeeded and env_applied_file.content is defined) else '') }}"
+        env_changed: >-
+          {{ env_stat.stat.exists and (env_stat.stat.checksum | default('')) !=
+          ((env_applied_file.content | b64decode | trim)
+          if (env_applied_file is succeeded and env_applied_file.content is defined) else '') }}
 
     # `-e force_redeploy=true` redeploys the SHA .current_sha already names (#67): the automatic
     # rollback needs it, because .current_sha is written only after readiness passes and so still
@@ -97,7 +103,9 @@
 
     - name: Notify that .env changed under the active release
       ansible.builtin.debug:
-        msg: "Release '{{ image_tag }}' is already active, but {{ app_dir }}/.env changed since the last deploy. Rolling it out again to apply the new configuration."
+        msg: >-
+          Release '{{ image_tag }}' is already active, but {{ app_dir }}/.env changed since the last
+          deploy. Rolling it out again to apply the new configuration.
       when: current_sha == image_tag and not (force_redeploy | default(false) | bool) and (env_changed | bool)
 
     - name: Early exit on duplicate release deployment
@@ -260,6 +268,40 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
+
+    # Backup before migration (WP3). The migrations have no `down` path in production, so this dump
+    # is the only undo for a schema change. `status` runs the NEW image's migrate.js (rc 0 = up to
+    # date, 1 = pending OR the check itself failed -- either way take the dump), so a deploy with no
+    # new migration pays nothing. Config files are already copied above, and `run` starts (or, on a
+    # changed config, recreates) migrate's dependency `postgres` exactly as the migrate task below
+    # always has; nothing else is restarted and nothing is migrated yet, so a failed dump stops the
+    # deploy before any schema change and before api/worker/nginx are touched.
+    - name: Check whether database migrations are pending (new image)
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm migrate node dist/db/migrate.js status"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      register: migrate_status
+      failed_when: false
+      changed_when: false
+
+    # `script` ships the repo's backup-db.sh (this release's copy, with BACKUP_VOLUMES) to the VM and
+    # runs it there; /opt/pos/scripts is only updated by provision.yml, so it may be older. DB only
+    # (a migration never touches the image/photo volumes), into a SIBLING of backups/ so the nightly
+    # prune never counts it, 30 days by age, offsite forced off. The script creates the dir 0700.
+    - name: Back up the database before applying migrations
+      ansible.builtin.script:
+        cmd: "{{ repo_root }}/deploy/scripts/backup-db.sh {{ app_dir }}/backups-pre-migrate"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+        APP_DIR: "{{ app_dir }}"
+        BACKUP_VOLUMES: "0"
+        BACKUP_KEEP_DAYS: "30"
+        BACKUP_RCLONE_REMOTE: ""
+      when: migrate_status.rc != 0
+      changed_when: true
 
     - name: Apply database schema migrations (schema before code)
       ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm migrate"
@@ -267,6 +309,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # certgen (TLS CA + server cert, docker/certgen/certgen.sh) is `run`, not part of the `up -d`
     # below: `run` waits for the one-shot and returns its exit code, so a failed certificate
@@ -291,6 +334,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # etcd-init (#64/#67) enables auth, asserts it, and seeds /pos/config/log_level if missing.
     # `run` waits for etcd to be healthy (depends_on) and returns the job's exit code, so a
@@ -330,6 +374,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-1 health check to pass
       ansible.builtin.shell: >
@@ -352,6 +397,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-2 health check to pass
       ansible.builtin.shell: >
@@ -374,6 +420,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     - name: Wait for api-3 health check to pass
       ansible.builtin.shell: >
@@ -396,6 +443,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # Web last, after every API instance runs the new release: a new web against an old API can
     # call an endpoint or field that does not exist yet, while an old web against a new API is the
@@ -406,6 +454,7 @@
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+      changed_when: true
 
     # nginx.conf is a single-file bind mount (docker-compose.yml). ansible.builtin.copy above wrote
     # a temp file and renamed it into place -- new inode, same path -- and a container's bind mount
@@ -501,13 +550,50 @@
     - name: Monitoring overlay
       when: enable_monitoring | bool
       block:
+        # Pre-flight, warn-only (07 §10.5): Grafana's "backup stale" rule (noData = Alerting) pages
+        # 2 minutes after this deploy unless provision.yml has created node-textfile/ and installed
+        # the backup-db.sh that writes the gauge — a CD deploy updates neither. Never fails the
+        # deploy; a stat error lands in the rescue below like any other monitoring failure.
+        - name: Check the node-exporter textfile directory provision.yml creates
+          ansible.builtin.stat:
+            path: "{{ app_dir }}/node-textfile"
+          register: textfile_dir
+
+        - name: Checksum the installed backup-db.sh
+          ansible.builtin.stat:
+            path: "{{ app_dir }}/scripts/backup-db.sh"
+            checksum_algorithm: sha256
+          register: installed_backup_script
+
+        - name: Checksum this release's backup-db.sh
+          ansible.builtin.stat:
+            path: "{{ repo_root }}/deploy/scripts/backup-db.sh"
+            checksum_algorithm: sha256
+          delegate_to: localhost
+          register: repo_backup_script
+
+        - name: Warn that provision.yml has not been run for this release
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: {{ app_dir }}/node-textfile is
+              {{ 'present' if textfile_dir.stat.isdir | default(false) else 'MISSING' }} and
+              {{ app_dir }}/scripts/backup-db.sh
+              {{ 'matches' if installed_backup_script.stat.checksum | default('') == repo_backup_script.stat.checksum | default('-')
+              else 'is MISSING or DIFFERS from' }} this release's copy. Grafana's "backup stale" alert
+              will fire until provision.yml is run (as cloud, from a clean origin/main) and backup-db.sh
+              has run once — 07_CICD_DEPLOY.md §10.5. The POS release itself is unaffected.
+          when: >-
+            not (textfile_dir.stat.isdir | default(false))
+            or installed_backup_script.stat.checksum | default('') != repo_backup_script.stat.checksum | default('-')
+
         - name: Copy monitoring overlay Compose configuration
           ansible.builtin.copy:
             src: "{{ repo_root }}/deploy/compose/monitoring.yml"
             dest: "{{ app_dir }}/monitoring.yml"
             mode: "0644"
 
-        - name: Copy Prometheus and Grafana configuration trees
+        # gatus-ca holds only the PUBLIC private-CA cert (a copy of frontend/assets/certs/pos-ca.crt).
+        - name: Copy Prometheus, Grafana and Gatus configuration trees
           ansible.builtin.copy:
             src: "{{ repo_root }}/deploy/{{ item }}/"
             dest: "{{ app_dir }}/deploy/{{ item }}/"
@@ -516,6 +602,8 @@
           loop:
             - prometheus
             - grafana
+            - gatus
+            - gatus-ca
 
         # copy never deletes: a dashboard removed or renamed in the repo would stay provisioned
         - name: List monitoring config files in the repo
@@ -523,6 +611,8 @@
             paths:
               - "{{ repo_root }}/deploy/prometheus"
               - "{{ repo_root }}/deploy/grafana"
+              - "{{ repo_root }}/deploy/gatus"
+              - "{{ repo_root }}/deploy/gatus-ca"
             recurse: true
           delegate_to: localhost
           register: monitoring_config_repo
@@ -532,6 +622,8 @@
             paths:
               - "{{ app_dir }}/deploy/prometheus"
               - "{{ app_dir }}/deploy/grafana"
+              - "{{ app_dir }}/deploy/gatus"
+              - "{{ app_dir }}/deploy/gatus-ca"
             recurse: true
           register: monitoring_config_vm
 
@@ -548,11 +640,12 @@
             vm_files: "{{ monitoring_config_vm.files | map(attribute='path') | map('relpath', app_dir ~ '/deploy') | list }}"
 
         - name: Pull monitoring images
-          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} pull node-exporter prometheus grafana"
+          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} pull node-exporter prometheus grafana gatus"
           environment:
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
+          changed_when: true
 
         - name: Bring up node-exporter
           ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d node-exporter"
@@ -560,6 +653,7 @@
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
+          changed_when: true
 
         # Always recreate, never "only when this run changed the config" (#148). A single-file bind
         # mount keeps the old inode after copy's atomic rename and the compose config hash does not
@@ -571,21 +665,22 @@
         # for a new image_tag, so the cost is a few seconds of monitoring gap per release; the
         # TSDB and Grafana state are named volumes and survive. Dependencies (node-exporter) are
         # not force-recreated.
-        - name: Recreate Prometheus and Grafana so they load the copied config
-          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d --force-recreate prometheus grafana"
+        - name: Recreate Prometheus, Grafana and Gatus so they load the copied config
+          ansible.builtin.command: "docker compose {{ monitoring_compose_files }} up -d --force-recreate prometheus grafana gatus"
           environment:
             IMAGE_TAG: "{{ image_tag }}"
           args:
             chdir: "{{ app_dir }}"
           changed_when: true
 
-        - name: Verify Prometheus and Grafana answer on host loopback
+        - name: Verify Prometheus, Grafana and Gatus answer on host loopback
           ansible.builtin.uri:
             url: "{{ item }}"
             status_code: 200
           loop:
             - "http://127.0.0.1:9090/-/healthy"
             - "http://127.0.0.1:3000/api/health"
+            - "http://127.0.0.1:3300/api/v1/endpoints/statuses"
           register: monitoring_ready
           retries: 20
           delay: 3
@@ -604,8 +699,21 @@
 
     # The stale monitoring.yml still requires GRAFANA_ADMIN_PASSWORD at interpolation, even for rm;
     # without a placeholder a removed password makes compose refuse and the containers keep running.
-    - name: Remove monitoring containers left from an earlier deploy
-      ansible.builtin.command: "docker compose {{ monitoring_compose_files }} rm -sf node-exporter prometheus grafana"
+    # Only the services that stale file defines: a monitoring.yml from before Gatus (2026-10-13)
+    # has no `gatus`, and `rm` naming an unknown service removes nothing at all.
+    # risky-shell-pipe: /bin/sh is dash on Ubuntu/Debian (no pipefail); the pipe's only failure,
+    # grep matching nothing, is meant to be absorbed by `|| true`, and a failing `config` already
+    # stops the script at its own assignment above it under `set -e`.
+    - name: Remove monitoring containers left from an earlier deploy  # noqa: risky-shell-pipe dash has no pipefail; grep no-match is intended
+      ansible.builtin.shell: |
+        set -eu
+        # Separate step so a failing `config` exits non-zero (and warns below) instead of
+        # silently matching nothing.
+        all="$(docker compose {{ monitoring_compose_files }} config --services)"
+        svcs="$(printf '%s\n' "$all" | grep -xE 'node-exporter|prometheus|grafana|gatus' || true)"
+        if [ -n "$svcs" ]; then
+          docker compose {{ monitoring_compose_files }} rm -sf $svcs
+        fi
       environment:
         IMAGE_TAG: "{{ image_tag }}"
         GRAFANA_ADMIN_PASSWORD: "unused"
@@ -626,7 +734,7 @@
           WARNING: enable_monitoring=false, but removing the monitoring containers failed on
           {{ inventory_hostname }} (rc={{ monitoring_removed.rc | default('none') }}):
           {{ monitoring_removed.stderr | default('', true) or monitoring_removed.msg | default('see task output above') }}.
-          node-exporter, Prometheus and Grafana may still be running; check
+          node-exporter, Prometheus, Grafana and Gatus may still be running; check
           `docker compose {{ monitoring_compose_files }} ps` in {{ app_dir }}.
       when:
         - not (enable_monitoring | bool)

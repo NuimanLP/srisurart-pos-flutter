@@ -1,0 +1,121 @@
+# Gatus uptime checks for the `gatus` service in ../compose/monitoring.yml (07 §10.5, ADR-0013
+# addendum 2026-10-13). Replaces the Healthchecks.io heartbeat (deploy/scripts/healthcheck-ping.sh,
+# retired). Gatus runs ON the host it watches, so it cannot report that host dying — see 07 §10.5.
+#
+# Mounted as a DIRECTORY (/config, GATUS_CONFIG_PATH=/config), never as a single file: a
+# single-file bind mount keeps the old inode after deploy.yml's atomic copy (#148/#249).
+# `${VAR}` below is expanded by Gatus from its own environment (monitoring.yml), not by Compose.
+# Alert payloads carry only the endpoint name/group and the failed condition — never tenant or
+# customer data (the checks below hit health/status pages only).
+
+metrics: true
+
+storage:
+  # No volume: history restarts empty after a recreate, which is fine for a status page.
+  type: memory
+
+web:
+  port: 8080
+
+alerting:
+  discord:
+    # Unset on the host = a harmless placeholder from monitoring.yml (sending fails and is logged);
+    # provision.yml warns about it. The real URL is a secret: /opt/pos/.env only.
+    webhook-url: "${ALERT_DISCORD_WEBHOOK}"
+    title: "Srisurart POS — Gatus"
+    default-alert:
+      # 3 failed checks a minute apart before Discord hears of it; a rolling deploy recreates
+      # each api in well under that, so a normal release never pages.
+      failure-threshold: 3
+      success-threshold: 2
+      send-on-resolved: true
+
+endpoints:
+  # Through Nginx with TLS, the way the app reaches it. Trust = the private CA in /pos-ca
+  # (SSL_CERT_DIR); 336h = page 14 days before the server certificate expires.
+  - name: pos-api-ready
+    group: pos
+    url: "${POS_URL}/health/ready"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > 336h"
+    alerts:
+      - type: discord
+
+  # platform-ui's own nginx allows only the bridge gateway 172.30.0.1 (the ssh-tunnel path,
+  # server/docker/platform-ui/nginx.conf) and denies every other container, Gatus included.
+  # 403 = up and still refusing other containers — like Bull-Board's 401 below.
+  - name: platform-ui
+    group: pos
+    url: "http://platform-ui:80/"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 403"
+    alerts:
+      - type: discord
+
+  # Bull-Board answers 401 without Basic Auth; 401 = up and still password-protected.
+  - name: bull-board
+    group: pos
+    url: "http://bull-board:3100/"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 401"
+    alerts:
+      - type: discord
+
+  - name: postgres
+    group: datastores
+    url: "tcp://postgres:5432"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: discord
+
+  - name: redis-cache
+    group: datastores
+    url: "tcp://redis-cache:6379"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: discord
+
+  - name: redis-queue
+    group: datastores
+    url: "tcp://redis-queue:6379"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: discord
+
+  - name: etcd
+    group: datastores
+    url: "tcp://etcd:2379"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: discord
+
+  # Gatus and Grafana watch each other: Grafana alerts on up{job="gatus"}, Gatus on Grafana.
+  - name: grafana
+    group: monitoring
+    url: "http://grafana:3000/api/health"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: discord
+
+  - name: prometheus
+    group: monitoring
+    url: "http://prometheus:9090/-/ready"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: discord

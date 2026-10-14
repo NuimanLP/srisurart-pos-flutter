@@ -111,7 +111,7 @@ Loki อยู่ที่ `127.0.0.1:3101`, Alloy UI ที่ `127.0.0.1:12345
 - Alloy/cAdvisor mount `docker.sock` ซึ่ง**ไม่จำกัด Docker API** (สั่ง start/stop container ได้) และ cAdvisor รัน `privileged` — ใช้บนเครื่อง dev เท่านั้น
 - ถ้าโค้ด server ใน branch ยังไม่อยู่บน `main` แต่ต้องการรันแบบเดียวกับ VM (ใช้ `vm.override.yml`) ให้ `docker build -t srisurart-pos-server:develop-local server/` แล้วเพิ่ม `-f ../deploy/compose/local-api.yml` **หลัง** `vm.override.yml` (ครอบ migrate, api-1..3, worker, bull-board)
 - ห้าม `down -v` (ดูข้อ 8)
-- uptime ไม่อยู่ใน overlay นี้ — VM ส่ง heartbeat ไป Healthchecks.io ด้วย cron (`deploy/scripts/healthcheck-ping.sh`)
+- uptime: Gatus อยู่ใน `monitoring.yml` (`127.0.0.1:3300`) จึงรันใน overlay นี้ด้วย · ไม่ตั้ง `ALERT_DISCORD_WEBHOOK` = alert ไม่ส่งไปไหน (`07 §10.5`)
 
 ---
 

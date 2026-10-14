@@ -37,7 +37,7 @@
 
 | # | ของ | หมายเหตุ |
 |---|---|---|
-| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.2 GB) |
+| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.3 GB) |
 | 2 | ที่จ่ายไฟทางการ **27 W USB-C (5V/5A)** | ตัวนี้ตัวเดียวที่ทำให้ Pi จ่ายไฟ USB ได้ 1.6 A · ที่จ่ายไฟอื่น = USB รวมแค่ 600 mA → ดิสก์ USB หลุดกลางทาง · ห้ามใช้ที่ชาร์จโทรศัพท์ · **ห้ามบังคับ `usb_max_current_enable` ใน `config.txt`** แทนการใช้ที่จ่ายไฟทางการ (ตรวจใน §2 ข้อ 6) |
 | 3 | Active Cooler + เคสระบายอากาศ | |
 | 4 | **ดิสก์ข้อมูล** (เลือกหนึ่ง) | USB SSD · USB HDD (**ต้องมีกล่องที่มีไฟเลี้ยงเอง** หรือ hub มีไฟ — สคริปต์เตือนเมื่อเจอ HDD) · NVMe ผ่าน M.2 HAT+ · หรือ microSD ตัวเดียว (**ไม่แนะนำ** — Postgres เขียนตลอด SD สึกและพังโดยไม่เตือน) · กล่อง USB-SATA บางรุ่นพังในโหมด UAS — ดู `dmesg` ก่อนไว้ใจ (§3) |
@@ -130,10 +130,19 @@ Host pi5-deploy
   IdentitiesOnly yes
 ```
 
-(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` ปิด host key checking →
-ssh มือครั้งแรกเพื่อตรึง host key (ข้อ 6 — ตอบ `yes` เมื่อแน่ใจว่าเป็น Pi ของคุณ)
+(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` **ตรวจ host key**
+(2026-10-13) → ต้องตรึง host key ของ Pi ก่อนรัน Ansible (ข้อ 6)
 
-**6. ssh ครั้งแรก + ตรวจ:**
+**6. ตรึง host key + ssh ครั้งแรก + ตรวจ:**
+
+บน **จอที่ต่อกับ Pi เอง** (console — ไม่ใช่ผ่าน SSH) อ่าน fingerprint: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` · แล้วบน notebook:
+
+```bash
+ssh-keyscan -t ed25519 "$PI_IP" > /tmp/pi5.keyscan && ssh-keygen -lf /tmp/pi5.keyscan
+```
+
+✅ `SHA256:…` ตรงกับค่าบน console ทุกตัวอักษร → `cat /tmp/pi5.keyscan >> ~/.ssh/known_hosts` · ❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม
+(คู่มือ VM §1.4, 07 §7 แถว "SSH host key") · ssh ข้างล่างไม่ควรถามเรื่อง fingerprint อีก
 
 ```bash
 ssh pi5 'grep -E "^(ID|VERSION_ID)=" /etc/os-release; dpkg --print-architecture; getconf PAGESIZE; sudo -n true 2>/dev/null && echo "sudo nopasswd" || echo "sudo asks password"'
@@ -493,7 +502,9 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 |---|---|---|
 | `CERT_SAN_IPS` | `<PI_IP>` เท่านั้น | `certgen.sh` ใส่ IP ใน SAN ของใบ server · ไม่ตั้ง = `172.30.58.20` (ของ `mob04`) → เบราว์เซอร์/แอปที่เรียก `<PI_IP>` จะ `IP address mismatch` · ค่าที่ไม่ใช่ IPv4 = certgen exit 1 · 🔴 **ห้ามใส่ `172.30.58.20`** (§4.1) |
 | `CORS_ORIGINS` | `https://<PI_IP>` | origin ของ Pi เอง · ตั้งแต่ #367 ค่าที่ตั้งแต่ว่างทำให้ api ไม่ boot |
-| `HEALTHCHECKS_PING_URL` | check **ใหม่** ของ Pi หรือไม่ใส่ | 🔴 **ห้ามใช้ URL ของ `mob04`** — สองเครื่อง ping URL เดียว = `mob04` ดับแล้วไม่มีใครรู้ |
+| `GATUS_POS_URL` | `https://<PI_IP>` — **ตั้งเสมอ** | Gatus เช็ก `/health/ready` ผ่าน Nginx + TLS ของเครื่องตัวเอง · 🔴 ไม่ตั้ง = ค่า default `https://172.30.58.20` → Gatus ของ Pi **เฝ้า `mob04` เงียบ ๆ** (ไม่มี warning ใด ๆ) แทนตัวเอง |
+| `GATUS_CA_DIR` | `/opt/pos/gatus-ca-local` | โฟลเดอร์ (0755, owner `deploy`) ที่มี `ca.crt` **public** ของ Pi (0644) — **สร้างก่อน deploy แรก** (§8 ข้อ 5b: ไม่มี = Docker สร้างโฟลเดอร์ว่างของ root ให้) แล้วใส่ `ca.crt` หลัง deploy แรก (§8 ข้อ 7b) — CA ของ Pi ≠ `mob04` · ไม่ตั้ง = Gatus ใช้ CA ของ `mob04` → check `pos-api-ready` แดงด้วย x509 · 🔴 ห้ามชี้ไปที่ volume `certs`/`certs-ca` |
+| `ALERT_DISCORD_WEBHOOK` | webhook **แยก**ของ Pi (สร้างใหม่) หรือไม่ใส่ | ห้ามใช้ webhook ของ `mob04` — แยกช่อง/ชื่อให้รู้ว่า alert มาจากเครื่องไหน และ rotate แยกกันได้ · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 |
 | `PLATFORM_ADMINS` | `admin:<hex ใหม่ 24 ตัว>` (สร้างข้างบน) | ไม่มี = platform-ui ไม่มี admin ให้ login · 🔴 **ห้ามใช้รหัสเดียวกับ `mob04`** |
 
 🔴 `provision.yml` **ไม่ตรวจ** `CERT_SAN_IPS`/`CORS_ORIGINS` (ตรวจแค่ 11 คีย์ `:?`) → ค่าผิดจะ deploy "เขียว" แต่ SAN/CORS ผิด · ตรวจเอง:
@@ -547,7 +558,7 @@ pi_guard && [[ "$SECRETS_FILE" == */pi5-demo.env ]] && test -s "$SECRETS_FILE" &
 (อนุญาตแค่ 22/80/443) → user `deploy` (group `docker`) + authorized key → `/opt/pos/...` → copy สคริปต์ ops 4 ตัวจาก worktree ลง `/opt/pos/scripts` →
 ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที
 
-✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (ตรึง host key) + ตรวจ:
+✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (host key ตรึงไว้แล้วใน §2 ข้อ 6 — key ของเครื่องเดียวกัน ไม่ขึ้นกับ user) + ตรวจ:
 
 ```bash
 ssh pi5-deploy 'id; ls -ld /opt/pos; stat -c "%A %U:%G %n" /opt/pos/.env'
@@ -626,6 +637,14 @@ ssh pi5-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_P
 **5. ข้าม backup ก่อน deploy ครั้งแรก** — Pi ใหม่ยังไม่มี DB และไม่มี `.current_sha` (`backup-db.sh` จะ error เรื่อง `IMAGE_TAG`) ·
 deploy ครั้งต่อไปรัน `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -8'` ก่อนทุกครั้ง
 
+**5b. โฟลเดอร์ CA ของ Gatus — ก่อน deploy แรก** (ไม่มีโฟลเดอร์ = Docker สร้างโฟลเดอร์ว่างของ root ให้ตอน bind mount แล้ว Gatus ไม่ trust อะไรเลย):
+
+```bash
+ssh pi5-deploy 'install -d -m 0755 /opt/pos/gatus-ca-local && ls -ld /opt/pos/gatus-ca-local'
+```
+
+✅ `drwxr-xr-x ... deploy deploy` · `pos-api-ready` ของ Gatus จะแดงด้วย x509 จนกว่าจะทำข้อ 7b — ปกติ
+
 **6. deploy** — Mac (ใน `$WT/deploy/ansible`):
 
 ```bash
@@ -676,6 +695,20 @@ openssl s_client -connect "$PI_IP:443" </dev/null 2>/dev/null | openssl x509 -no
 เปิด `https://<PI_IP>` ในเบราว์เซอร์ → หน้า login ขึ้น (เตือนใบรับรอง = ปกติ ดู §9) · ตรวจต่อ (etcd, migration, รูปสินค้า) ตามคู่มือ VM §4 —
 🔴 คำสั่งในนั้นเป็น `ssh mob04-deploy ...` ทั้งหมด: **พิมพ์ใหม่เป็น `ssh pi5-deploy ...` ทีละบรรทัด** ห้ามวางทั้งก้อน
 
+**7b. ให้ Gatus trust CA ของ Pi** — `certgen` ของ deploy แรกเพิ่งสร้าง CA · ดึงแค่ `ca.crt` (public) จากสำเนาใน volume `certs` ผ่าน nginx
+(ไม่แตะ `certs-ca` / `ca.key`) แล้ว recreate เฉพาะ gatus:
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml exec -T nginx cat /etc/nginx/certs/ca.crt > gatus-ca-local/ca.crt && chmod 0644 gatus-ca-local/ca.crt && openssl x509 -in gatus-ca-local/ca.crt -noout -subject -fingerprint -sha256'
+```
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate gatus'
+```
+
+✅ fingerprint **ไม่ตรง** กับของ `mob04` (`87:7B:B8:F7:…`) — เป็น CA ใหม่ของ Pi · หลัง ~3 นาที tunnel `13300` (§10) → `pos-api-ready` เขียว ·
+ยังแดงด้วย x509 = `GATUS_CA_DIR` ไม่ถึง `/opt/pos/.env` (§5) · แดงด้วย connection refused/timeout = `GATUS_POS_URL` ไม่ใช่ IP ของ Pi
+
 **8. เก็บกวาด** (เมื่อเลิกซ้อม — worktree ใช้ซ้ำได้ถ้าจะ deploy SHA เดิมอีก):
 
 ```bash
@@ -703,12 +736,12 @@ git -C "$MAIN" worktree remove ../pos-pi5
 Grafana / Prometheus / Bull-Board / platform-ui ผูก `127.0.0.1` ของ Pi เท่านั้น — เข้าผ่าน SSH tunnel (ไม่ใช่ grant ของ tailnet):
 
 ```bash
-ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 pi5-deploy
+ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 -L 13300:127.0.0.1:3300 pi5-deploy
 ```
 
-แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`
+แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`, `:13300` (Gatus — uptime + alert → Discord, `07 §10.5`)
 
-RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.2 GB — เพดาน ไม่ใช่การจอง):
+RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.3 GB — เพดาน ไม่ใช่การจอง):
 
 ```bash
 ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsage}}"'
@@ -807,7 +840,7 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 ## 14. กฎห้ามทำ (สรุป)
 
 * ห้ามรันคำสั่งจากคู่มือ VM ตามตัวอักษรกับ Pi (ทุกบรรทัดชี้ `mob04`) · ทำ Pi ในหน้าต่าง terminal แยก + `pi_guard` ทุกคำสั่ง Ansible
-* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `HEALTHCHECKS_PING_URL` ร่วมกับ `mob04`
+* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `ALERT_DISCORD_WEBHOOK` ร่วมกับ `mob04`
 * ห้าม `docker compose down -v` · ห้ามลบ `certs-ca` · ห้าม `--diff` กับ `provision.yml` · ห้ามคัดลอก `certs-ca` ของ `mob04` โดย owner ไม่ตัดสิน
 * `provision.yml` = `cloud` เท่านั้น · `deploy.yml` = `deploy` เท่านั้น
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`

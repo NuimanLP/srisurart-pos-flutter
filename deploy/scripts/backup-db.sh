@@ -17,8 +17,16 @@
 #   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
 #   PRODUCT_IMAGES_DIR   Product-images directory to archive when no compose nginx mounts the
 #                        `product-images` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_VOLUMES       1 (default) = also archive the product-images and sale-photos volumes.
+#                        0 = database dump only (the pre-migration dump deploy.yml takes before
+#                        `migrate`: a migration changes the schema, never those files, so the
+#                        archives would only slow the deploy down). Anything but 0 means 1.
+#   BACKUP_PRE_MIGRATE_KEEP_DAYS  Days a nightly run keeps $APP_DIR/backups-pre-migrate dumps
+#                        (default: 30; see "Pre-migrate dumps" near the end).
 #   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
 #                        `sale-photos` volume (tests, a bare host). Unset on the VM.
+#   BACKUP_TEXTFILE_DIR  node-exporter textfile directory for the backup freshness gauge
+#                        (default: $APP_DIR/node-textfile, created by provision.yml). See the end.
 #
 # Product images (contract §2): each run also writes ${POSTGRES_DB}_images_<ts>.tar.gz (+ .sha256)
 # from the `product-images` volume — Postgres holds only each image's key. Same `.partial` + `mv`,
@@ -284,12 +292,18 @@ archive_volume() {
   fi
 }
 
-archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
-  "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
-IMAGES_STATE="$ARCHIVE_STATE"
-archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
-  "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
-SALE_PHOTOS_STATE="$ARCHIVE_STATE"
+IMAGES_STATE=absent
+SALE_PHOTOS_STATE=absent
+if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+  echo "BACKUP_VOLUMES=0: database dump only -- product images and sale photos are not archived by this run."
+else
+  archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
+    "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
+  IMAGES_STATE="$ARCHIVE_STATE"
+  archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
+    "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
+  SALE_PHOTOS_STATE="$ARCHIVE_STATE"
+fi
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
@@ -404,14 +418,62 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
   find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
 fi
 
+# --- Pre-migrate dumps (deploy.yml, BACKUP_VOLUMES=0) ------------------------------------------
+# deploy.yml's pre-migrate run prunes its own directory, but only when a later deploy has a
+# migration — months can pass between those, and the dumps hold customer data (PDPA). So the
+# nightly run (never a BACKUP_VOLUMES=0 run, which already prunes that directory as its own
+# BACKUP_DIR) also removes pre-migrate dumps older than BACKUP_PRE_MIGRATE_KEEP_DAYS (default 30):
+# only that one sibling directory, only its top level (-maxdepth 1), only this script's file names.
+PRE_MIGRATE_DIR="$APP_DIR/backups-pre-migrate"
+PRE_MIGRATE_KEEP_DAYS="${BACKUP_PRE_MIGRATE_KEEP_DAYS:-30}"
+if [[ "${BACKUP_VOLUMES:-1}" != 0 && "$PRE_MIGRATE_KEEP_DAYS" -gt 0 && -d "$PRE_MIGRATE_DIR" ]] &&
+  [[ "$(cd "$PRE_MIGRATE_DIR" && pwd -P)" != "$(cd "$BACKUP_DIR" && pwd -P)" ]]; then
+  echo "Pruning pre-migrate dumps older than $PRE_MIGRATE_KEEP_DAYS days in $PRE_MIGRATE_DIR..."
+  find "$PRE_MIGRATE_DIR" -maxdepth 1 -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_backup_*.sql.gz.partial" \) -mtime +"$PRE_MIGRATE_KEEP_DAYS" -exec rm -f {} +
+fi
+
 if [[ "$IMAGES_STATE" == failed || "$SALE_PHOTOS_STATE" == failed ]]; then
   echo "=== Product images or sale photos NOT backed up -- see the ARCHIVE FAILED error above ==="
   exit 1
 fi
 
+# --- Backup freshness gauge (Grafana rule "backup stale", 07 §10) ------------------------------
+# On a green run only (every exit-1 path above and below never reaches this), write
+# pos_backup_last_success_timestamp_seconds for node-exporter's textfile collector. Not for a
+# DB-only run (BACKUP_VOLUMES=0, the pre-migrate dump): that one is not the nightly backup, and
+# counting it would hide a nightly cron that stopped. tmp + mv, so node-exporter never reads half a
+# file. A missing directory (provision.yml not re-run yet) only warns: the backup itself is fine.
+write_freshness_gauge() {
+  local dir="${BACKUP_TEXTFILE_DIR:-$APP_DIR/node-textfile}" tmp
+  if [[ "${BACKUP_VOLUMES:-1}" == 0 ]]; then
+    return
+  fi
+  if [[ ! -d "$dir" ]]; then
+    echo "::warning::$dir does not exist -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it creates the directory)." >&2
+    return
+  fi
+  # The backup is already complete here: a gauge that cannot be written (directory not writable by
+  # this user, disk full) must warn, never turn a good backup into a non-zero exit under `set -e`.
+  if ! tmp="$(mktemp "$dir/.pos_backup.prom.XXXXXX" 2>/dev/null)"; then
+    echo "::warning::cannot write in $dir -- the backup freshness gauge was not written, so Grafana's \"backup stale\" alert will fire. Re-run provision.yml (it owns the directory)." >&2
+    return
+  fi
+  if ! { printf '# HELP pos_backup_last_success_timestamp_seconds Unix time of the last nightly backup-db.sh run that exited 0.\n# TYPE pos_backup_last_success_timestamp_seconds gauge\npos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" >"$tmp" &&
+    chmod 0644 "$tmp" && mv "$tmp" "$dir/pos_backup.prom"; }; then
+    rm -f "$tmp"
+    echo "::warning::writing $dir/pos_backup.prom failed -- the backup freshness gauge was not updated, so Grafana's \"backup stale\" alert may fire." >&2
+  fi
+}
+
 case "$OFFSITE_STATE" in
-  ok)       echo "=== Backup Complete (local + offsite) ===" ;;
-  disabled) echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ===" ;;
+  ok)
+    write_freshness_gauge
+    echo "=== Backup Complete (local + offsite) ==="
+    ;;
+  disabled)
+    write_freshness_gauge
+    echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ==="
+    ;;
   failed)
     echo "=== Backup Complete LOCALLY ONLY -- see the OFFSITE BACKUP error above (#363) ==="
     exit 1

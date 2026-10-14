@@ -40,3 +40,9 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['api-1:3000', 'api-2:3000', 'api-3:3000']
+
+  # Gatus's own metrics (gatus_results_*, `metrics: true` in ../gatus/config.yaml). Its `up` is
+  # what Grafana's "Gatus down" rule watches (../grafana/provisioning/alerting/pos-alerts.yml).
+  - job_name: gatus
+    static_configs:
+      - targets: ['gatus:8080']
