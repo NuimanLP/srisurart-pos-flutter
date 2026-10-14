@@ -7,7 +7,7 @@
 # are PRINTED for the owner to run by hand. It does not call Ansible.
 #
 # Usage:
-#   sudo host-setup.sh [--profile auto|vm|pi5] [--data-disk boot|/dev/DEVICE]
+#   sudo bash host-setup.sh [--profile auto|vm|pi5] [--data-disk boot|/dev/DEVICE]
 #                      [--tailscale [--lan-ip IP] [--ts-hostname NAME]] [--dry-run]
 #
 #   --profile     auto (default): pi5 when /proc/device-tree/model says "Raspberry Pi 5", else vm.
@@ -27,7 +27,9 @@ set -euo pipefail
 
 R="${HOST_SETUP_ROOT:-}"
 DATA=/srv/pos-data
-DAEMON_JSON='{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}'
+# log-driver local: rotated + compressed container logs (100 MB per container by default) — the
+# compose files set no `logging:`, so without it logs grow on the data disk without limit.
+DAEMON_JSON='{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}'
 DROPIN=/etc/systemd/system/docker.service.d/10-pos-data.conf
 
 profile=auto data_disk='' tailscale=0 lan_ip='' ts_hostname='' dry=0
@@ -36,7 +38,10 @@ usage() { sed -n '9,22p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 die() { echo "REFUSED: $*" >&2; exit 1; }
 warn() { echo "WARNING: $*" >&2; }
 run() { if [ "$dry" = 1 ]; then echo "DRY-RUN: $*"; else "$@"; fi; }
-put() { # path content — write a file under $R
+changed=0
+put() { # path content — write a file under $R; sets changed=1 only when the content differs
+  if [ -f "$R$1" ] && [ "$(cat "$R$1")" = "$2" ]; then echo "unchanged: $1"; return; fi
+  changed=1
   if [ "$dry" = 1 ]; then printf 'DRY-RUN: write %s:\n%s\n' "$1" "$2"; return; fi
   mkdir -p "$R$(dirname "$1")"
   printf '%s\n' "$2" > "$R$1"
@@ -103,7 +108,7 @@ case "$os_id" in
   *) die "OS '$os_id' is not supported — install Ubuntu Server 26.04 LTS (or 24.04 LTS)" ;;
 esac
 case "$arch" in amd64|arm64) ;; *) die "architecture '$arch' is not supported — install the 64-bit OS (amd64/arm64)" ;; esac
-[ "$page_size" = 4096 ] || die "kernel page size is $page_size, not 4096 (Raspberry Pi OS uses 16K pages on a Pi 5; Redis/jemalloc breaks) — install Ubuntu Server instead"
+[ "$page_size" = 4096 ] || die "kernel page size is $page_size, not 4096 (Raspberry Pi OS uses 16K pages on a Pi 5; this stack is only tested on 4K kernels) — install Ubuntu Server instead"
 [ "$is_pi5" != 1 ] || [ "$mem_mib" -ge 7168 ] || warn "only $mem_mib MiB RAM; a Pi 5 should be the 8 GB model (stack mem_limit total ~4.2 GB)"
 [ "$profile" != pi5 ] || [ "$is_pi5" = 1 ] || die "--profile pi5 on a host that is not a Raspberry Pi 5 (model: ${model:-none})"
 [ "$profile" = pi5 ] || [ -z "$data_disk" ] || die "--data-disk is only for --profile pi5"
@@ -188,7 +193,7 @@ setup_storage() {
         echo "  lsblk $disk    # read the new partition's name (e.g. sda1, nvme0n1p1)"
         echo "  sudo mkfs.ext4 -L pos-data <that partition>"
       fi
-      echo "then re-run: sudo $0 --profile pi5 --data-disk $data_disk"
+      echo "then re-run: sudo bash $0 --profile pi5 --data-disk $data_disk"
     } >&2
     exit 1
   fi
@@ -240,7 +245,8 @@ $DAEMON_JSON"
   put /etc/docker/daemon.json "$DAEMON_JSON"
   put "$DROPIN" "$(printf '[Unit]\nRequiresMountsFor=%s' "$DATA")"
   run systemctl daemon-reload
-  if systemctl is-active --quiet docker; then run systemctl restart docker; fi
+  # Only on a real change: a re-run (e.g. to add --tailscale after the first deploy) must not stop the POS.
+  if [ "$changed" = 1 ] && systemctl is-active --quiet docker; then run systemctl restart docker; fi
   echo "data disk ready: Docker data-root = $DATA/docker"
   echo "note: backups stay in /opt/pos/backups on the boot disk — a different device from pgdata, on purpose"
 }

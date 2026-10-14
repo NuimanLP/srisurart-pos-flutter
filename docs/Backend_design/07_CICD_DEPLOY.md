@@ -397,12 +397,12 @@ Prometheus (9090), Grafana (3000), Gatus (3300), node-exporter — ทั้ง�
 **`host-setup.sh` (ก่อน `provision.yml`, 2026-10-13):** `sudo deploy/scripts/host-setup.sh` รันบนเครื่องเป้าหมายครั้งเดียว
 ก่อน playbook · ไม่เรียก Ansible · พิมพ์ผลตรวจเป็น `key=value` (OS, arch จาก `dpkg --print-architecture`, ระดับ x86-64 v1/v2+,
 page size, รุ่นบอร์ด, RAM, boot disk) · รับเฉพาะ Ubuntu (26.04 LTS แนะนำ, 24.04 LTS สำรอง) — Debian ได้แต่เตือนว่ายังไม่ทดสอบ,
-OS อื่น / arch ที่ไม่ใช่ amd64/arm64 / page size ≠ 4096 (Raspberry Pi OS บน Pi 5 ใช้ 16K, Redis/jemalloc พัง) = ปฏิเสธ ·
+OS อื่น / arch ที่ไม่ใช่ amd64/arm64 / page size ≠ 4096 (Raspberry Pi OS บน Pi 5 ใช้ 16K; stack ทดสอบบน kernel 4K เท่านั้น) = ปฏิเสธ ·
 RAM < 7168 MiB = เตือน · **profile `vm` (`mob04`) = รายงานอย่างเดียว ไม่เขียนอะไร** (ยกเว้น `--tailscale`) ·
 **profile `pi5`:** `--data-disk boot` (คงไว้บน microSD — เตือนเรื่องการสึกของ SD) หรือดิสก์ USB/NVMe / partition ที่มี **ext4 อยู่แล้ว**
 (ไม่ส่ง flag + มี TTY = เมนูเลือก, ไม่มี TTY = exit 2) → mount ที่ `/srv/pos-data` ด้วย UUID (`nofail`, `/etc/fstab` สำรองไว้ที่
-`/etc/fstab.pos-bak` ครั้งเดียว; บรรทัดใหม่ผ่าน `findmnt --verify` บนไฟล์สำเนาก่อนแทนที่ — ไม่ผ่าน = `/etc/fstab` เดิมไม่ถูกแตะ) · `/etc/docker/daemon.json` = `data-root` `/srv/pos-data/docker` + ปิด containerd-snapshotter
-(image + layer ออกจาก SD ด้วย) · drop-in `docker.service.d/10-pos-data.conf` `RequiresMountsFor=/srv/pos-data` — ดิสก์หาย Docker
+`/etc/fstab.pos-bak` ครั้งเดียว; บรรทัดใหม่ผ่าน `findmnt --verify` บนไฟล์สำเนาก่อนแทนที่ — ไม่ผ่าน = `/etc/fstab` เดิมไม่ถูกแตะ) · `/etc/docker/daemon.json` = `data-root` `/srv/pos-data/docker` + `log-driver local` (log หมุน, compose ไม่มี `logging:`) + ปิด containerd-snapshotter
+(image + layer ออกจาก SD ด้วย; restart Docker เฉพาะเมื่อ `daemon.json`/drop-in เปลี่ยนจริง — รันซ้ำไม่ดับ POS) · drop-in `docker.service.d/10-pos-data.conf` `RequiresMountsFor=/srv/pos-data` — ดิสก์หาย Docker
 ไม่ start บนโฟลเดอร์เปล่าใน SD · 🔴 **สคริปต์ไม่ format / partition / wipe อะไรเลย** — ดิสก์ที่ไม่ใช่ ext4 ถูกปฏิเสธพร้อม**พิมพ์**คำสั่ง
 (`sfdisk` + `mkfs.ext4 -L pos-data`) ระบุรุ่น/serial/ขนาดให้เจ้าของตรวจแล้วรันเอง · ปฏิเสธถ้า `daemon.json` มีเนื้อหาอื่น หรือ
 `/var/lib/docker/volumes` มี volume แล้ว (ต้องรันก่อน `provision.yml`/deploy แรก) · backup ยังอยู่ `/opt/pos/backups` บน boot disk

@@ -831,7 +831,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   `CERT_SAN_IPS` (comma-separated IPv4; unset = `172.30.58.20`, byte-identical SAN on `mob04`). `deploy/scripts/host-setup.sh`
   runs before `provision.yml`: **never formats** (prints `sfdisk`/`mkfs.ext4` for the owner), refuses page size ≠ 4096
   (Raspberry Pi OS on a Pi 5 = 16K; use Ubuntu Server 26.04/24.04), mounts the data disk at `/srv/pos-data` and moves Docker
-  `data-root` to `/srv/pos-data/docker` with a `RequiresMountsFor=/srv/pos-data` drop-in — 🔴 never remove it (Docker would
+  `data-root` to `/srv/pos-data/docker` with a `RequiresMountsFor=/srv/pos-data` drop-in (plus `log-driver local`; Docker is restarted only when `daemon.json`/drop-in actually change, so a re-run is safe) — 🔴 never remove it (Docker would
   start on an empty SD dir); backups stay on the boot disk (nothing leaves the host — #363 parked).
   A runner on a Pi must set `RUNNER_NAME` + `RUNNER_LABELS` (script refuses on aarch64 otherwise) and **never share
   `srisurart-demo-deploy`**. 🔴 **Pi CD is not wired:** `deploy.yml` runs on `mob04`'s label and passes no platform.

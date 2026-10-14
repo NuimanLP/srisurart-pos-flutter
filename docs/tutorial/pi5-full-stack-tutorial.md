@@ -54,8 +54,8 @@
 
 🔴 **ห้ามใช้ Raspberry Pi OS:** kernel ของมันบน Pi 5 (`kernel_2712`) ใช้ page 16K (เอกสาร `config.txt` ของ raspberrypi.com) — stack นี้ทดสอบบน
 kernel 4K เท่านั้น และ `provision.yml` ใช้ Docker repo ของ Ubuntu ทดสอบกับ Ubuntu เท่านั้น · `host-setup.sh` ปฏิเสธ `kernel page size is 16384, not 4096`
-(ข้อความในสคริปต์ยังอ้าง "Redis/jemalloc breaks" — ไม่ใช่เหตุผลที่ถูก: `redis:7-alpine` ทางการ build jemalloc รองรับ page 16K บน non-x86 แล้ว ·
-จะแก้ข้อความในงานแก้สคริปต์รอบถัดไป) · Ubuntu `linux-raspi` = 4K ✅
+(เหตุผลคือ "ทดสอบบน kernel 4K เท่านั้น" — ไม่ใช่ Redis/jemalloc: `redis:7-alpine` ทางการ build jemalloc รองรับ page 16K บน non-x86 แล้ว) ·
+Ubuntu `linux-raspi` = 4K ✅
 
 **0. อัปเดต EEPROM ก่อนลง OS** — 🔴 Ubuntu 26.04 ต้อง bootloader EEPROM **≥ 2025-02-11** · บอร์ดที่ EEPROM ยังเป็นรุ่น **≤ 2024-09-23 จะ boot 26.04 ไม่ได้เลย**
 (ubuntu.com/hardware/docs/boards/how-to/ubuntu_supported/raspberry-pi/, LP #2146383) · 24.04 ไม่มีขั้นต่ำ แต่ทำข้อนี้ไว้ก่อนเสมอ:
@@ -377,10 +377,10 @@ ssh -t pi5 'sudo bash /tmp/host-setup.sh --profile pi5 --data-disk /dev/disk/by-
 |---|---|
 | `/etc/fstab` | เพิ่มบรรทัดเดียว `UUID=<uuid> /srv/pos-data ext4 defaults,noatime,nofail 0 2` (ผ่าน `findmnt --verify` บนสำเนาก่อนแทนที่) · สำรองเดิมไว้ที่ `/etc/fstab.pos-bak` (ครั้งแรกครั้งเดียว) |
 | `/srv/pos-data` (mount point), `/srv/pos-data/docker` | ไดเรกทอรี + mount |
-| `/etc/docker/daemon.json` | `{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}` — volume, image และ layer ของ Docker อยู่บนดิสก์ข้อมูลทั้งหมด |
+| `/etc/docker/daemon.json` | `{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}` — volume, image และ layer ของ Docker อยู่บนดิสก์ข้อมูลทั้งหมด · log ของ container หมุน + บีบอัด (ค่าเริ่มต้นของ `local` ≈ 100 MB ต่อ container) |
 | `/etc/systemd/system/docker.service.d/10-pos-data.conf` | `RequiresMountsFor=/srv/pos-data` — ดิสก์หาย Docker **ไม่ start** (แทนที่จะ start บนโฟลเดอร์เปล่าใน SD แล้วดูเหมือนร้านไม่มีข้อมูล) |
 
-* **Docker ยังไม่ได้ติดตั้งตอนนี้ — ปกติ:** สคริปต์เขียน `daemon.json` + drop-in ไว้ก่อน แล้ว restart Docker **เฉพาะเมื่อมันรันอยู่** ·
+* **Docker ยังไม่ได้ติดตั้งตอนนี้ — ปกติ:** สคริปต์เขียน `daemon.json` + drop-in ไว้ก่อน แล้ว restart Docker **เฉพาะเมื่อมันรันอยู่และไฟล์ทั้งสองเปลี่ยนจริง** (รันซ้ำด้วยค่าเดิม = `unchanged: ...` ไม่ restart) ·
   `provision.yml` (§6) ติดตั้ง `docker-ce` ทีหลัง และไม่แตะ `daemon.json` → Docker start ครั้งแรกบน `/srv/pos-data/docker` เลย
   (อ่านจากโค้ดทั้งสองไฟล์ — ยังไม่เคยเห็นบน Pi จริง จึงต้องตรวจข้อ 5)
 * **backup อยู่ `/opt/pos/backups` บน boot disk (microSD)** — เลือกดิสก์ข้อมูล = backup อยู่คนละอุปกรณ์กับ pgdata ·
@@ -416,9 +416,9 @@ ssh pi5 'sudo docker info --format "{{.DockerRootDir}} {{.Driver}}"; systemctl c
 
 🔴 **ห้าม `--lan-ip 172.30.58.20`** และห้ามมี `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi — route `/32` ซ้อนกันบน tailnet อาจส่ง traffic ของ production ไปที่ Pi
 
-🔴 **ใช้ `--profile vm` ตอนเพิ่ม Tailscale** (หลัง §4 ข้อ 4 แล้ว) — ถ้ารันซ้ำด้วย `--profile pi5 --data-disk ...` สคริปต์จะทำส่วนดิสก์ซ้ำ
-และ `systemctl restart docker` ถ้า Docker รันอยู่ = **POS ดับ** หลัง deploy แล้ว · `--profile vm` บน Pi ใช้ได้ (สคริปต์ปฏิเสธแค่ `pi5` บนเครื่องที่ไม่ใช่ Pi)
-และเขียนแค่ส่วน Tailscale · `/tmp` ถูกล้างตอน reboot → `scp` สคริปต์ใหม่ก่อน (§4 ข้อ 1)
+**ใช้ `--profile vm` ตอนเพิ่ม Tailscale** (หลัง §4 ข้อ 4 แล้ว) — เขียนแค่ส่วน Tailscale ไม่แตะดิสก์เลย · `--profile vm` บน Pi ใช้ได้
+(สคริปต์ปฏิเสธแค่ `pi5` บนเครื่องที่ไม่ใช่ Pi) · ถ้าเผลอรันซ้ำด้วย `--profile pi5 --data-disk <ดิสก์เดิม>` สคริปต์ตั้งแต่ 2026-10-14 ก็ไม่ restart Docker
+เมื่อ `daemon.json`/drop-in ไม่เปลี่ยน — แต่สคริปต์รุ่นก่อนหน้า restart เสมอ (= **POS ดับ**) จึงยังใช้ `--profile vm` · `/tmp` ถูกล้างตอน reboot → `scp` สคริปต์ใหม่ก่อน (§4 ข้อ 1)
 
 ```bash
 pi_guard && ssh -t pi5 "sudo bash /tmp/host-setup.sh --profile vm --tailscale --lan-ip $PI_IP --dry-run"
@@ -749,9 +749,10 @@ ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsag
 
 swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม่ = ยังไม่ยืนยัน (แผนย้าย §4.8) — ดูจาก `free -h`
 
-⚠️ **log ของ container ไม่มีเพดาน (ช่องว่างที่รู้แล้ว):** compose ไม่มี `logging:` และ `daemon.json` ไม่มี log option → log โตเรื่อย ๆ บนดิสก์ข้อมูล ·
-ห้ามเติม log option ใน `/etc/docker/daemon.json` เอง (รันสคริปต์ซ้ำจะ `REFUSED: /etc/docker/daemon.json exists with different content`) —
-งานแก้สคริปต์รอบถัดไปจะเพิ่ม `log-driver local` · ระหว่างนี้ดู `df -h /srv/pos-data` เป็นระยะ
+**log ของ container:** compose ไม่มี `logging:` → ใช้ค่าของ daemon = `log-driver local` ที่ `host-setup.sh` เขียน (หมุน + บีบอัด,
+≈ 100 MB ต่อ container) · ใช้กับ container ที่**สร้างหลัง**ตั้งค่าเท่านั้น · ตรวจ: `docker info --format '{{.LoggingDriver}}'` = `local` ·
+ห้ามแก้ log option ใน `/etc/docker/daemon.json` เอง (รันสคริปต์ซ้ำจะ `REFUSED: /etc/docker/daemon.json exists with different content`) ·
+`--data-disk boot` ไม่เขียน `daemon.json` → log ไม่มีเพดาน ดู `df -h /` เป็นระยะ
 
 ---
 
@@ -772,7 +773,7 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 
 | อาการ / ข้อความ | แปลว่า | ทำ |
 |---|---|---|
-| `REFUSED: kernel page size is 16384, not 4096 ...` | ลง Raspberry Pi OS (kernel 16K) | ลง Ubuntu Server ใหม่ (§2) — ส่วน "Redis/jemalloc" ในข้อความไม่ใช่เหตุผลจริง (§2) |
+| `REFUSED: kernel page size is 16384, not 4096 ...` | ลง Raspberry Pi OS (kernel 16K) | ลง Ubuntu Server ใหม่ (§2) |
 | Pi ไม่ boot Ubuntu 26.04 เลย (จอดำ/ไฟแดง) | EEPROM เก่า (≤ 2024-09-23) | §2 ข้อ 0 |
 | `REFUSED: OS '...' is not supported` / `architecture '...' is not supported` | OS อื่น / 32-bit | Ubuntu Server 64-bit |
 | `REFUSED: --profile pi5 on a host that is not a Raspberry Pi 5` | `/proc/device-tree/model` ไม่ใช่ Pi 5 | ตรวจบอร์ด / ใช้ `--profile vm` |
@@ -845,6 +846,6 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * `provision.yml` = `cloud` เท่านั้น · `deploy.yml` = `deploy` เท่านั้น
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`
 * ห้ามลบ drop-in `RequiresMountsFor` · ห้ามเปิด SNAT ของ Tailscale กลับ · ห้าม `--lan-ip 172.30.58.20` / `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi
-* ห้ามรัน `host-setup.sh --profile pi5 --data-disk ...` ซ้ำหลัง deploy (restart Docker) — เพิ่ม Tailscale ด้วย `--profile vm` (§4.1)
+* หลัง deploy เพิ่ม Tailscale ด้วย `--profile vm` (§4.1) — ไม่รัน `--profile pi5 --data-disk ...` ซ้ำ (สคริปต์รุ่นเก่า restart Docker เสมอ)
 * ห้ามเรียก Pi ว่า production / ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)
