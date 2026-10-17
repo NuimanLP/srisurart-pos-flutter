@@ -87,7 +87,7 @@ GitHub ตั้งแล้ว 2026-09-15** (#186) — ค่าอยู่ใ
 |---|---|---|---|
 | Code & SCM | Git / GitHub | repo นี้ · branch protection บน `main` (§4) | มี / protection ตั้งแล้ว 2026-09-15 (#186) |
 | Build & Test (CI) | GitHub Actions · vitest (server) · `flutter test` (client) | `.github/workflows/server.yml`, `flutter.yml` | ✅ |
-| Security Scan | Trivy (fs + config + **image**) · `pnpm audit` · OSV-Scanner · gitleaks · **Semgrep (SAST)** · ansible-lint | job `audit`, `deps-audit`, `secrets`, `sast`, `ci-guards` และ scan ใน job build image | fs ✅ · image ฝั่ง server: PR #70 (#61) · SAST: job `sast` 2026-10-13 (§2c) · **2026-10-13 (อยู่ใน `develop` ผ่าน PR #723 — ยังไม่ release เข้า `main`):** config scan ของ `deploy/web.Dockerfile` ใน `audit` · image web scan ใน `build-web` ทั้ง PR และ release · ansible-lint (profile `production`) ใน `ci-guards` (§2c) |
+| Security Scan | Trivy (fs + config + **image**) · `pnpm audit` · OSV-Scanner · gitleaks · **Semgrep (SAST)** · ansible-lint | job `audit`, `deps-audit`, `secrets`, `sast`, `ci-guards` และ scan ใน job build image | fs ✅ · image ฝั่ง server: PR #70 (#61) · SAST: job `sast` 2026-10-13 (§2c) · **2026-10-13 (release เข้า `main` `21ad935` ผ่าน PR #727 เมื่อ 2026-10-17):** config scan ของ `deploy/web.Dockerfile` ใน `audit` · image web scan ใน `build-web` ทั้ง PR และ release · ansible-lint (profile `production`) ใน `ci-guards` (§2c) |
 | Package / Storage | Docker + **GHCR** (public) | job build image ทั้งสอง workflow → `ghcr.io/nuimanlp/srisurart-pos-server`, `…-web` | server: PR #70 (#61, tarball artefact ถูกยกเลิก) · web: PR #69 (#62) |
 | Config & Deploy (CD) | **Ansible** — รันโดย self-hosted runner บน VM (local, addendum ADR-0013 2026-09-15) · มือ: ผ่าน SSH | `deploy/ansible/`, `.github/workflows/deploy.yml` | playbook ✅ · workflow มีแล้ว (#67) · required reviewer `NuimanLP` บน `demo` เปิดแล้ว (#366) · ~~**แก้ 2026-09-23:** runner ยังไม่ติดตั้ง (0 runner) — ยังไม่เคย deploy ถึง VM~~ **แก้ 2026-09-30:** runner `mob04-demo` online · deploy จริงครั้งแรก `e50f4fa` ถึง VM (ดูสถานะด้านบน) · rollback ยังไม่พิสูจน์ (**แก้ 2026-09-30 เย็น:** พิสูจน์แล้วทั้งแบบ dispatch `36687687309` และอัตโนมัติ `36720675552` — #67 ปิด 15/15) · ~~`pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (`docker pull` SHA เต็มจาก `mob04` สำเร็จ) |
 | KV Storage | **etcd** | service ใน compose + `RuntimeConfigService` ฝั่ง NestJS | ✅ service etcd + auth (#64) · `RuntimeConfigService` merge มาก่อนแล้ว (#66, PR #109; watch แก้ใน #120, PR #129) · **แก้ 2026-09-23:** บน `mob04` auth ของ etcd **ยังไม่เคยเปิด** (#365 เปิดอยู่ — §7 runbook แถว etcd, §8) |
@@ -445,7 +445,7 @@ RAM < 7168 MiB = เตือน · **profile `vm` (`mob04`) = รายงา�
    `ghcr.io/…-server:${IMAGE_TAG}` และ **ถอด `build:`** ของ `api-1` (ไม่งั้น compose จะพยายาม build
    จาก source ที่ไม่มีบน VM)
 3. `docker compose pull`
-3b. **backup ก่อน migration (2026-10-13, `agent ร่าง` · อยู่ใน `develop` ผ่าน PR #723 — ยังไม่ release, ยังไม่เคยรันบน `mob04`):** `docker compose run --rm migrate node dist/db/migrate.js status` ด้วย image **ใหม่** (`failed_when: false`) —
+3b. **backup ก่อน migration (2026-10-13, `agent ร่าง` · release เข้า `main` `21ad935` ผ่าน PR #727 เมื่อ 2026-10-17 — deploy นั้นไม่มี migration ค้าง จึงข้าม dump ถูกต้อง · **ยังไม่เคย dump จริงบน `mob04`**):** `docker compose run --rm migrate node dist/db/migrate.js status` ด้วย image **ใหม่** (`failed_when: false`) —
    rc 0 = schema ตรงแล้ว ข้ามไป · rc ≠ 0 (มี migration ค้าง **หรือ**เช็คเองล้ม) = รัน `backup-db.sh` ของ release นี้ (ส่งขึ้น VM ด้วย `ansible.builtin.script`
    เพราะ `/opt/pos/scripts` อัปเดตเฉพาะ `provision.yml`) ด้วย `BACKUP_VOLUMES=0` (dump ฐานข้อมูลอย่างเดียว — migration ไม่แตะรูป),
    `BACKUP_KEEP_DAYS=30`, `BACKUP_RCLONE_REMOTE=""` (ไม่ upload) ลง `/opt/pos/backups-pre-migrate/` (0700, **พี่น้อง**ของ `backups/` เพื่อไม่ให้ prune รายคืนนับรวม) ·
@@ -1110,10 +1110,15 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
 
 ### 10.5 Alerting → Discord + Gatus uptime (2026-10-13, `agent ร่าง` — ADR-0013 addendum 2026-10-13 รอ owner)
 
-> 🔴 **สถานะ 2026-10-14: อยู่ใน `develop` เท่านั้น (PR #723, merge commit `840d9d4`) — เจ้าของสั่งพักไว้ ยังไม่ release เข้า `main`,
-> ยังไม่ขึ้น `mob04`** (`main` = `62e3688`, code release ล่าสุด `5c7f210`) · บน `mob04` ตอนนี้ยังไม่มี Gatus / alert rule / `node-textfile` และ
-> heartbeat Healthchecks.io (§7b) ยังส่งอยู่จนกว่าจะรัน `provision.yml` ของ release นี้ · checklist ก่อน release:
-> `docs/handoff_log/session-2026-10-14-devops-develop.md`
+> 🔴 **สถานะ 2026-10-17: release แล้ว** — PR #727 (`develop` → `main`, merge commit) = `main` `21ad935` · Deploy (demo) run
+> `39042973596` approve แล้ว Ansible `failed=0`, `/health/ready` ok, `/opt/pos/.current_sha` = `21ad935…` (ตรวจทาง SSH) · **ไม่ได้รัน
+> `provision.yml`** — ทำมือทาง SSH (user `cloud`): ติดตั้ง `backup-db.sh` ของ release (sha256 `c312728f…`, ตัวเก่า
+> `.backup-db.sh.prev-5c7f210`), สร้าง `/opt/pos/node-textfile` (deploy:deploy 0755), รัน `backup-db.sh` หนึ่งครั้งในสภาพ cron (rc=0) →
+> gauge `pos_backup_last_success_timestamp_seconds` ขึ้นใน Prometheus · Grafana 10 rule = Normal · Gatus 9/9 endpoint success ·
+> 🔴 **ยังค้าง:** `ALERT_DISCORD_WEBHOOK` ยังไม่ตั้ง → Grafana ส่ง Discord ไม่สำเร็จ (แจ้งเตือนไม่ถึงใคร; egress ไป Discord ตรวจ 2026-10-17:
+> HTTP 200, ผู้ออกใบรับรอง Google Trust Services ไม่ใช่ FortiGate → ตั้งได้ปลอดภัย) · heartbeat Healthchecks.io + `healthcheck-ping.sh` (§7b) ยังรันบน
+> `mob04` จนกว่า owner ของบัญชีนั้นจะ pause แล้วรัน `provision.yml` (user `cloud`, จาก `origin/main` ที่สะอาด) · pre-migrate dump ยังไม่เคยรันจริง ·
+> owner ยังต้องตัดสิน: ระยะเก็บ pre-migrate 30 วัน (PDPA), ratify ADR-0013 addendum 2 ฉบับ · บันทึก: `docs/handoff_log/session-2026-10-17-release-727.md`
 
 แทน heartbeat Healthchecks.io (§7b — ปลดแล้ว: บัญชีนั้นไม่ใช่ของทีม) ด้วยของที่รันบนเครื่องเองทั้งหมด ส่งเตือนเข้า
 **Discord webhook ตัวเดียว** (`ALERT_DISCORD_WEBHOOK`) — ไม่มี Alertmanager (ยังอยู่ในรายการ "ตั้งใจไม่ทำ" §1)
