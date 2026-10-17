@@ -25,6 +25,7 @@ stub mount 'echo "mount $*" >> "$STUB_LOG"'
 stub sysctl 'echo "sysctl $*" >> "$STUB_LOG"'
 stub apt-get 'echo "apt-get $*" >> "$STUB_LOG"'
 stub systemctl 'echo "systemctl $*" >> "$STUB_LOG"; [ "$1" != is-active ] || [ "${STUB_DOCKER_ACTIVE:-1}" = 1 ]'
+stub docker 'echo "docker $*" >> "$STUB_LOG"; echo "${STUB_DOCKER_ROOT:-/srv/pos-data/docker}"'
 stub tailscale 'echo "tailscale $*" >> "$STUB_LOG"; [ "$1" != status ] || [ "${STUB_TS_LOGGEDIN:-0}" = 1 ]'
 stub dpkg-query '[ "${STUB_TS_INSTALLED:-0}" = 1 ] && printf "install ok installed" || exit 1'
 for t in mkfs.ext4 sfdisk wipefs dd; do stub "$t" "echo \"$t \$*\" >> \"\$DANGER_LOG\""; done
@@ -200,6 +201,11 @@ run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
 check "ext4: exits 0 (second run)" test "$rc" -eq 0
 check "ext4 second run: docker NOT restarted (nothing changed)" test -z "$(grep 'restart docker' "$STUB_LOG")"
 check "ext4 second run: says unchanged" has 'unchanged: /etc/docker/daemon.json'
+run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 STUB_DOCKER_ROOT=/var/lib/docker -- --data-disk /dev/sda
+check "interrupted run: files unchanged" has 'unchanged: /etc/docker/daemon.json'
+check "interrupted run: docker restarted (old data-root)" logged 'systemctl restart docker'
+run "$PI" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 STUB_DOCKER_ROOT=/var/lib/docker STUB_DOCKER_ACTIVE=0 -- --data-disk /dev/sda
+check "old data-root, docker stopped: not restarted" test -z "$(grep 'restart docker' "$STUB_LOG")"
 check "ext4: fstab line exactly once" test "$(grep -cxF 'UUID=data-uuid-1 /srv/pos-data ext4 defaults,noatime,nofail 0 2' "$PI/etc/fstab")" = 1
 check "ext4: fstab backed up" grep -q '^/dev/mmcblk0p2' "$PI/etc/fstab.pos-bak"
 check "ext4: daemon.json content" test "$(cat "$PI/etc/docker/daemon.json")" = '{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}'
@@ -263,6 +269,18 @@ echo '{"log-driver": "local"}' > "$P4/etc/docker/daemon.json"
 run "$P4" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
 check "different daemon.json: refused" test "$rc" -eq 1
 check "different daemon.json: left as is" grep -q log-driver "$P4/etc/docker/daemon.json"
+echo '{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": true}}' > "$P4/etc/docker/daemon.json"
+run "$P4" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda
+check "near-miss of the old daemon.json: refused" test "$rc" -eq 1 -a -n "$(grep 'merge by hand' <<<"$out")"
+check "near-miss of the old daemon.json: left as is" grep -q '"containerd-snapshotter": true' "$P4/etc/docker/daemon.json"
+# A host set up by the 5c7f210 release (daemon.json without log-driver, Docker on the new root): upgraded.
+P6="$(mkroot p6 ubuntu 26.04 resolute "$PI5" 8000000 '' "$PI_DISKS" /dev/mmcblk0p2)"
+mkdir -p "$P6/etc/docker"
+echo '{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}' > "$P6/etc/docker/daemon.json"
+run "$P6" STUB_ARCH=arm64 STUB_DATA_UUID=data-uuid-1 -- --data-disk /dev/sda --tailscale
+check "old-release daemon.json: exits 0 (tailscale reached)" test "$rc" -eq 0 -a -n "$(grep 'tailscale up' "$STUB_LOG")"
+check "old-release daemon.json: upgraded" test "$(cat "$P6/etc/docker/daemon.json")" = '{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}'
+check "old-release daemon.json: docker restarted" logged 'systemctl restart docker'
 
 # 7. Tailscale.
 run "$VM" STUB_ARCH=amd64 -- --tailscale
