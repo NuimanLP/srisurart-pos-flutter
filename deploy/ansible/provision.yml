@@ -29,7 +29,7 @@
           - ufw
           - openssl
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Ensure /etc/apt/keyrings directory exists
       ansible.builtin.file:
@@ -46,11 +46,14 @@
 
     - name: Add Docker repository to APT sources
       ansible.builtin.copy:
-        # apt wants the Debian arch name (amd64/arm64); ansible_architecture is the kernel's
-        # (x86_64/aarch64), which matches no package list — docker-ce is then "not available".
-        content: "deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }} {{ ansible_distribution_release }} stable\n"
+        content: "deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc] {{ docker_apt_url }} {{ ansible_distribution_release }} stable\n"
         dest: /etc/apt/sources.list.d/docker.list
         mode: "0644"
+      vars:
+        # apt wants the Debian arch name (amd64/arm64); ansible_architecture is the kernel's
+        # (x86_64/aarch64), which matches no package list — docker-ce is then "not available".
+        docker_apt_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}"
+        docker_apt_url: "https://download.docker.com/linux/{{ 'ubuntu' if ansible_distribution == 'Ubuntu' else 'debian' }}"
 
     - name: Install Docker Engine, CLI, and Compose plugin
       ansible.builtin.apt:
@@ -61,7 +64,7 @@
           - docker-buildx-plugin
           - docker-compose-plugin
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Ensure Docker daemon is started and enabled
       ansible.builtin.systemd:
@@ -102,7 +105,7 @@
         state: present
 
     - name: Configure SSH authorized key for deploy user
-      ansible.builtin.authorized_key:
+      ansible.posix.authorized_key:
         user: "{{ deploy_user }}"
         key: "{{ demo_ssh_pub_key }}"
         state: present
@@ -132,7 +135,7 @@
     # Only scripts whose runtime is the VM belong here. Deliberately excluded: pos-deploy.sh and
     # runner-job-started.sh (the owner installs those into /usr/local/bin, 07 §6.2), and
     # setup-mob04-runner.sh / validate.sh / verify-ghcr-tags.sh (repo- and CI-side).
-    - name: Install the ops scripts the VM runs (Slice 23 / #288, #184, #346)
+    - name: "Install the ops scripts the VM runs (Slice 23 / #288, #184, #346)"
       ansible.builtin.copy:
         src: '{{ playbook_dir }}/../scripts/{{ item }}'
         dest: '{{ app_dir }}/scripts/{{ item }}'
@@ -146,8 +149,13 @@
         - restore-db.sh
         # step 2.2 of the #184 RSS runbook invokes this by absolute path
         - measure-container-rss.sh
-        # the 5-minute uptime heartbeat cron target at the end of this playbook
-        - healthcheck-ping.sh
+
+    # healthcheck-ping.sh (the Healthchecks.io heartbeat) was retired for Gatus (07 §10.5); remove the
+    # copy an earlier run of this playbook installed. Its cron entry is removed at the end.
+    - name: Remove the retired uptime heartbeat script
+      ansible.builtin.file:
+        path: '{{ app_dir }}/scripts/healthcheck-ping.sh'
+        state: absent
 
     # An unset DEMO_ENV_FILE is a legitimate re-provision that leaves .env alone — but it used to
     # happen without a word, and read like the .env had been written.
@@ -183,15 +191,17 @@
     # the stack comes up green with no platform admin, and nobody can log in to platform-ui.
     - name: Warn when no platform admin is configured
       ansible.builtin.debug:
-        msg: "DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no admin to log in with unless one already exists in the database."
+        msg: >-
+          DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no
+          admin to log in with unless one already exists in the database.
       when: demo_env_content != "" and demo_env_content is not search('(?m)^PLATFORM_ADMINS=\S')
 
-    # HEALTHCHECKS_PING_URL is optional too: without it the heartbeat cron logs one ::warning::
-    # every 5 minutes and pings nothing, so nobody is told when the VM goes down.
-    - name: Warn when no uptime heartbeat is configured
+    # ALERT_DISCORD_WEBHOOK is optional too: without it Grafana alerting and Gatus run against a
+    # placeholder URL (monitoring.yml), so every alert is evaluated and logged but nobody is told.
+    - name: Warn when no alert webhook is configured
       ansible.builtin.debug:
-        msg: "DEMO_ENV_FILE has no HEALTHCHECKS_PING_URL= line — the uptime heartbeat cron will run but send nothing (see healthcheck-ping.sh)."
-      when: demo_env_content != "" and demo_env_content is not search('(?m)^HEALTHCHECKS_PING_URL=\S')
+        msg: "DEMO_ENV_FILE has no ALERT_DISCORD_WEBHOOK= line — Grafana alerts and Gatus checks will run, but no alert reaches anyone (07 §10.5)."
+      when: demo_env_content != "" and demo_env_content is not search('(?m)^ALERT_DISCORD_WEBHOOK=\S')
 
     # `DEMO_ENV_FILE="$(cat file)"` strips the file's final newline, so without the
     # fix-up below the last line had none and a key appended by hand later glued onto
@@ -209,7 +219,17 @@
       no_log: true
       diff: false
 
-    - name: Create backup directory (0700 mode, Slice 23 / #288)
+    # node-exporter's textfile collector (monitoring.yml) reads backup-db.sh's freshness gauge from
+    # here. World-readable on purpose — backups/ is 0700 and node-exporter is not the deploy user.
+    - name: Create node-exporter textfile directory (0755, backup freshness gauge)
+      ansible.builtin.file:
+        path: "{{ app_dir }}/node-textfile"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+
+    - name: "Create backup directory (0700 mode, Slice 23 / #288)"
       ansible.builtin.file:
         path: "{{ app_dir }}/backups"
         state: directory
@@ -239,7 +259,7 @@
     # -- when the owner is ready, add an `environment:` block to this task (or prefix `job:`) with
     # those two vars, pointing BACKUP_RCLONE_CONFIG at a file this playbook does NOT manage (no
     # credential belongs in this repo or in `demo_env_content`).
-    - name: Configure daily database backup cron job (Slice 23 / #288, #346)
+    - name: "Configure daily database backup cron job (Slice 23 / #288, #346)"
       ansible.builtin.cron:
         name: "Srisurart POS Daily Database Backup"
         user: "{{ deploy_user }}"
@@ -248,18 +268,11 @@
         job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >>{{ app_dir }}/backups/backup-cron.log 2>&1"
         state: present
 
-    # Uptime heartbeat (Healthchecks.io): the VM reports in; silence is the alarm, so a dead VM
-    # pages too — which an uptime monitor running on this same VM never could.
-    # The ping URL is read from {{ app_dir }}/.env (HEALTHCHECKS_PING_URL) at every run, so it
-    # changes with the .env, not with this playbook; unset = one ::warning:: per run, exit 0.
-    # Output goes to syslog rather than a file: 288 runs a day would want rotation, and journald
-    # already rotates. Read it with `journalctl -t pos-healthcheck`.
-    # Needs outbound HTTPS from the VM to hc-ping.com through the faculty FortiGate — test with
-    # `curl -v https://hc-ping.com/` before relying on it (the same block hit ghcr.io until 2026-09-29).
-    - name: Configure uptime heartbeat cron job (Healthchecks.io)
+    # Retired 2026-10-13 for Gatus + Grafana alerting (07 §10.5): same `name:` so the entry an
+    # earlier run (or the 2026-10-04 hand install, which carried this `#Ansible:` marker) added is
+    # removed. Keep this task until every host has run it once.
+    - name: Remove the retired uptime heartbeat cron job (Healthchecks.io)
       ansible.builtin.cron:
         name: "Srisurart POS Uptime Heartbeat"
         user: "{{ deploy_user }}"
-        minute: "*/5"
-        job: "{{ app_dir }}/scripts/healthcheck-ping.sh 2>&1 | logger -t pos-healthcheck"
-        state: present
+        state: absent

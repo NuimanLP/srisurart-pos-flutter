@@ -1,6 +1,7 @@
 # คู่มือตั้ง full stack บน Raspberry Pi 5 (8 GB) — ฉบับมือใหม่
 
 **ตรวจกับโค้ดที่:** `origin/main` @ `5c7f210` (release PR #714 — tree เดียวกับ `origin/develop` @ `b582fe8`) · 2026-10-13 · ทบทวนโดย reviewer 3 มุม (ความตรงกับ repo, แหล่งทางการ, ความปลอดภัย/ลำดับ) 2026-10-13
+🔴 **2026-10-14 — ส่วน Gatus / Discord alert (`GATUS_POS_URL`, `GATUS_CA_DIR`, `ALERT_DISCORD_WEBHOOK`, ข้อ 5b/7b, port `13300`) ใช้ได้หลัง release ชุด devops เท่านั้น:** มันอยู่ใน `develop` (PR #723) ซึ่งเจ้าของสั่งพักไว้ — `origin/main` ที่คู่มือนี้ checkout (`TAG`) ยังไม่มี Gatus และ `provision.yml` ของ `main` ยังลง cron heartbeat · สถานะ: `docs/handoff_log/session-2026-10-14-devops-develop.md`
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §3 (multi-arch), §5 (TLS / `CERT_SAN_IPS`), §6 (`host-setup.sh`), §6.2 (runner) ·
 แผนย้าย: `docs/research/pi5-migration-plan.md` · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 **คู่มือพี่น้อง:** `docs/tutorial/VM-dploy-full-stack-tutorial.md` (VM `mob04`) — คำสั่งของ Pi เขียนไว้ครบในคู่มือนี้แล้ว ·
@@ -37,7 +38,7 @@
 
 | # | ของ | หมายเหตุ |
 |---|---|---|
-| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.2 GB) |
+| 1 | Raspberry Pi 5 **8 GB** | `host-setup.sh` เตือนถ้า RAM < 7168 MiB (`mem_limit` รวมของ stack ≈ 4.3 GB) |
 | 2 | ที่จ่ายไฟทางการ **27 W USB-C (5V/5A)** | ตัวนี้ตัวเดียวที่ทำให้ Pi จ่ายไฟ USB ได้ 1.6 A · ที่จ่ายไฟอื่น = USB รวมแค่ 600 mA → ดิสก์ USB หลุดกลางทาง · ห้ามใช้ที่ชาร์จโทรศัพท์ · **ห้ามบังคับ `usb_max_current_enable` ใน `config.txt`** แทนการใช้ที่จ่ายไฟทางการ (ตรวจใน §2 ข้อ 6) |
 | 3 | Active Cooler + เคสระบายอากาศ | |
 | 4 | **ดิสก์ข้อมูล** (เลือกหนึ่ง) | USB SSD · USB HDD (**ต้องมีกล่องที่มีไฟเลี้ยงเอง** หรือ hub มีไฟ — สคริปต์เตือนเมื่อเจอ HDD) · NVMe ผ่าน M.2 HAT+ · หรือ microSD ตัวเดียว (**ไม่แนะนำ** — Postgres เขียนตลอด SD สึกและพังโดยไม่เตือน) · กล่อง USB-SATA บางรุ่นพังในโหมด UAS — ดู `dmesg` ก่อนไว้ใจ (§3) |
@@ -54,8 +55,8 @@
 
 🔴 **ห้ามใช้ Raspberry Pi OS:** kernel ของมันบน Pi 5 (`kernel_2712`) ใช้ page 16K (เอกสาร `config.txt` ของ raspberrypi.com) — stack นี้ทดสอบบน
 kernel 4K เท่านั้น และ `provision.yml` ใช้ Docker repo ของ Ubuntu ทดสอบกับ Ubuntu เท่านั้น · `host-setup.sh` ปฏิเสธ `kernel page size is 16384, not 4096`
-(ข้อความในสคริปต์ยังอ้าง "Redis/jemalloc breaks" — ไม่ใช่เหตุผลที่ถูก: `redis:7-alpine` ทางการ build jemalloc รองรับ page 16K บน non-x86 แล้ว ·
-จะแก้ข้อความในงานแก้สคริปต์รอบถัดไป) · Ubuntu `linux-raspi` = 4K ✅
+(เหตุผลคือ "ทดสอบบน kernel 4K เท่านั้น" — ไม่ใช่ Redis/jemalloc: `redis:7-alpine` ทางการ build jemalloc รองรับ page 16K บน non-x86 แล้ว) ·
+Ubuntu `linux-raspi` = 4K ✅
 
 **0. อัปเดต EEPROM ก่อนลง OS** — 🔴 Ubuntu 26.04 ต้อง bootloader EEPROM **≥ 2025-02-11** · บอร์ดที่ EEPROM ยังเป็นรุ่น **≤ 2024-09-23 จะ boot 26.04 ไม่ได้เลย**
 (ubuntu.com/hardware/docs/boards/how-to/ubuntu_supported/raspberry-pi/, LP #2146383) · 24.04 ไม่มีขั้นต่ำ แต่ทำข้อนี้ไว้ก่อนเสมอ:
@@ -130,10 +131,19 @@ Host pi5-deploy
   IdentitiesOnly yes
 ```
 
-(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` ปิด host key checking →
-ssh มือครั้งแรกเพื่อตรึง host key (ข้อ 6 — ตอบ `yes` เมื่อแน่ใจว่าเป็น Pi ของคุณ)
+(`pi5-deploy` ใช้ได้หลัง §6 — `provision.yml` สร้าง user `deploy` + ใส่ key ให้) · `ansible.cfg` **ตรวจ host key**
+(2026-10-13) → ต้องตรึง host key ของ Pi ก่อนรัน Ansible (ข้อ 6)
 
-**6. ssh ครั้งแรก + ตรวจ:**
+**6. ตรึง host key + ssh ครั้งแรก + ตรวจ:**
+
+บน **จอที่ต่อกับ Pi เอง** (console — ไม่ใช่ผ่าน SSH) อ่าน fingerprint: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` · แล้วบน notebook:
+
+```bash
+ssh-keyscan -t ed25519 "$PI_IP" > /tmp/pi5.keyscan && ssh-keygen -lf /tmp/pi5.keyscan
+```
+
+✅ `SHA256:…` ตรงกับค่าบน console ทุกตัวอักษร → `cat /tmp/pi5.keyscan >> ~/.ssh/known_hosts` · ❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม
+(คู่มือ VM §1.4, 07 §7 แถว "SSH host key") · ssh ข้างล่างไม่ควรถามเรื่อง fingerprint อีก
 
 ```bash
 ssh pi5 'grep -E "^(ID|VERSION_ID)=" /etc/os-release; dpkg --print-architecture; getconf PAGESIZE; sudo -n true 2>/dev/null && echo "sudo nopasswd" || echo "sudo asks password"'
@@ -368,10 +378,10 @@ ssh -t pi5 'sudo bash /tmp/host-setup.sh --profile pi5 --data-disk /dev/disk/by-
 |---|---|
 | `/etc/fstab` | เพิ่มบรรทัดเดียว `UUID=<uuid> /srv/pos-data ext4 defaults,noatime,nofail 0 2` (ผ่าน `findmnt --verify` บนสำเนาก่อนแทนที่) · สำรองเดิมไว้ที่ `/etc/fstab.pos-bak` (ครั้งแรกครั้งเดียว) |
 | `/srv/pos-data` (mount point), `/srv/pos-data/docker` | ไดเรกทอรี + mount |
-| `/etc/docker/daemon.json` | `{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}` — volume, image และ layer ของ Docker อยู่บนดิสก์ข้อมูลทั้งหมด |
+| `/etc/docker/daemon.json` | `{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}` — volume, image และ layer ของ Docker อยู่บนดิสก์ข้อมูลทั้งหมด · log ของ container หมุน + บีบอัด (ค่าเริ่มต้นของ `local` ≈ 100 MB ต่อ container) |
 | `/etc/systemd/system/docker.service.d/10-pos-data.conf` | `RequiresMountsFor=/srv/pos-data` — ดิสก์หาย Docker **ไม่ start** (แทนที่จะ start บนโฟลเดอร์เปล่าใน SD แล้วดูเหมือนร้านไม่มีข้อมูล) |
 
-* **Docker ยังไม่ได้ติดตั้งตอนนี้ — ปกติ:** สคริปต์เขียน `daemon.json` + drop-in ไว้ก่อน แล้ว restart Docker **เฉพาะเมื่อมันรันอยู่** ·
+* **Docker ยังไม่ได้ติดตั้งตอนนี้ — ปกติ:** สคริปต์เขียน `daemon.json` + drop-in ไว้ก่อน แล้ว restart Docker **เฉพาะเมื่อมันรันอยู่และไฟล์ทั้งสองเปลี่ยนจริง** (รันซ้ำด้วยค่าเดิม = `unchanged: ...` ไม่ restart) ·
   `provision.yml` (§6) ติดตั้ง `docker-ce` ทีหลัง และไม่แตะ `daemon.json` → Docker start ครั้งแรกบน `/srv/pos-data/docker` เลย
   (อ่านจากโค้ดทั้งสองไฟล์ — ยังไม่เคยเห็นบน Pi จริง จึงต้องตรวจข้อ 5)
 * **backup อยู่ `/opt/pos/backups` บน boot disk (microSD)** — เลือกดิสก์ข้อมูล = backup อยู่คนละอุปกรณ์กับ pgdata ·
@@ -407,9 +417,9 @@ ssh pi5 'sudo docker info --format "{{.DockerRootDir}} {{.Driver}}"; systemctl c
 
 🔴 **ห้าม `--lan-ip 172.30.58.20`** และห้ามมี `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi — route `/32` ซ้อนกันบน tailnet อาจส่ง traffic ของ production ไปที่ Pi
 
-🔴 **ใช้ `--profile vm` ตอนเพิ่ม Tailscale** (หลัง §4 ข้อ 4 แล้ว) — ถ้ารันซ้ำด้วย `--profile pi5 --data-disk ...` สคริปต์จะทำส่วนดิสก์ซ้ำ
-และ `systemctl restart docker` ถ้า Docker รันอยู่ = **POS ดับ** หลัง deploy แล้ว · `--profile vm` บน Pi ใช้ได้ (สคริปต์ปฏิเสธแค่ `pi5` บนเครื่องที่ไม่ใช่ Pi)
-และเขียนแค่ส่วน Tailscale · `/tmp` ถูกล้างตอน reboot → `scp` สคริปต์ใหม่ก่อน (§4 ข้อ 1)
+**ใช้ `--profile vm` ตอนเพิ่ม Tailscale** (หลัง §4 ข้อ 4 แล้ว) — เขียนแค่ส่วน Tailscale ไม่แตะดิสก์เลย · `--profile vm` บน Pi ใช้ได้
+(สคริปต์ปฏิเสธแค่ `pi5` บนเครื่องที่ไม่ใช่ Pi) · ถ้าเผลอรันซ้ำด้วย `--profile pi5 --data-disk <ดิสก์เดิม>` สคริปต์ตั้งแต่ 2026-10-14 ก็ไม่ restart Docker
+เมื่อ `daemon.json`/drop-in ไม่เปลี่ยน — แต่สคริปต์รุ่นก่อนหน้า restart เสมอ (= **POS ดับ**) จึงยังใช้ `--profile vm` · `/tmp` ถูกล้างตอน reboot → `scp` สคริปต์ใหม่ก่อน (§4 ข้อ 1)
 
 ```bash
 pi_guard && ssh -t pi5 "sudo bash /tmp/host-setup.sh --profile vm --tailscale --lan-ip $PI_IP --dry-run"
@@ -493,7 +503,9 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 |---|---|---|
 | `CERT_SAN_IPS` | `<PI_IP>` เท่านั้น | `certgen.sh` ใส่ IP ใน SAN ของใบ server · ไม่ตั้ง = `172.30.58.20` (ของ `mob04`) → เบราว์เซอร์/แอปที่เรียก `<PI_IP>` จะ `IP address mismatch` · ค่าที่ไม่ใช่ IPv4 = certgen exit 1 · 🔴 **ห้ามใส่ `172.30.58.20`** (§4.1) |
 | `CORS_ORIGINS` | `https://<PI_IP>` | origin ของ Pi เอง · ตั้งแต่ #367 ค่าที่ตั้งแต่ว่างทำให้ api ไม่ boot |
-| `HEALTHCHECKS_PING_URL` | check **ใหม่** ของ Pi หรือไม่ใส่ | 🔴 **ห้ามใช้ URL ของ `mob04`** — สองเครื่อง ping URL เดียว = `mob04` ดับแล้วไม่มีใครรู้ |
+| `GATUS_POS_URL` | `https://<PI_IP>` — **ตั้งเสมอ** | Gatus เช็ก `/health/ready` ผ่าน Nginx + TLS ของเครื่องตัวเอง · 🔴 ไม่ตั้ง = ค่า default `https://172.30.58.20` → Gatus ของ Pi **เฝ้า `mob04` เงียบ ๆ** (ไม่มี warning ใด ๆ) แทนตัวเอง |
+| `GATUS_CA_DIR` | `/opt/pos/gatus-ca-local` | โฟลเดอร์ (0755, owner `deploy`) ที่มี `ca.crt` **public** ของ Pi (0644) — **สร้างก่อน deploy แรก** (§8 ข้อ 5b: ไม่มี = Docker สร้างโฟลเดอร์ว่างของ root ให้) แล้วใส่ `ca.crt` หลัง deploy แรก (§8 ข้อ 7b) — CA ของ Pi ≠ `mob04` · ไม่ตั้ง = Gatus ใช้ CA ของ `mob04` → check `pos-api-ready` แดงด้วย x509 · 🔴 ห้ามชี้ไปที่ volume `certs`/`certs-ca` |
+| `ALERT_DISCORD_WEBHOOK` | webhook **แยก**ของ Pi (สร้างใหม่) หรือไม่ใส่ | ห้ามใช้ webhook ของ `mob04` — แยกช่อง/ชื่อให้รู้ว่า alert มาจากเครื่องไหน และ rotate แยกกันได้ · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 |
 | `PLATFORM_ADMINS` | `admin:<hex ใหม่ 24 ตัว>` (สร้างข้างบน) | ไม่มี = platform-ui ไม่มี admin ให้ login · 🔴 **ห้ามใช้รหัสเดียวกับ `mob04`** |
 
 🔴 `provision.yml` **ไม่ตรวจ** `CERT_SAN_IPS`/`CORS_ORIGINS` (ตรวจแค่ 11 คีย์ `:?`) → ค่าผิดจะ deploy "เขียว" แต่ SAN/CORS ผิด · ตรวจเอง:
@@ -545,9 +557,9 @@ pi_guard && [[ "$SECRETS_FILE" == */pi5-demo.env ]] && test -s "$SECRETS_FILE" &
 
 ทำอะไร (ตามโค้ด): apt ติด Docker Engine + compose plugin (repo `download.docker.com/linux/ubuntu`, arch `aarch64→arm64`) → UFW
 (อนุญาตแค่ 22/80/443) → user `deploy` (group `docker`) + authorized key → `/opt/pos/...` → copy สคริปต์ ops 4 ตัวจาก worktree ลง `/opt/pos/scripts` →
-ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที
+ตรวจคีย์บังคับใน `DEMO_ENV_FILE` → เขียน `/opt/pos/.env` (0600) → `/opt/pos/backups` → cron backup 03:00 + heartbeat ทุก 5 นาที (`main` ปัจจุบัน · หลัง release ชุด devops PR #723: สคริปต์เหลือ 3 ตัว, สร้าง `/opt/pos/node-textfile`, **ลบ** cron + สคริปต์ heartbeat แทนการลง)
 
-✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (ตรึง host key) + ตรวจ:
+✅ recap `failed=0` · แล้วทำ **§4 ข้อ 5** (data-root + driver) ทันที · แล้ว ssh เป็น `deploy` ครั้งแรก (host key ตรึงไว้แล้วใน §2 ข้อ 6 — key ของเครื่องเดียวกัน ไม่ขึ้นกับ user) + ตรวจ:
 
 ```bash
 ssh pi5-deploy 'id; ls -ld /opt/pos; stat -c "%A %U:%G %n" /opt/pos/.env'
@@ -626,6 +638,14 @@ ssh pi5-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_P
 **5. ข้าม backup ก่อน deploy ครั้งแรก** — Pi ใหม่ยังไม่มี DB และไม่มี `.current_sha` (`backup-db.sh` จะ error เรื่อง `IMAGE_TAG`) ·
 deploy ครั้งต่อไปรัน `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -8'` ก่อนทุกครั้ง
 
+**5b. โฟลเดอร์ CA ของ Gatus — ก่อน deploy แรก** (ไม่มีโฟลเดอร์ = Docker สร้างโฟลเดอร์ว่างของ root ให้ตอน bind mount แล้ว Gatus ไม่ trust อะไรเลย):
+
+```bash
+ssh pi5-deploy 'install -d -m 0755 /opt/pos/gatus-ca-local && ls -ld /opt/pos/gatus-ca-local'
+```
+
+✅ `drwxr-xr-x ... deploy deploy` · `pos-api-ready` ของ Gatus จะแดงด้วย x509 จนกว่าจะทำข้อ 7b — ปกติ
+
 **6. deploy** — Mac (ใน `$WT/deploy/ansible`):
 
 ```bash
@@ -676,6 +696,20 @@ openssl s_client -connect "$PI_IP:443" </dev/null 2>/dev/null | openssl x509 -no
 เปิด `https://<PI_IP>` ในเบราว์เซอร์ → หน้า login ขึ้น (เตือนใบรับรอง = ปกติ ดู §9) · ตรวจต่อ (etcd, migration, รูปสินค้า) ตามคู่มือ VM §4 —
 🔴 คำสั่งในนั้นเป็น `ssh mob04-deploy ...` ทั้งหมด: **พิมพ์ใหม่เป็น `ssh pi5-deploy ...` ทีละบรรทัด** ห้ามวางทั้งก้อน
 
+**7b. ให้ Gatus trust CA ของ Pi** — `certgen` ของ deploy แรกเพิ่งสร้าง CA · ดึงแค่ `ca.crt` (public) จากสำเนาใน volume `certs` ผ่าน nginx
+(ไม่แตะ `certs-ca` / `ca.key`) แล้ว recreate เฉพาะ gatus:
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml exec -T nginx cat /etc/nginx/certs/ca.crt > gatus-ca-local/ca.crt && chmod 0644 gatus-ca-local/ca.crt && openssl x509 -in gatus-ca-local/ca.crt -noout -subject -fingerprint -sha256'
+```
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate gatus'
+```
+
+✅ fingerprint **ไม่ตรง** กับของ `mob04` (`87:7B:B8:F7:…`) — เป็น CA ใหม่ของ Pi · หลัง ~3 นาที tunnel `13300` (§10) → `pos-api-ready` เขียว ·
+ยังแดงด้วย x509 = `GATUS_CA_DIR` ไม่ถึง `/opt/pos/.env` (§5) · แดงด้วย connection refused/timeout = `GATUS_POS_URL` ไม่ใช่ IP ของ Pi
+
 **8. เก็บกวาด** (เมื่อเลิกซ้อม — worktree ใช้ซ้ำได้ถ้าจะ deploy SHA เดิมอีก):
 
 ```bash
@@ -703,12 +737,12 @@ git -C "$MAIN" worktree remove ../pos-pi5
 Grafana / Prometheus / Bull-Board / platform-ui ผูก `127.0.0.1` ของ Pi เท่านั้น — เข้าผ่าน SSH tunnel (ไม่ใช่ grant ของ tailnet):
 
 ```bash
-ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 pi5-deploy
+ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -L 13200:127.0.0.1:3200 -L 13300:127.0.0.1:3300 pi5-deploy
 ```
 
-แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`
+แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`, `:13300` (Gatus — uptime + alert → Discord, `07 §10.5`)
 
-RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.2 GB — เพดาน ไม่ใช่การจอง):
+RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.3 GB — เพดาน ไม่ใช่การจอง):
 
 ```bash
 ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsage}}"'
@@ -716,9 +750,10 @@ ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsag
 
 swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม่ = ยังไม่ยืนยัน (แผนย้าย §4.8) — ดูจาก `free -h`
 
-⚠️ **log ของ container ไม่มีเพดาน (ช่องว่างที่รู้แล้ว):** compose ไม่มี `logging:` และ `daemon.json` ไม่มี log option → log โตเรื่อย ๆ บนดิสก์ข้อมูล ·
-ห้ามเติม log option ใน `/etc/docker/daemon.json` เอง (รันสคริปต์ซ้ำจะ `REFUSED: /etc/docker/daemon.json exists with different content`) —
-งานแก้สคริปต์รอบถัดไปจะเพิ่ม `log-driver local` · ระหว่างนี้ดู `df -h /srv/pos-data` เป็นระยะ
+**log ของ container:** compose ไม่มี `logging:` → ใช้ค่าของ daemon = `log-driver local` ที่ `host-setup.sh` เขียน (หมุน + บีบอัด,
+≈ 100 MB ต่อ container) · ใช้กับ container ที่**สร้างหลัง**ตั้งค่าเท่านั้น · ตรวจ: `docker info --format '{{.LoggingDriver}}'` = `local` ·
+ห้ามแก้ log option ใน `/etc/docker/daemon.json` เอง (รันสคริปต์ซ้ำจะ `REFUSED: /etc/docker/daemon.json exists with different content`) ·
+`--data-disk boot` ไม่เขียน `daemon.json` → log ไม่มีเพดาน ดู `df -h /` เป็นระยะ
 
 ---
 
@@ -739,7 +774,7 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 
 | อาการ / ข้อความ | แปลว่า | ทำ |
 |---|---|---|
-| `REFUSED: kernel page size is 16384, not 4096 ...` | ลง Raspberry Pi OS (kernel 16K) | ลง Ubuntu Server ใหม่ (§2) — ส่วน "Redis/jemalloc" ในข้อความไม่ใช่เหตุผลจริง (§2) |
+| `REFUSED: kernel page size is 16384, not 4096 ...` | ลง Raspberry Pi OS (kernel 16K) | ลง Ubuntu Server ใหม่ (§2) |
 | Pi ไม่ boot Ubuntu 26.04 เลย (จอดำ/ไฟแดง) | EEPROM เก่า (≤ 2024-09-23) | §2 ข้อ 0 |
 | `REFUSED: OS '...' is not supported` / `architecture '...' is not supported` | OS อื่น / 32-bit | Ubuntu Server 64-bit |
 | `REFUSED: --profile pi5 on a host that is not a Raspberry Pi 5` | `/proc/device-tree/model` ไม่ใช่ Pi 5 | ตรวจบอร์ด / ใช้ `--profile vm` |
@@ -807,11 +842,11 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 ## 14. กฎห้ามทำ (สรุป)
 
 * ห้ามรันคำสั่งจากคู่มือ VM ตามตัวอักษรกับ Pi (ทุกบรรทัดชี้ `mob04`) · ทำ Pi ในหน้าต่าง terminal แยก + `pi_guard` ทุกคำสั่ง Ansible
-* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `HEALTHCHECKS_PING_URL` ร่วมกับ `mob04`
+* ห้ามใช้ key `deploy`, ไฟล์ secrets, รหัส `PLATFORM_ADMINS` หรือ `ALERT_DISCORD_WEBHOOK` ร่วมกับ `mob04`
 * ห้าม `docker compose down -v` · ห้ามลบ `certs-ca` · ห้าม `--diff` กับ `provision.yml` · ห้ามคัดลอก `certs-ca` ของ `mob04` โดย owner ไม่ตัดสิน
 * `provision.yml` = `cloud` เท่านั้น · `deploy.yml` = `deploy` เท่านั้น
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`
 * ห้ามลบ drop-in `RequiresMountsFor` · ห้ามเปิด SNAT ของ Tailscale กลับ · ห้าม `--lan-ip 172.30.58.20` / `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi
-* ห้ามรัน `host-setup.sh --profile pi5 --data-disk ...` ซ้ำหลัง deploy (restart Docker) — เพิ่ม Tailscale ด้วย `--profile vm` (§4.1)
+* หลัง deploy เพิ่ม Tailscale ด้วย `--profile vm` (§4.1) — ไม่รัน `--profile pi5 --data-disk ...` ซ้ำ (สคริปต์รุ่นเก่า restart Docker เสมอ)
 * ห้ามเรียก Pi ว่า production / ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)

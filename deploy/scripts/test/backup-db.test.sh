@@ -31,8 +31,10 @@ check() { # description, command...
 
 rc=0
 run_backup() { # dir, fail-flag, [images dir], [sale photos dir] ; sets rc
-  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG \
+  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG -u BACKUP_VOLUMES \
+    -u BACKUP_PRE_MIGRATE_KEEP_DAYS ${BACKUP_PRE_MIGRATE_KEEP_DAYS:+"BACKUP_PRE_MIGRATE_KEEP_DAYS=$BACKUP_PRE_MIGRATE_KEEP_DAYS"} \
     PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
+    BACKUP_TEXTFILE_DIR="${TEXTFILE_DIR:-$WORK/no-textfile-dir}" ${BACKUP_VOLUMES:+"BACKUP_VOLUMES=$BACKUP_VOLUMES"} \
     PRODUCT_IMAGES_DIR="${3:-}" SALE_PHOTOS_DIR="${4:-}" \
     bash "$SCRIPT" "$1" >"$1.log" 2>&1
   rc=$?
@@ -174,6 +176,54 @@ check "failed sale-photos archive leaves no pos_sale_photos_* (no .partial)" tes
 check "failed sale-photos archive keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "failed sale-photos archive says so" grep -q '::error::SALE PHOTOS ARCHIVE FAILED' "$D.log"
 
+# 3g. backup freshness gauge (07 §10, Grafana rule "backup stale"): a green nightly run writes
+# pos_backup_last_success_timestamp_seconds for node-exporter's textfile collector, 0644, no tmp
+# left behind; a failed run, and a DB-only run (BACKUP_VOLUMES=0, the pre-migrate dump), never do.
+TF="$WORK/textfile"
+mkdir -p "$TF"
+D="$WORK/gauge"
+mkdir -p "$D"
+before="$(date -u +%s)"
+TEXTFILE_DIR="$TF" run_backup "$D" 0
+gauge_value() { awk '$1 == "pos_backup_last_success_timestamp_seconds" { print $2 }' "$TF/pos_backup.prom"; }
+check "gauge run exits 0" test "$rc" -eq 0
+check "gauge file is written" test -f "$TF/pos_backup.prom"
+check "gauge value is this run's unix time" test "$(gauge_value)" -ge "$before"
+check "gauge file declares a gauge" grep -qx '# TYPE pos_backup_last_success_timestamp_seconds gauge' "$TF/pos_backup.prom"
+mode_ok() { [ "$(stat -c %a "$TF/pos_backup.prom" 2>/dev/null || stat -f %Lp "$TF/pos_backup.prom")" = 644 ]; }
+check "gauge file is world-readable (0644) for node-exporter" mode_ok
+check "gauge write leaves no tmp file" test "$(find "$TF" -name '.pos_backup.prom.*' | wc -l | tr -d ' ')" = 0
+printf 'pos_backup_last_success_timestamp_seconds 1\n' > "$TF/pos_backup.prom"
+D="$WORK/gauge-dbonly"
+mkdir -p "$D"
+TEXTFILE_DIR="$TF" BACKUP_VOLUMES=0 run_backup "$D" 0
+check "DB-only run exits 0" test "$rc" -eq 0
+check "DB-only run (BACKUP_VOLUMES=0) does not touch the gauge" test "$(gauge_value)" = 1
+D="$WORK/gauge-fail"
+mkdir -p "$D"
+TEXTFILE_DIR="$TF" run_backup "$D" 1
+check "failed run does not touch the gauge" test "$(gauge_value)" = 1
+D="$WORK/gauge-nodir"
+mkdir -p "$D"
+run_backup "$D" 0
+check "missing textfile dir still exits 0" test "$rc" -eq 0
+check "missing textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+# A textfile dir this user cannot write in (created by hand as root): the backup is still green.
+# Skipped where chmod does not stop the owner writing (root, Git Bash on Windows).
+RO="$WORK/textfile-ro"
+mkdir -p "$RO"
+chmod 0555 "$RO"
+if ! (: >"$RO/.probe") 2>/dev/null; then
+  D="$WORK/gauge-rodir"
+  mkdir -p "$D"
+  TEXTFILE_DIR="$RO" run_backup "$D" 0
+  check "unwritable textfile dir still exits 0" test "$rc" -eq 0
+  check "unwritable textfile dir warns" grep -q 'backup freshness gauge was not written' "$D.log"
+else
+  echo "skip - unwritable textfile dir (this user can write through 0555)"
+fi
+chmod 0755 "$RO"
+
 # 4. the real mob04 path: compose lists a postgres service, `exec` fails -> same guarantees.
 cat > "$STUBS/docker" <<'STUB'
 #!/bin/sh
@@ -232,5 +282,77 @@ check "worker exec failure is not reported as a missing volume" test -z "$(grep 
 check "worker exec failure writes no pos_sale_photos_* (no .partial)" test "$(count "$D" 'pos_sale_photos_*')" = 0
 check "worker exec failure keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "worker exec failure keeps the product-images archive" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
+
+# 7. BACKUP_VOLUMES=0 (the pre-migration dump): dump only, even with both volume dirs present;
+# the default (unset) and BACKUP_VOLUMES=1 still archive them.
+printf '#!/bin/sh\nexit 0\n' > "$STUBS/docker" # neutral stub again (section 6 replaced it)
+D="$WORK/dbonly"
+mkdir -p "$D" "$WORK/v_img" "$WORK/v_sp"
+echo x > "$WORK/v_img/a.webp"
+echo y > "$WORK/v_sp/b.webp"
+BACKUP_VOLUMES=0 run_backup "$D" 0 "$WORK/v_img" "$WORK/v_sp"
+check "BACKUP_VOLUMES=0 exits 0" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 still writes the dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "BACKUP_VOLUMES=0 archives no product images" test "$(count "$D" 'pos_images_*')" = 0
+check "BACKUP_VOLUMES=0 archives no sale photos" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "BACKUP_VOLUMES=0 does not warn about a missing volume" test -z "$(grep 'No product-images volume\|No sale-photos volume' "$D.log")"
+D="$WORK/dbonly_fail"
+mkdir -p "$D"
+BACKUP_VOLUMES=0 run_backup "$D" 1
+check "BACKUP_VOLUMES=0 with a failing dump exits non-zero" test "$rc" -ne 0
+check "BACKUP_VOLUMES=0 with a failing dump leaves no dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 0
+D="$WORK/vol_default"
+mkdir -p "$D"
+run_backup "$D" 0 "$WORK/v_img" "$WORK/v_sp"
+check "default still archives product images" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
+check "default still archives sale photos" test "$(count "$D" 'pos_sale_photos_*.tar.gz')" = 1
+
+# 8. BACKUP_VOLUMES=0 on the mob04 compose path, mid-deploy: compose lists nginx and a worker
+# that cannot be exec'd into (the old release's worker). The dump must not touch either service.
+cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_CALLS"
+case "$*" in
+  *"ps --services"*) printf 'postgres\nnginx\nworker\n'; exit 0 ;;
+  *"exec -T postgres pg_dump"*) echo "CREATE TABLE t ();"; exit 0 ;;
+  *"exec -T worker"*) echo "Error: service worker is not running" >&2; exit 1 ;;
+esac
+exit 1
+STUB
+D="$WORK/dbonly_vm"
+mkdir -p "$D"
+: > "$WORK/dbonly_vm.calls"
+STUB_CALLS="$WORK/dbonly_vm.calls" BACKUP_VOLUMES=0 run_backup "$D" 0
+check "BACKUP_VOLUMES=0 on the compose path exits 0 with an unreachable worker" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 on the compose path writes the dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "BACKUP_VOLUMES=0 never execs into nginx or the worker" test -z "$(grep -E 'exec -T (nginx|worker)' "$WORK/dbonly_vm.calls")"
+
+# 9. the nightly run also ages out $APP_DIR/backups-pre-migrate (default 30 days): top level only,
+# only this script's file names; a BACKUP_VOLUMES=0 (pre-migrate) run never prunes it from outside.
+printf '#!/bin/sh\nexit 0\n' > "$STUBS/docker" # neutral stub again (section 8 replaced it)
+A="$WORK/app9"
+PM="$A/backups-pre-migrate"
+mkdir -p "$A/backups" "$PM/nested"
+seed_pre_migrate() {
+  touch -t 202001010000 "$PM/pos_backup_old.sql.gz" "$PM/pos_backup_old.sql.gz.sha256" \
+    "$PM/pos_backup_old.sql.gz.partial" "$PM/nested/pos_backup_deep.sql.gz" "$PM/notes.txt"
+  touch "$PM/pos_backup_new.sql.gz" "$PM/pos_backup_new.sql.gz.sha256"
+}
+seed_pre_migrate
+APP_DIR="$A" BACKUP_VOLUMES=0 run_backup "$WORK/app9_other" 0
+check "BACKUP_VOLUMES=0 run exits 0" test "$rc" -eq 0
+check "BACKUP_VOLUMES=0 run leaves pre-migrate dumps to their own run" test -e "$PM/pos_backup_old.sql.gz"
+APP_DIR="$A" run_backup "$A/backups" 0
+check "nightly run exits 0" test "$rc" -eq 0
+check "nightly run prunes a pre-migrate dump older than 30 days" test ! -e "$PM/pos_backup_old.sql.gz"
+check "nightly run prunes its sha256 sidecar and stale .partial" \
+  test ! -e "$PM/pos_backup_old.sql.gz.sha256" -a ! -e "$PM/pos_backup_old.sql.gz.partial"
+check "nightly run keeps a fresh pre-migrate dump + sidecar" \
+  test -e "$PM/pos_backup_new.sql.gz" -a -e "$PM/pos_backup_new.sql.gz.sha256"
+check "nightly run never descends below backups-pre-migrate" test -e "$PM/nested/pos_backup_deep.sql.gz"
+check "nightly run never removes a file it did not write" test -e "$PM/notes.txt"
+seed_pre_migrate
+APP_DIR="$A" BACKUP_PRE_MIGRATE_KEEP_DAYS=0 run_backup "$A/backups" 0
+check "BACKUP_PRE_MIGRATE_KEEP_DAYS=0 disables the pre-migrate prune" test -e "$PM/pos_backup_old.sql.gz"
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

@@ -191,3 +191,52 @@ environment `demo` (= production ตัวเดียวตาม #242 ด้�
 (`proxy_ssl_trusted_certificate`) · `deploy/ansible/deploy.yml` (task "Issue the TLS certificate (certgen)") ·
 `frontend/lib/core/network/pos_trust*.dart` · `07_CICD_DEPLOY.md` §5 · กติกาใน `CLAUDE.md` (CI/CD) ·
 VM เปลี่ยน IP = แก้ SAN ใน `certgen.sh`
+
+## Addendum 2026-10-13 — SAST ด้วย Semgrep + action pin ด้วย SHA (สถานะ: **proposed**, `agent ร่าง` — รอเจ้าของรับรอง)
+
+**เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาพบว่า pipeline นี้ไม่มี SAST (มีแค่ SCA: `pnpm audit`/OSV/Trivy และ
+secret scan: gitleaks) · action ของ third-party อ้างด้วย tag ที่ย้ายได้ — `aquasecurity/trivy-action` เคยถูกยึด tag
+(2026-03-19, CVE-2026-33634)
+
+**ข้อเสนอ (ค่าตั้งต้นของ orchestrator — เจ้าของเปลี่ยนได้):**
+* **Semgrep = ด่านบังคับ (blocking) ที่ระดับ ERROR** — job `sast` ใน `server.yml` ไม่ดู path, `server-ci-status`
+  ต้องการ `success`, `build-image` รอมัน · engine เป็น image `semgrep/semgrep` pin ด้วย digest (`--metrics=off`,
+  ไม่ login, ไม่ส่งผลออก) · กฎจาก `semgrep/semgrep-rules` pin ด้วย commit เฉพาะโฟลเดอร์ที่ตรงกับ code ของ repo ·
+  WARNING/INFO ขึ้น code scanning ผ่าน SARIF เท่านั้น · false positive ปิดเฉพาะจุดด้วย `nosemgrep: rule-id -- reason`
+  (ไม่มีเหตุผล = ล้ม) · `.semgrepignore` เฉพาะ vendored/generated และบน PR อ่านจาก base
+* **CodeQL default setup = advisory เท่านั้น** — ถ้าเจ้าของจะเปิด ให้เปิดเองใน repo settings (agent ไม่แก้ settings
+  ผ่าน API) และไม่ทำให้เป็น required check
+* **action ของ third-party pin ด้วย commit SHA** พร้อม comment `# vX` · binary ของ trivy pin ผ่าน input `version:`
+  ด้วย · `actions/*` (first-party ของ GitHub — `checkout`/`setup-*`/`cache`/`upload-artifact`) **ใช้ tag โดยตั้งใจ ไม่ pin SHA**
+  (เจ้าของเดียวกับ runner ที่เราเชื่ออยู่แล้ว · ตัวที่ต้อง pin คือ third-party) · Dependabot ของ `github-actions` ยังปิด (limit 0) — bump ด้วยมือ
+  ตามกติกา "เวอร์ชันอายุ ≥ 2 สัปดาห์"
+
+**ที่ปฏิเสธ:** Semgrep Cloud / `semgrep ci` (ต้องมี token และส่งผลออกนอก repo) · `p/secrets` (ซ้ำกับ gitleaks) ·
+`--baseline-commit` (ทำให้ finding เดิมที่มีอยู่ไม่ถูกบังคับ — triage ครั้งแรกแก้ ERROR ทั้งหมดแทน)
+
+**ผลที่ตามมา:** `.github/workflows/server.yml` (job `sast`), `.semgrepignore`, ทุก workflow (pin SHA) ·
+`07_CICD_DEPLOY.md` §1 และ §2c · `CLAUDE.md` (CI/CD)
+
+## Addendum 2026-10-13 — alerting → Discord + Gatus แทน Healthchecks.io (**proposed**, `agent ร่าง` — รอ owner)
+
+**เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาชี้ว่าเรา "ไม่มี alerting" — dashboard มี แต่ไม่มีใครถูกเรียกเมื่อของพัง ·
+heartbeat Healthchecks.io (PR #596, 2026-10-04) ใช้บัญชีที่ไม่ใช่ของทีม (owner 2026-10-13) จึงต้องเลิก
+
+**ข้อเสนอ (defaults ของ orchestrator — owner เปลี่ยนได้):**
+* **Grafana alerting ในตัว** (provision จากไฟล์ `deploy/grafana/provisioning/alerting/pos-alerts.yml`) → **Discord webhook** ·
+  **Alertmanager ยังปฏิเสธเหมือนเดิม** (service เพิ่ม + config อีกชุด สำหรับงานที่ Grafana ทำได้อยู่แล้ว)
+* **Gatus** (`twinproduction/gatus` pin digest, amd64 + arm64, binary `GOAMD64=v1` ตรวจใน CI) เฝ้า HTTP/TCP ของสแต็ก + อายุใบ TLS →
+  Discord · ใช้ได้ทั้ง `mob04` (amd64 `qemu64`) และ Pi 5 (arm64) · 64m
+* **Healthchecks.io ปลด** — script/test/cron ถูกลบ (`provision.yml` ลบ cron + ไฟล์บน VM)
+* **ข้อจำกัดที่ยอมรับ (ไม่ได้อ้างว่าแก้แล้ว):** ทุกตัวเฝ้ารันบนเครื่องเดียวกับที่มันเฝ้า — **เครื่องดับทั้งเครื่อง ไม่มีใครรู้** จนกว่าจะมีเครื่องที่สอง
+  (Pi 5) เฝ้าข้ามเครื่อง
+* **egress:** webhook ต้องออกผ่าน FortiGate ของคณะไป `discord.com` — owner ตรวจด้วย `curl -v https://discord.com/api/v10/gateway`
+  ก่อนเปิด (issuer ต้องไม่ใช่ FortiGate) · **payload มีแค่ชื่อ rule/endpoint, ชื่อ container และ summary — ไม่มีข้อมูล tenant/ลูกค้า/บิล**
+* webhook เป็นความลับใน `/opt/pos/.env` (ผ่าน `DEMO_ENV_FILE`) เท่านั้น · ไม่ตั้ง = placeholder ส่งไม่ถึงใคร + `provision.yml` เตือน
+  (เงียบแต่ซื่อสัตย์ — กฎเดียวกับ offsite backup ที่ยังไม่ตั้ง)
+
+**ผลที่ตามมา:** `deploy/compose/monitoring.yml` (service `gatus`, node-exporter textfile collector, env ของ Grafana) ·
+`deploy/gatus/` + `deploy/gatus-ca/` · `deploy/prometheus/prometheus.yml` (job `gatus`) · `deploy/scripts/backup-db.sh`
+(gauge `pos_backup_last_success_timestamp_seconds`) · `deploy/ansible/{deploy,provision}.yml` ·
+`deploy/scripts/test/monitoring-alerting.test.sh` (CI `nginx-check`) · `07_CICD_DEPLOY.md` §10.5 (ขั้นตอนบน `mob04`) ·
+RAM monitoring 832m → 896m

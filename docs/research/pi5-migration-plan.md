@@ -192,7 +192,7 @@ digest ที่ pin คือ manifest list จึง **multi-arch pin ใช�
 
 * `deploy/scripts/backup-db.sh` ไม่ผูก arch · `pg_dump --create --clean --if-exists` (logical dump ย้าย arch ได้) · เก็บ volume `product-images` เป็น `pos_images_<ts>.tar.gz` · cron 03:00 จาก `provision.yml`
 * **เฉพาะ `provision.yml` ติดตั้ง `/opt/pos/scripts`** (CD ไม่อัปเดต) → provision Pi ใหม่ได้สคริปต์ล่าสุดโดยธรรมชาติ แต่ต้องรัน `backup-db.sh` และ `restore-db.sh` ด้วยมือหนึ่งครั้งเพื่อพิสูจน์บน Pi (ตามบทเรียน 2026-09-29)
-* `healthcheck-ping.sh` (Healthchecks.io, `HEALTHCHECKS_PING_URL` ใน `.env`) — ใช้ URL เดิมหรือสร้างเช็คใหม่สำหรับ Pi · ถ้าใช้ URL เดิมช่วงซ้อมที่ทั้งสองเครื่องรันพร้อมกันจะ ping ปน → **ใช้ check แยกต่อเครื่อง** · และเมื่อ Pi อยู่ที่ร้าน ping outbound ยังทำงาน (ต้องออก `hc-ping.com` ได้)
+* ~~`healthcheck-ping.sh`~~ **ปลดแล้ว 2026-10-13 (PR #719)** — แทนด้วย Gatus + Grafana alerting → Discord (`07 §10.5`); ไม่ต้องย้ายหรือสร้างเช็คใหม่บน Pi · ข้อความเดิม: (Healthchecks.io, `HEALTHCHECKS_PING_URL` ใน `.env`) — ใช้ URL เดิมหรือสร้างเช็คใหม่สำหรับ Pi · ถ้าใช้ URL เดิมช่วงซ้อมที่ทั้งสองเครื่องรันพร้อมกันจะ ping ปน → **ใช้ check แยกต่อเครื่อง** · และเมื่อ Pi อยู่ที่ร้าน ping outbound ยังทำงาน (ต้องออก `hc-ping.com` ได้)
 * `deploy/scripts/measure-container-rss.sh` — มีบั๊กเก่า (แก้ใน PR #654) และสำเนาบน mob04 เป็นของเก่า; บน Pi ควรวัด RSS ใหม่หลังย้าย (ปิด #380 บนฮาร์ดแวร์ใหม่ ไม่ใช่ mob04 — เจ้าของต้องตัดสินว่าจะวัดซ้ำหรือไม่ คำถามข้อ 6)
 
 ### 4.8 RAM limit ใน compose/override สำหรับ RAM ของ Pi

@@ -105,7 +105,7 @@ ans() {
     -e DEMO_SSH_HOST -e DEMO_SSH_USER -e DEMO_SSH_KEY_PATH=/tmp/k -e KEYFILE -e TAG \
     "${extra[@]}" \
     'alpine/ansible@sha256:22227b578da3371267201879f44de86569e9b531db536e1d9d2b83aed35b6cfc' \
-    sh -c '[ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
+    sh -c '[ ! -f /hostssh/known_hosts ] || { mkdir -p "$HOME/.ssh" && cp /hostssh/known_hosts "$HOME/.ssh/known_hosts"; } || exit 1; [ -z "$KEYFILE" ] || { cp "/hostssh/$KEYFILE" /tmp/k && chmod 600 /tmp/k; } || exit 1; exec "$@"' sh "$@"
 }
 ```
 
@@ -114,7 +114,7 @@ export SSHDIR="$USERPROFILE\.ssh"
 ```
 
 เหตุผลของแต่ละชิ้น (วัดจริงใน `ticket-343` §2): bind mount ของ Windows เป็น world-writable → Ansible **เมิน `ansible.cfg` เงียบ ๆ** ถ้าไม่บังคับ
-`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
+`ANSIBLE_CONFIG` · key บน mount `:ro` chmod ไม่ได้ → ต้อง copy · `known_hosts` ถูกคัดเข้า container ด้วย เพราะ `ansible.cfg` ตรวจ host key แล้ว (2026-10-13, §1.4) · `MSYS_NO_PATHCONV=1` กัน Git Bash แปลง `/work` เป็น path Windows ·
 ตัวแปรที่ใส่นำหน้าคำสั่ง (`DEMO_SSH_USER=deploy ans ...`) มีผลแค่คำสั่งนั้น ไม่ค้างใน shell
 
 `REPO` ตั้งจริงใน §3 ข้อ 4 (ชี้ไปที่ worktree สะอาด) · ทดสอบฟังก์ชันตอนนี้ด้วย repo หลัก (Git Bash ที่ root ของ repo · ไม่ใส่ `KEYFILE` = ไม่ copy key):
@@ -216,13 +216,22 @@ export DEPLOY_KEY=~/.ssh/deploy_ed25519
 test -s "$DEPLOY_KEY" && test -s "$DEPLOY_KEY.pub" && echo "key ok" || echo "STOP: ไม่มี $DEPLOY_KEY หรือ .pub"
 ```
 
-`ansible.cfg` ตั้ง `host_key_checking = False` → **Ansible จะไม่ตรวจว่าคุยกับเครื่องจริง** · ssh ด้วยมือหนึ่งครั้งเพื่อให้ `known_hosts` จำ key ของ VM:
+`ansible.cfg` **ตรวจ host key** (เอา `host_key_checking = False` ออกแล้ว 2026-10-13) → host ที่ยังไม่อยู่ใน `~/.ssh/known_hosts` =
+Ansible หยุดด้วย `Host key verification failed` · ตรึง key ของ VM ก่อน — fingerprint ต้องตรงกับที่ **owner อ่านจาก console ของ VM**
+(`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` บน console ไม่ใช่ผ่าน SSH) และประกาศให้ทีม (07 §7 แถว "SSH host key"):
+
+```bash
+ssh-keygen -F 172.30.58.20 >/dev/null && echo "มี entry แล้ว — เทียบ fingerprint ด้านล่างอยู่ดี" ; ssh-keyscan -t ed25519 172.30.58.20 > /tmp/mob04.keyscan && ssh-keygen -lf /tmp/mob04.keyscan
+```
+
+✅ `SHA256:…` ตรงกับที่ owner ประกาศ**ทุกตัวอักษร** → (ถ้ายังไม่มี entry) `cat /tmp/mob04.keyscan >> ~/.ssh/known_hosts` ·
+❌ ไม่ตรง → **หยุด** ห้ามเพิ่ม ถาม owner · Windows Git Bash: คำสั่งเดียวกัน (`~/.ssh` = `$SSHDIR`) — ฟังก์ชัน `ans` คัด `known_hosts` เข้า container
+
+แล้ว ssh ด้วยมือหนึ่งครั้ง (ไม่ควรถามเรื่อง fingerprint อีก — ถ้าถาม = key ยังไม่ถูกตรึง กลับไปทำข้อบน):
 
 ```bash
 ssh mob04-deploy 'id; docker ps --format "{{.Names}}" | head -3'
 ```
-
-ครั้งแรกจะถาม `Are you sure you want to continue connecting` พร้อม fingerprint → **เทียบกับที่ owner ประกาศ** ก่อนตอบ `yes`
 
 ✅ `id` มี group `docker` และเห็นชื่อ container รูป `srisurart-pos-<service>-<n>` (เช่น `api-1` → `srisurart-pos-api-1-1`,
 `nginx` → `srisurart-pos-nginx-1`, `platform-ui` → `srisurart-pos-platform-ui-1`)
@@ -312,7 +321,9 @@ test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SEC
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
 ห้ามมี `ALLOW_DEV_SECRETS`, `IMAGE_TAG`, ค่า `dev-only-*` · **ห้าม `export DEMO_ENV_FILE`** — ใส่นำหน้าคำสั่ง provision คำสั่งเดียว (§2.5)
 
-**คีย์ไม่บังคับ `HEALTHCHECKS_PING_URL`** (uptime heartbeat → Healthchecks.io, `07_CICD_DEPLOY.md §7b`) — รูปแบบ `https://hc-ping.com/<uuid>` · **เป็นความลับ** (ใครมี URL ก็ ping แทนได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ cron จะ log `::warning::` ทุก 5 นาทีโดยไม่ส่งอะไร (ไม่มีใครถูกแจ้งเมื่อ VM ดับ) · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์
+**คีย์ไม่บังคับ `ALERT_DISCORD_WEBHOOK`** (Grafana alerting + Gatus → Discord, `07_CICD_DEPLOY.md §10.5`, 2026-10-13) — รูปแบบ `https://discord.com/api/webhooks/<id>/<token>` · **เป็นความลับ** (ใครมี URL ก็โพสต์เข้าช่องได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ alert ทุกตัวยังประเมินปกติแต่ส่งไม่ถึงใคร · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์ · 🔴 ก่อนเปิดใช้ ตรวจว่า VM ออกไป Discord ผ่าน FortiGate ได้: `curl -v https://discord.com/api/v10/gateway` (HTTP 200 และ issuer ของใบ **ไม่ใช่** FortiGate) · ~~`HEALTHCHECKS_PING_URL`~~ ปลดแล้ว 2026-10-13 — ลบออกจาก `DEMO_ENV_FILE` ได้ ·
+🔴 **ก่อนแก้ไฟล์ secrets ทุกครั้ง ทำ §2.5 ② (เทียบ hash กับ `/opt/pos/.env` บน VM) ก่อน** — ไฟล์ local ที่เก่ากว่าของจริง = provision เขียน
+รหัส DB/etcd ผิดทับ แล้วทั้ง deploy และ rollback พัง · ลำดับเต็มของ release แรกที่มี alerting: §2.6
 
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
@@ -475,13 +486,13 @@ ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
 — ไม่ต้องรัน และ 🔴 ห้ามรัน `--tailscale` บน `mob04` (§1.2) · `provision.yml` ไม่ copy มันลง `/opt/pos/scripts` · รายละเอียด `07_CICD_DEPLOY.md` §6
 
 `provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
-authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh`, `healthcheck-ping.sh` ลง `/opt/pos/scripts` →
-**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) + cron ทุก 5 นาทีของ `deploy` (`healthcheck-ping.sh | logger -t pos-healthcheck` — ดูผลที่ `sudo journalctl -t pos-healthcheck`)
+authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh` ลง `/opt/pos/scripts` (และลบ `healthcheck-ping.sh` ที่ปลดแล้ว) →
+**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/node-textfile` 0755 (gauge ความสดของ backup ให้ node-exporter) → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) → ลบ cron heartbeat Healthchecks.io เดิม (ปลด 2026-10-13 — แทนด้วย Gatus + Grafana alerting, `07 §10.5`)
 
 ⚠️ **UFW ไม่ได้กรองพอร์ตที่ container publish** — Docker ใส่กฎใน nat table ก่อน UFW (docs.docker.com/engine/network/packet-filtering-firewalls/) ·
 พอร์ตที่ต้องอยู่ในเครื่องต้อง bind `127.0.0.1:` ใน compose (แบบ 9090/3000/3100/3200 วันนี้) — ห้ามพึ่ง `ufw deny`
 
-🔴 **heartbeat ติดตั้งบน `mob04` แล้ว 2026-10-04 (ด้วยมือ, `07 §7b`)** — CD deploy ไม่อัปเดตให้: แก้สคริปต์แล้วต้องรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (`07_CICD_DEPLOY.md` §7b) · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
+~~heartbeat Healthchecks.io~~ ปลดแล้ว 2026-10-13 — `provision.yml` ลบ cron + `/opt/pos/scripts/healthcheck-ping.sh` เอง · 🔴 ก่อน provision ครั้งแรกหลังปลด ขอให้**เจ้าของบัญชี Healthchecks.io** (ไม่ใช่บัญชีของทีม) pause/ลบ check ก่อน — ไม่งั้นมันแจ้งเตือนไปหาเขา (ลำดับเต็ม §2.6)
 
 ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
 ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·
@@ -585,6 +596,47 @@ PLATFORM_ADMINS=1
 > เฉพาะไฟล์ที่ provision **ก่อน #500** เขียนและยังไม่ถูกเขียนใหม่: บรรทัดสุดท้ายไม่มี newline → ใคร append ด้วยมือต้องเติมบรรทัดว่างก่อน
 > ไม่งั้นคีย์ใหม่ไปต่อท้ายบรรทัดสุดท้าย · ไม่ว่าไฟล์รุ่นไหน ตรวจด้วย `grep -c '^KEY='` เสมอ (`grep -c KEY` ไม่มี `^` ยังนับเจอคีย์ที่ติดท้ายบรรทัดอื่น
 > แต่ Compose บอกว่าขาด)
+
+### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
+
+> 🔴 **ยังไม่ได้ทำ (2026-10-14):** ชุด devops (PR #723 — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking) อยู่ใน
+> `develop` เท่านั้น เจ้าของสั่งพักไว้ · `main` และ `mob04` ยังเป็นรุ่นก่อน (ไม่มี Gatus, heartbeat Healthchecks.io ยังส่งอยู่) · ทุกอย่างใน
+> §2.6, แถว `3300` ของ §4.5 และขั้น 6b ใช้ได้**หลัง release ถัดไป** · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
+> `docker logs gatus`, ดู deploy แรกพร้อมคำสั่งเก็บกวาด rollback): `docs/handoff_log/session-2026-10-14-devops-develop.md`
+
+ต้นทางคือ `07_CICD_DEPLOY.md` §10.5 — ที่นี่คือคำสั่ง · 🔴 **ห้ามรัน `provision.yml` ก่อน merge**: ก่อน merge `origin/main` ยังเป็น playbook เก่า
+(ลง cron heartbeat กลับ, ไม่สร้าง `/opt/pos/node-textfile`, ลง `backup-db.sh` เก่า)
+
+1. VM: `df -h /` ต่ำกว่า 85% · `curl -v https://discord.com/api/v10/gateway` = HTTP 200 และ issuer **ไม่ใช่** FortiGate
+2. ขอให้เจ้าของบัญชี Healthchecks.io pause/ลบ check — จดชื่อไว้ใน handoff
+3. §2.5 ② เทียบ hash ของ `$SECRETS_FILE` กับ `/opt/pos/.env` — **ไม่ตรง = หยุด** · ตรงแล้วจึงแก้ไฟล์: ลบ `HEALTHCHECKS_PING_URL`, เพิ่ม `ALERT_DISCORD_WEBHOOK`
+4. host key ตรึงแล้ว (§1.4) และเครื่องที่รันมี collection ที่ `provision.yml` ใช้ (`ansible.posix.authorized_key`):
+
+```bash
+ansible-galaxy collection list ansible.posix
+```
+
+   (Windows: `ans ansible-galaxy collection list ansible.posix`) · ไม่มี = `ansible-galaxy collection install ansible.posix`
+5. merge `develop` → `main` (merge commit) → *Deploy (demo)* **รอ approve — ยังไม่กด** · cancel twin ที่ skip/รอ (07 §7)
+6. ระหว่างที่รอ: worktree สะอาดของ `origin/main` ที่**ดึงหลัง merge** (§3 ข้อ 4) → §2.5 ③ + ④ (`cloud`, ห้าม `--diff`) → ตรวจ:
+
+```bash
+ssh mob04 'sudo -n crontab -l -u deploy; ls -ld /opt/pos/node-textfile; ls /opt/pos/scripts'
+```
+
+   ✅ ไม่มีบรรทัด heartbeat · `drwxr-xr-x` · ไม่มี `healthcheck-ping.sh` · และ `sha256sum` ของ `backup-db.sh` สองฝั่งตรงกัน (§2.5 หัวข้อ)
+7. **seed gauge** (ไม่ทำ = rule "Nightly backup stale" แดง 2 นาทีหลัง deploy จนถึง backup 03:00):
+
+```bash
+ssh mob04 'sudo -n -u deploy env -i HOME=/home/deploy PATH=/usr/bin:/bin /opt/pos/scripts/backup-db.sh /opt/pos/backups; echo rc=$?; ls -l /opt/pos/node-textfile/pos_backup.prom'
+```
+
+   ✅ `rc=0` และมีไฟล์ `pos_backup.prom` · (ทางเลือก: ซ้อม pre-migrate dump ด้วย `BACKUP_VOLUMES=0` ลง `/opt/pos/backups-pre-migrate` — ไม่แตะ gauge)
+8. runner online → **approve** → ตรวจ §4 + `.current_sha` · log ของ run ต้องไม่มี `WARNING: /opt/pos/node-textfile …` (pre-flight ของ `deploy.yml`)
+   · tunnel `3300` → Gatus เขียวทุกตัว (platform-ui = 403 คือปกติ) · Grafana: 10 rule ไม่มี `Error`, "Nightly backup stale" = Normal ·
+   Contact points → `discord` → **Test** เข้าช่อง · แล้ว cancel run ที่ยังรอค้าง
+
+**PDPA:** dump ใน `/opt/pos/backups-pre-migrate` มีข้อมูลลูกค้าทั้งร้าน — backup กลางคืนลบที่เกิน 30 วันให้ · อยู่บนดิสก์ VM เดียว · ระยะเก็บ = owner ตัดสิน
 
 ---
 
@@ -916,7 +968,7 @@ ssh mob04-deploy 'curl -s -o /dev/null -w "prometheus=%{http_code}\n" http://127
 ✅ ทั้งคู่ `200` · ดูด้วยตาผ่าน SSH tunnel (เปิดค้างไว้หน้าต่างหนึ่ง):
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 mob04-deploy
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200:127.0.0.1:3200 -L 3300:127.0.0.1:3300 mob04-deploy
 ```
 
 | URL บน notebook | คือ | login |
@@ -925,6 +977,7 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 | `http://localhost:9090` | Prometheus | — |
 | `http://localhost:3100` | Bull-Board | `BULL_BOARD_USER`/`_PASSWORD` (owner) |
 | `http://localhost:3200` | platform-ui | platform admin (หลัง migration `1788652804600` ทุกคนต้อง login ใหม่ — ปกติ) |
+| `http://localhost:3300` | Gatus (**หลัง release ชุด devops — ยังไม่มีบน `mob04`**, §2.6) — uptime ของทุก service (ต้องเขียวหลัง ~3 นาที) · Grafana → Alerting → Alert rules ต้องเห็น 10 rule ไม่มี `Error` (§10.5 ของ 07) | — (ผูก loopback เท่านั้น) |
 
 **4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ, ต่อ VPN, หรือ Tailscale ที่ login เข้า tailnet ของร้าน — §1.2; ไม่ต้อง build APK ใหม่ เพราะที่อยู่/SAN เดิม) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
 
@@ -1073,6 +1126,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, สร้าง `docker/nginx` (#508), `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` → `Ensure the certgen directory exists` → `Copy certgen script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) · copy `certgen.sh` |
 | 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 (รวม `certgen.sh`) เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
+| 6b | `Check whether database migrations are pending (new image)` → `Back up the database before applying migrations` | (หลัง release ชุด devops — §2.6) `migrate.js status` ด้วย image ใหม่ · มี migration ค้าง (หรือเช็คล้ม) = dump DB อย่างเดียวลง `/opt/pos/backups-pre-migrate/` (30 วัน) ก่อน `migrate` · ไม่มีค้าง = task backup ขึ้น `skipping` (ปกติ) · dump ล้ม = deploy ล้มก่อนแตะ schema · dump นี้คือทางย้อนเดียวของ migration (07 §7 "กู้ฐานข้อมูลหลัง migration เสีย" — เจ้าของตัดสิน, ข้อมูลหลัง dump หาย) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
 | 8 | `Issue the TLS certificate (certgen)` → `Ensure backing datastores, htpasswd-gen and etcd are running` | `run --rm --no-deps certgen` (ล้ม = deploy ล้ม) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` |
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
@@ -1133,6 +1187,18 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansib
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
 `pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ `workflow_dispatch` พิสูจน์แล้ว · **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
 
+🔴 **rollback ไป SHA ก่อน release alerting (2026-10-13)** — `deploy.yml` ของ release เก่าไม่รู้จัก Gatus: container `gatus` ค้างรันต่อ (ยังส่ง Discord),
+node-exporter กลับไปไม่มี textfile collector, Prometheus ไม่มี job `gatus`, และ Grafana **ไม่ลบ** rule ที่ provision จากไฟล์ทั้งที่ไฟล์ถูกลบ →
+"Gatus down" + "Nightly backup stale" แจ้งทุก 4 ชม. · เก็บกวาดหลัง rollback (ในนาม `deploy`; ขั้นเต็ม 07 §7 แถว "rollback ข้าม release alerting"):
+
+```bash
+ssh mob04-deploy 'docker ps -a --filter label=com.docker.compose.service=gatus --format "{{.Names}}"'
+```
+
+แล้ว `docker rm -f <ชื่อนั้น>` · จากนั้นเขียน `/opt/pos/deploy/grafana/provisioning/alerting/rollback-delete-rules.yml` (`apiVersion: 1` +
+`deleteRules:` ครบ 10 uid ใน `pos-alerts.yml`, `orgId: 1`) แล้ว restart container grafana · ห้ามลบผ่าน provisioning API (Grafana 11.2 ปฏิเสธ rule ที่ provenance
+= `file`) · deploy ไปข้างหน้าครั้งถัดไปลบไฟล์นั้นเองและ provision rule กลับครบ
+
 ### 6.3 CD อัตโนมัติ
 
 workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ติดตั้งแล้ว 2026-09-30** `mob04-demo` online; deploy จริงครั้งแรก `e50f4fa` สำเร็จ) → required reviewer `NuimanLP` บน environment `demo` ·
@@ -1185,7 +1251,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.nam
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `config file = None` | Mac: ไม่ได้อยู่ใน `deploy/ansible/` · Windows: ไม่ได้บังคับ `ANSIBLE_CONFIG` (mount world-writable) | `cd` ให้ถูก · ใช้ฟังก์ชัน `ans` |
-| `Host key verification failed` | `ansible.cfg` ไม่ถูกอ่าน · หรือ host key ใน `known_hosts` ไม่ตรง | แก้ข้อบน · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
+| `Host key verification failed` | ยังไม่ได้ตรึง host key (§1.4 — `ansible.cfg` ตรวจ host key ตั้งแต่ 2026-10-13) · Windows: `known_hosts` ไม่อยู่ใน `$SSHDIR` · หรือ host key ใน `known_hosts` ไม่ตรง | ทำ §1.4 (เทียบ fingerprint กับ console) · ถ้า owner ยืนยันว่า VM เปลี่ยนจริง: `ssh-keygen -R 172.30.58.20` แล้วทำ §1.4 ใหม่ |
 | `UNREACHABLE` + timeout | ไม่ได้ต่อ VPN | §1.2 |
 | `UNREACHABLE` กับ `127.0.0.1` | ลืม `DEMO_SSH_HOST` (default `127.0.0.1`) | ใส่ `DEMO_SSH_HOST=172.30.58.20` |
 | `Permission denied (publickey)` | key/user ไม่ตรงคู่ · key ยังไม่ติดตั้ง · ACL บน Windows | ตาราง §0.3 · §2.4 · `icacls` §1.3 |

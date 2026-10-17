@@ -72,3 +72,10 @@ Main fixes:
 Deferred to the script follow-up (no script/workflow changed here): `host-setup.sh` page-size message still blames
 Redis/jemalloc; its `then re-run:` line uses `$0` without `bash`; a Tailscale-only re-run path that never touches storage;
 container log limits (`log-driver local`); a Pi target for `deploy.yml` / `verify-ghcr-tags.sh` platform in the workflow.
+
+## Script follow-up (2026-10-14, branch `fix/host-setup-followups`)
+Done: page-size message no longer blames Redis/jemalloc · re-run hint is `sudo bash $0 ...` · `put` skips identical files and
+Docker is restarted only when `daemon.json`/drop-in changed (a re-run after deploy no longer stops the POS) · `daemon.json` adds
+`"log-driver": "local"` (rotated logs; only containers created afterwards). Tests: `host-setup.test.sh` all pass in `ubuntu:24.04`
+(the suite needs GNU tools — it fails on macOS before and after this change). Still deferred: a Pi target for `deploy.yml` /
+the platform argument to `verify-ghcr-tags.sh` (no Pi exists).
