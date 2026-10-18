@@ -192,7 +192,7 @@ environment `demo` (= production ตัวเดียวตาม #242 ด้�
 `frontend/lib/core/network/pos_trust*.dart` · `07_CICD_DEPLOY.md` §5 · กติกาใน `CLAUDE.md` (CI/CD) ·
 VM เปลี่ยน IP = แก้ SAN ใน `certgen.sh`
 
-## Addendum 2026-10-13 — SAST ด้วย Semgrep + action pin ด้วย SHA (สถานะ: **proposed**, `agent ร่าง` — รอเจ้าของรับรอง)
+## Addendum 2026-10-13 — SAST ด้วย Semgrep + action pin ด้วย SHA (สถานะ: **Accepted** — เจ้าของรับรอง 2026-10-18)
 
 **เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาพบว่า pipeline นี้ไม่มี SAST (มีแค่ SCA: `pnpm audit`/OSV/Trivy และ
 secret scan: gitleaks) · action ของ third-party อ้างด้วย tag ที่ย้ายได้ — `aquasecurity/trivy-action` เคยถูกยึด tag
@@ -217,7 +217,7 @@ secret scan: gitleaks) · action ของ third-party อ้างด้วย 
 **ผลที่ตามมา:** `.github/workflows/server.yml` (job `sast`), `.semgrepignore`, ทุก workflow (pin SHA) ·
 `07_CICD_DEPLOY.md` §1 และ §2c · `CLAUDE.md` (CI/CD)
 
-## Addendum 2026-10-13 — alerting → Discord + Gatus แทน Healthchecks.io (**proposed**, `agent ร่าง` — รอ owner)
+## Addendum 2026-10-13 — alerting → Discord + Gatus แทน Healthchecks.io (**Accepted** — เจ้าของรับรอง 2026-10-18)
 
 **เหตุ:** รายงานเปรียบเทียบ DevOps ของรายวิชาชี้ว่าเรา "ไม่มี alerting" — dashboard มี แต่ไม่มีใครถูกเรียกเมื่อของพัง ·
 heartbeat Healthchecks.io (PR #596, 2026-10-04) ใช้บัญชีที่ไม่ใช่ของทีม (owner 2026-10-13) จึงต้องเลิก

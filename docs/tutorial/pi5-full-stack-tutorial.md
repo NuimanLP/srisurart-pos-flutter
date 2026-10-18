@@ -1,7 +1,7 @@
 # คู่มือตั้ง full stack บน Raspberry Pi 5 (8 GB) — ฉบับมือใหม่
 
 **ตรวจกับโค้ดที่:** `origin/main` @ `5c7f210` (release PR #714 — tree เดียวกับ `origin/develop` @ `b582fe8`) · 2026-10-13 · ทบทวนโดย reviewer 3 มุม (ความตรงกับ repo, แหล่งทางการ, ความปลอดภัย/ลำดับ) 2026-10-13
-🔴 **2026-10-14 — ส่วน Gatus / Discord alert (`GATUS_POS_URL`, `GATUS_CA_DIR`, `ALERT_DISCORD_WEBHOOK`, ข้อ 5b/7b, port `13300`) ใช้ได้หลัง release ชุด devops เท่านั้น:** มันอยู่ใน `develop` (PR #723) ซึ่งเจ้าของสั่งพักไว้ — `origin/main` ที่คู่มือนี้ checkout (`TAG`) ยังไม่มี Gatus และ `provision.yml` ของ `main` ยังลง cron heartbeat · สถานะ: `docs/handoff_log/session-2026-10-14-devops-develop.md`
+🔴 **2026-10-14 — ส่วน Gatus / Discord alert (`GATUS_POS_URL`, `GATUS_CA_DIR`, `ALERT_DISCORD_WEBHOOK`, ข้อ 5b/7b, port `13300`) ใช้ได้เมื่อ checkout `main` ตั้งแต่ `21ad935`:** ชุด devops release แล้ววันที่ 2026-10-17 (PR #727) — `TAG` ที่เก่ากว่านั้นยังไม่มี Gatus และ `provision.yml` ของมันยังลง cron heartbeat · สถานะ: `docs/handoff_log/session-2026-10-14-devops-develop.md`
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §3 (multi-arch), §5 (TLS / `CERT_SAN_IPS`), §6 (`host-setup.sh`), §6.2 (runner) ·
 แผนย้าย: `docs/research/pi5-migration-plan.md` · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 **คู่มือพี่น้อง:** `docs/tutorial/VM-dploy-full-stack-tutorial.md` (VM `mob04`) — คำสั่งของ Pi เขียนไว้ครบในคู่มือนี้แล้ว ·

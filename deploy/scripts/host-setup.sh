@@ -30,6 +30,8 @@ DATA=/srv/pos-data
 # log-driver local: rotated + compressed container logs (100 MB per container by default) — the
 # compose files set no `logging:`, so without it logs grow on the data disk without limit.
 DAEMON_JSON='{"data-root": "/srv/pos-data/docker", "log-driver": "local", "features": {"containerd-snapshotter": false}}'
+# What the 5c7f210 release wrote (no log-driver): a re-run upgrades it instead of refusing.
+OLD_DAEMON_JSON='{"data-root": "/srv/pos-data/docker", "features": {"containerd-snapshotter": false}}'
 DROPIN=/etc/systemd/system/docker.service.d/10-pos-data.conf
 
 profile=auto data_disk='' tailscale=0 lan_ip='' ts_hostname='' dry=0
@@ -203,7 +205,9 @@ setup_storage() {
   local line="UUID=$uuid $DATA ext4 defaults,noatime,nofail 0 2"
 
   # Refusals before any write.
-  if [ -f "$R/etc/docker/daemon.json" ] && [ "$(cat "$R/etc/docker/daemon.json")" != "$DAEMON_JSON" ]; then
+  local cur_json
+  cur_json="$(cat "$R/etc/docker/daemon.json" 2>/dev/null || true)"
+  if [ -f "$R/etc/docker/daemon.json" ] && [ "$cur_json" != "$DAEMON_JSON" ] && [ "$cur_json" != "$OLD_DAEMON_JSON" ]; then
     die "/etc/docker/daemon.json exists with different content — merge by hand:
 $DAEMON_JSON"
   fi
@@ -245,8 +249,16 @@ $DAEMON_JSON"
   put /etc/docker/daemon.json "$DAEMON_JSON"
   put "$DROPIN" "$(printf '[Unit]\nRequiresMountsFor=%s' "$DATA")"
   run systemctl daemon-reload
-  # Only on a real change: a re-run (e.g. to add --tailscale after the first deploy) must not stop the POS.
-  if [ "$changed" = 1 ] && systemctl is-active --quiet docker; then run systemctl restart docker; fi
+  # Only on a real change, or when Docker still runs from the old data-root (a run interrupted after
+  # the writes): a re-run (e.g. to add --tailscale after the first deploy) must not stop the POS.
+  if systemctl is-active --quiet docker; then
+    if [ "$changed" = 1 ]; then
+      run systemctl restart docker
+    elif [ "$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || true)" != "$DATA/docker" ]; then
+      echo "Docker is not running from $DATA/docker yet — restarting it"
+      run systemctl restart docker
+    fi
+  fi
   echo "data disk ready: Docker data-root = $DATA/docker"
   echo "note: backups stay in /opt/pos/backups on the boot disk — a different device from pgdata, on purpose"
 }

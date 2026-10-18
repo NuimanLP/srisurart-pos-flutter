@@ -599,9 +599,9 @@ PLATFORM_ADMINS=1
 
 ### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
 
-> 🔴 **ยังไม่ได้ทำ (2026-10-14):** ชุด devops (PR #723 — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking) อยู่ใน
-> `develop` เท่านั้น เจ้าของสั่งพักไว้ · `main` และ `mob04` ยังเป็นรุ่นก่อน (ไม่มี Gatus, heartbeat Healthchecks.io ยังส่งอยู่) · ทุกอย่างใน
-> §2.6, แถว `3300` ของ §4.5 และขั้น 6b ใช้ได้**หลัง release ถัดไป** · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
+> 🔴 **release แล้ว (2026-10-17):** ชุด devops (PR #727 → `main` `21ad935` — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking)
+> ขึ้น `mob04` แล้ว (ไม่ได้รัน `provision.yml` — ทำมือ) · 2026-10-18: ตั้ง `ALERT_DISCORD_WEBHOOK` + ทดสอบส่ง Discord แล้ว, ลบ heartbeat Healthchecks.io แล้ว ·
+> **ยังค้าง:** pre-migrate dump ยังไม่เคยรันจริง · §2.6 ด้านล่างเป็นลำดับของ release แรกที่มี alerting (ใช้กับเครื่องใหม่) · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
 > `docker logs gatus`, ดู deploy แรกพร้อมคำสั่งเก็บกวาด rollback): `docs/handoff_log/session-2026-10-14-devops-develop.md`
 
 ต้นทางคือ `07_CICD_DEPLOY.md` §10.5 — ที่นี่คือคำสั่ง · 🔴 **ห้ามรัน `provision.yml` ก่อน merge**: ก่อน merge `origin/main` ยังเป็น playbook เก่า
@@ -977,7 +977,7 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 | `http://localhost:9090` | Prometheus | — |
 | `http://localhost:3100` | Bull-Board | `BULL_BOARD_USER`/`_PASSWORD` (owner) |
 | `http://localhost:3200` | platform-ui | platform admin (หลัง migration `1788652804600` ทุกคนต้อง login ใหม่ — ปกติ) |
-| `http://localhost:3300` | Gatus (**หลัง release ชุด devops — ยังไม่มีบน `mob04`**, §2.6) — uptime ของทุก service (ต้องเขียวหลัง ~3 นาที) · Grafana → Alerting → Alert rules ต้องเห็น 10 rule ไม่มี `Error` (§10.5 ของ 07) | — (ผูก loopback เท่านั้น) |
+| `http://localhost:3300` | Gatus (**release 2026-10-17 — มีบน `mob04` แล้ว**, §2.6) — uptime ของทุก service (ต้องเขียวหลัง ~3 นาที) · Grafana → Alerting → Alert rules ต้องเห็น 10 rule ไม่มี `Error` (§10.5 ของ 07) | — (ผูก loopback เท่านั้น) |
 
 **4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ, ต่อ VPN, หรือ Tailscale ที่ login เข้า tailnet ของร้าน — §1.2; ไม่ต้อง build APK ใหม่ เพราะที่อยู่/SAN เดิม) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
 
@@ -1126,7 +1126,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, สร้าง `docker/nginx` (#508), `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` → `Ensure the certgen directory exists` → `Copy certgen script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) · copy `certgen.sh` |
 | 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 (รวม `certgen.sh`) เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
-| 6b | `Check whether database migrations are pending (new image)` → `Back up the database before applying migrations` | (หลัง release ชุด devops — §2.6) `migrate.js status` ด้วย image ใหม่ · มี migration ค้าง (หรือเช็คล้ม) = dump DB อย่างเดียวลง `/opt/pos/backups-pre-migrate/` (30 วัน) ก่อน `migrate` · ไม่มีค้าง = task backup ขึ้น `skipping` (ปกติ) · dump ล้ม = deploy ล้มก่อนแตะ schema · dump นี้คือทางย้อนเดียวของ migration (07 §7 "กู้ฐานข้อมูลหลัง migration เสีย" — เจ้าของตัดสิน, ข้อมูลหลัง dump หาย) |
+| 6b | `Check whether database migrations are pending (new image)` → `Back up the database before applying migrations` | (release ชุด devops แล้ว 2026-10-17 — §2.6) `migrate.js status` ด้วย image ใหม่ · มี migration ค้าง (หรือเช็คล้ม) = dump DB อย่างเดียวลง `/opt/pos/backups-pre-migrate/` (30 วัน) ก่อน `migrate` · ไม่มีค้าง = task backup ขึ้น `skipping` (ปกติ) · dump ล้ม = deploy ล้มก่อนแตะ schema · dump นี้คือทางย้อนเดียวของ migration (07 §7 "กู้ฐานข้อมูลหลัง migration เสีย" — เจ้าของตัดสิน, ข้อมูลหลัง dump หาย) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
 | 8 | `Issue the TLS certificate (certgen)` → `Ensure backing datastores, htpasswd-gen and etcd are running` | `run --rm --no-deps certgen` (ล้ม = deploy ล้ม) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` |
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
