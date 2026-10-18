@@ -8,10 +8,12 @@ $ErrorActionPreference = 'Stop'
 $task = 'Srisurart mob04 watchdog'
 if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "Removed task '$task'. Folder kept: delete $env:LOCALAPPDATA\srisurart-watchdog by hand if wanted."
+    Write-Host "Removed task '$task'. Folder kept: delete $env:USERPROFILE\srisurart-ops\watchdog by hand if wanted."
     return
 }
-$dir = Join-Path $env:LOCALAPPDATA 'srisurart-watchdog'
+# Not under %LOCALAPPDATA%: an MSIX-packaged launcher (e.g. the Claude desktop app) has its AppData writes
+# virtualized into its own package folder, which Task Scheduler cannot see (found 2026-10-18).
+$dir = Join-Path $env:USERPROFILE 'srisurart-ops\watchdog'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 

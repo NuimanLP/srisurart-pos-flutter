@@ -177,3 +177,42 @@ on both issues now.
 - `rclone` is not installed on `mob04`; `provision.yml`/`deploy.yml` do not install it (not needed
   until offsite is actually turned on).
 - This PR uses `References #363`, not `Closes #363`.
+
+## 2026-10-18 - owner decision: this PC pulls the backups (instead of rclone from mob04)
+
+**Decision (owner, 2026-10-18).** Instead of `rclone` pushing from `mob04`, the owner's Windows PC pulls the nightly
+backups from `mob04` into `D:\Beestation\Sri_POS\mob04-backups\` (outside the git repo). That folder sits under
+`D:\Beestation`, which the shop's Synology BeeStation client syncs (`bee-cloud-drive-*` / `cloud-drive-*` processes and a
+`.SynologyWorkingDirectory` in the root were running on 2026-10-18; the sync settings were not touched). The BeeStation
+therefore holds the off-VM copy. This replaces the unsettled SFTP/SMB/rclone question for now; `backup-db.sh`'s optional
+`offsite_upload()` is untouched and stays disabled (`BACKUP_RCLONE_REMOTE` unset).
+
+**Mechanism.** `deploy/scripts/pc-pull-backups.ps1`, installed by `install-pc-pull-backups.ps1` as the Scheduled Task
+`Srisurart mob04 backup pull` (current user, daily 11:00 local = after the 03:00 UTC / 10:00 ICT dump, run-when-missed on).
+It connects as `deploy`, pins the host key against `~/.ssh/known_hosts` (`StrictHostKeyChecking=yes`), lists the
+`pos_{backup,images,sale_photos}_<ts>*.sha256` sidecars in `/opt/pos/backups`, copies every file not yet present locally to
+`<name>.partial`, checks SHA-256 with `Get-FileHash` against the sidecar, then renames. Log:
+`%USERPROFILE%\srisurart-ops\backup-pull\pull.log` (1 MB rotate). Discord alert (same `webhook.txt` as the watchdog) once on the
+2nd consecutive failed day or when the newest verified set is older than 26 h, once on recovery. Exit codes: 0 ok,
+1 ssh failed, 2 copy/hash failed, 3 stale, 4 local config missing. Local retention 30 days, a set is deleted only when a
+newer verified set exists. The destination and log folders have an owner-only ACL (customer data, PDPA).
+
+**Deliberate choices / limits.**
+- **Read-only on `mob04`; no `.uploaded` markers.** The marker would tell `backup-db.sh` prune the dump is offsite and let it
+  delete it (in rclone mode); the PC copy is not a mob04-side guarantee, so mob04 keeps pruning by age as before.
+- **Works only while this PC is on and can reach `172.30.58.20`** (campus VPN / Tailscale subnet route). A missed day is
+  caught up on the next run (the script copies every set it does not have). A BeeStation sync outage or a full disk on the
+  PC is not detected by the script.
+- **Key:** the task uses `~/.ssh/mob04-SriStore`. `deploy_ed25519` is no longer in `deploy`'s `authorized_keys` on `mob04`
+  (only `mob04-SriStore` is, checked 2026-10-18), so the ed25519 key is refused. That key also opens the sudo-capable `cloud`
+  account - a dedicated pull-only key (forced command / read-only) would be tighter but needs a write to `mob04`; owner call.
+- `pos_images_*` / `pos_sale_photos_*` are copied too (currently ~100-byte empty tarballs).
+- **Restore** = copy a set (`.sql.gz` + `.sha256`) back into `/opt/pos/backups` on the VM and run `restore-db.sh` as before.
+  Not yet proven from the BeeStation copy (AC3 stays open).
+- This does not satisfy the original ACs as written (AC1 credentials, AC2 upload log from the VM): #363/#288 stay open
+  until the owner accepts the PC pull as the replacement.
+
+**First run (2026-10-18):** 11 sets / 33 files pulled and hash-verified, second run copied nothing, `gzip -t` OK on the
+newest and oldest dump. The Scheduled Task's own trigger was not proven from the agent session: `LastTaskResult` was
+`0xFFFD0000` after `Start-ScheduledTask` and the existing watchdog task shows the same code and no log lines since 16:12 -
+check with the owner at the PC whether tasks run unattended.

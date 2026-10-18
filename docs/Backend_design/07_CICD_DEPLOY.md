@@ -801,6 +801,27 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 
 อ่านคู่กับ §7 (runbook แถว "VM พัง/ย้ายเครื่อง")
 
+### 7a.1 สำเนานอก VM ด้วย PC ดึงเอง (มติเจ้าของ 2026-10-18 — ใช้แทน rclone จาก `mob04` ระหว่างนี้)
+
+PC Windows ของเจ้าของ**ดึง**backup จาก `mob04` มาเก็บที่ `D:\Beestation\Sri_POS\mob04-backups\` (นอก repo) ซึ่งอยู่ใต้โฟลเดอร์ที่
+Synology BeeStation ของร้านซิงก์ไว้ — สำเนานอก VM จึงไปอยู่บน BeeStation ผ่านการซิงก์ของมันเอง · `offsite_upload()`/rclone ใน
+`backup-db.sh` **ไม่ถูกแตะ** และยังปิดอยู่ (`BACKUP_RCLONE_REMOTE` ไม่ตั้ง)
+
+| ส่วน | รายละเอียด |
+|---|---|
+| สคริปต์ | `deploy/scripts/pc-pull-backups.ps1` + ตัวติดตั้ง `install-pc-pull-backups.ps1` (Scheduled Task `Srisurart mob04 backup pull`, ทุกวัน 11:00 เวลาไทย หลัง dump 03:00 UTC, รันชดเชยถ้าพลาด; `-Uninstall` ถอดได้) |
+| การเชื่อมต่อ | ssh/scp ผู้ใช้ `deploy` ด้วย key ใน `~/.ssh` และตรวจ host key กับ `known_hosts` (`StrictHostKeyChecking=yes` ไม่ปิดเด็ดขาด) |
+| การคัดลอก | อ่าน `*.sha256` ใน `/opt/pos/backups` → ชุดที่ยังไม่มีในเครื่องคัดลอกเป็น `.partial` → ตรวจ SHA-256 (`Get-FileHash`) ตรงกับ sidecar จึงเปลี่ยนชื่อ · ข้าม `.partial` บน VM |
+| เก็บในเครื่อง | 30 วัน — ลบชุดเก่าต่อเมื่อมีชุดใหม่กว่าที่ verify แล้วอย่างน้อย 1 ชุด |
+| แจ้งเตือน | Discord (webhook ไฟล์เดียวกับ watchdog) ครั้งเดียวเมื่อล้มวันที่ 2 ติดกัน หรือชุดล่าสุดเก่ากว่า 26 ชม. และอีกครั้งเมื่อกลับมาปกติ · log `%USERPROFILE%\srisurart-ops\backup-pull\pull.log` |
+| สิทธิ์ | โฟลเดอร์ปลายทางและ log เปิดให้เจ้าของเครื่องเท่านั้น (ข้อมูลลูกค้า — PDPA) |
+
+🔴 **ข้อจำกัด/ข้อตัดสินใจ (อ่านก่อนอ้างว่ามีสำเนานอก VM):**
+- **ทำงานเฉพาะตอน PC เปิดและต่อ VPN/Tailscale ถึง `172.30.58.20` ได้** — วันที่พลาดจะถูกดึงย้อนในรอบถัดไป · ไม่ตรวจว่า BeeStation ซิงก์ขึ้นจริงหรือดิสก์ PC เต็ม
+- **อ่านอย่างเดียวบน `mob04` และ*ไม่*สร้าง `.uploaded` marker** — marker จะทำให้ prune ของ `backup-db.sh` เข้าใจว่ามีสำเนา offsite แล้วลบ dump ได้ ทั้งที่สำเนาบน PC ไม่ใช่การรับประกันฝั่ง VM จึงปล่อยให้ `mob04` prune ตามอายุเหมือนเดิม
+- กู้คืน = คัดลอกชุด (`.sql.gz` + `.sha256`) กลับไป `/opt/pos/backups` บน VM แล้วใช้ `restore-db.sh` ตามปกติ — **ยังไม่เคยพิสูจน์การกู้จากสำเนาบน BeeStation** (#363 AC3 ยังเปิด)
+- ใบ #363/#288 ยังเปิดจนกว่าเจ้าของจะรับรองว่ากลไกนี้ใช้แทน AC เดิม · รายละเอียดและผลรันแรก: `docs/handoff_log/ticket-363-backup-offsite.md`
+
 ---
 
 ## 7b. ~~Uptime heartbeat — Healthchecks.io~~ (ปลดแล้ว 2026-10-13 → Gatus + Grafana alerting, §10.5)
@@ -1159,7 +1180,7 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
   ผ่าน Scheduled Task "Srisurart mob04 watchdog" ทุก 5 นาที · GET `https://172.30.58.20/health/ready` (timeout 10 วิ) · **ล้มติดกัน 2 รอบ =
   ส่ง Discord 1 ข้อความ** "mob04 /health/ready unreachable since …" · สำเร็จรอบแรกหลังประกาศ = ส่ง "mob04 back" 1 ข้อความ · ถ้า `discord.com`
   ก็ต่อไม่ได้ (PC ออฟไลน์/VPN หลุด) **ไม่นับ**เป็นความล้มของ `mob04` · TLS: ตรวจ chain กับสำเนา `pos-ca.crt` เท่านั้น (root ต้องเป็น CA ตัวนั้น —
-  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%LOCALAPPDATA%\srisurart-watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
+  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%USERPROFILE%\srisurart-ops\watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
   ไม่มีไฟล์ = log เตือนแล้วจบ) · state `state.json` + `watchdog.log` (หมุนที่ ~1 MB) ในโฟลเดอร์เดียวกัน
   🔴 **ทำงานเฉพาะตอน PC เปิดอยู่และต่อ `172.30.58.20` ได้ (VPN/Tailscale)** — PC ดับ/หลับ = ไม่มีใครเฝ้า ไม่ใช่ทางแทนเครื่องที่สอง ·
   ติดตั้ง `.\deploy\scripts\install-pc-watchdog.ps1` (ไม่ต้อง admin; ไม่เขียน webhook ให้ — พิมพ์วิธีใส่) · ถอน `.\deploy\scripts\install-pc-watchdog.ps1 -Uninstall`
