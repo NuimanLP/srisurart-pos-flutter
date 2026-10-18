@@ -497,11 +497,14 @@ develops against a demo tenant.
   day (PRs #374 / #371 / #373); #365 closed 2026-09-30; #363 is still open.**
   - **#363 — off-VM copy exists since 2026-10-18 (owner decision: the PC pulls, not rclone):** the owner's Windows PC
     runs Scheduled Task "Srisurart mob04 backup pull" (`deploy/scripts/pc-pull-backups.ps1`, daily 11:00, PR #737) — scp as `deploy`
-    into `D:\Beestation\Sri_POS\mob04-backups\` (owner-only ACL), sha256-verified, 30 days local; the BeeStation client syncs that
+    into `D:\Beestation\Sri_POS\ops\backups\mob04\YYYY-MM\` (owner-only ACL), sha256-verified, 30 days local; the BeeStation client syncs that
     folder to the shop NAS. It never writes to `mob04` (no `.uploaded` markers, so `backup-db.sh` prune stays age-based). Works only
-    while the PC is on and reaches `172.30.58.20`. **AC3 (restore from the off-VM copy) still unproven.** 🔴 PC ops state lives in
-    `%USERPROFILE%\srisurart-ops\{watchdog,backup-pull}` — never `%LOCALAPPDATA%`: installed from an MSIX app (the Claude desktop app)
-    AppData writes are virtualized into the package folder and Task Scheduler sees nothing (exit `0xFFFD0000`, found 2026-10-18).
+    while the PC is on and reaches `172.30.58.20`. **AC3 (restore from the off-VM copy) still unproven.** 🔴 **All PC ops live under one root `D:\Beestation\Sri_POS\ops\`** (owner 2026-10-18, PR #739; synced to the NAS,
+    secrets included — owner accepted): `bin\` (scripts the tasks run, pinned `attrib +P`), `secrets\` (webhook, `.env` copies),
+    `logs\`, `state\`, `backups\mob04\YYYY-MM\`, `README.txt`; all but `logs\` owner-only ACL. Anyone who can write the NAS share can
+    change `bin\` — keep NAS write access owner-only. Never `%LOCALAPPDATA%` (MSIX AppData virtualization hides it from Task
+    Scheduler, exit `0xFFFD0000`). Tasks run via `conhost.exe --headless` (no console flash) — which always reports exit 0, so
+    `LastTaskResult` proves nothing: read `ops\logs` / Discord.
     The PC watchdog ("Srisurart mob04 watchdog", every 5 min, pinned CA, Discord on 2 failures) covers "mob04 fully down", which
     Gatus on the same host cannot. The history below is kept for the why.
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
