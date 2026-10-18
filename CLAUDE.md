@@ -48,8 +48,13 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `21ad935`
-(PR #727, merge commit, 2026-10-17)**: the DevOps bundle (see the 🔴 paragraph after this one). Before it `5c7f210`
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `e6374df`
+(PR #736, merge commit, 2026-10-18)**: follow-ups to #727 — `host-setup.sh` upgrade/restart fix (#728), alert test checks every
+rule metric has a series + disk alert also watches `/srv/pos-data` (#734), `restore-db.sh` verifies against `migrations` (#735, it used to
+exit 1 after a good restore), PC watchdog (#733), docs. Deploy run `39116359714` `failed=0`, `.current_sha` checked; then `provision.yml`
+from a clean `e6374df` tree run from WSL **without** `DEMO_ENV_FILE` (`failed=0`; installed `restore-db.sh` + `measure-container-rss.sh`;
+`.env` sha256 unchanged). Before it `21ad935`
+(PR #727, merge commit, 2026-10-17): the DevOps bundle (see the 🔴 paragraph after this one). Before that `5c7f210`
 (PR #714, merge commit, 2026-10-13): multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
 (PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" below — deployed to `mob04` (run `38393626652`, `.current_sha`
 checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`).
@@ -490,6 +495,15 @@ develops against a demo tenant.
   DDL in `01_DATABASE.md` is illustration.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
   day (PRs #374 / #371 / #373); #365 closed 2026-09-30; #363 is still open.**
+  - **#363 — off-VM copy exists since 2026-10-18 (owner decision: the PC pulls, not rclone):** the owner's Windows PC
+    runs Scheduled Task "Srisurart mob04 backup pull" (`deploy/scripts/pc-pull-backups.ps1`, daily 11:00, PR #737) — scp as `deploy`
+    into `D:\Beestation\Sri_POS\mob04-backups\` (owner-only ACL), sha256-verified, 30 days local; the BeeStation client syncs that
+    folder to the shop NAS. It never writes to `mob04` (no `.uploaded` markers, so `backup-db.sh` prune stays age-based). Works only
+    while the PC is on and reaches `172.30.58.20`. **AC3 (restore from the off-VM copy) still unproven.** 🔴 PC ops state lives in
+    `%USERPROFILE%\srisurart-ops\{watchdog,backup-pull}` — never `%LOCALAPPDATA%`: installed from an MSIX app (the Claude desktop app)
+    AppData writes are virtualized into the package folder and Task Scheduler sees nothing (exit `0xFFFD0000`, found 2026-10-18).
+    The PC watchdog ("Srisurart mob04 watchdog", every 5 min, pinned CA, Discord on 2 failures) covers "mob04 fully down", which
+    Gatus on the same host cannot. The history below is kept for the why.
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
     is still `[ ]` on a reopened ticket (#288 was **reopened 2026-09-21** by the owner).
     🔴 **Mechanism built same day, not wired**:
