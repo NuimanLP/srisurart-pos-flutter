@@ -813,7 +813,7 @@ Synology BeeStation ของร้านซิงก์ไว้ — สำเ�
 | การเชื่อมต่อ | ssh/scp ผู้ใช้ `deploy` ด้วย key ใน `~/.ssh` และตรวจ host key กับ `known_hosts` (`StrictHostKeyChecking=yes` ไม่ปิดเด็ดขาด) |
 | การคัดลอก | อ่าน `*.sha256` ใน `/opt/pos/backups` → ชุดที่ยังไม่มีในเครื่องคัดลอกเป็น `.partial` → ตรวจ SHA-256 (`Get-FileHash`) ตรงกับ sidecar จึงเปลี่ยนชื่อ · ข้าม `.partial` บน VM |
 | เก็บในเครื่อง | 30 วัน — ลบชุดเก่าต่อเมื่อมีชุดใหม่กว่าที่ verify แล้วอย่างน้อย 1 ชุด |
-| แจ้งเตือน | Discord (webhook ไฟล์เดียวกับ watchdog) ครั้งเดียวเมื่อล้มวันที่ 2 ติดกัน หรือชุดล่าสุดเก่ากว่า 26 ชม. และอีกครั้งเมื่อกลับมาปกติ · log `%LOCALAPPDATA%\srisurart-backup-pull\pull.log` |
+| แจ้งเตือน | Discord (webhook ไฟล์เดียวกับ watchdog) ครั้งเดียวเมื่อล้มวันที่ 2 ติดกัน หรือชุดล่าสุดเก่ากว่า 26 ชม. และอีกครั้งเมื่อกลับมาปกติ · log `%USERPROFILE%\srisurart-ops\backup-pull\pull.log` |
 | สิทธิ์ | โฟลเดอร์ปลายทางและ log เปิดให้เจ้าของเครื่องเท่านั้น (ข้อมูลลูกค้า — PDPA) |
 
 🔴 **ข้อจำกัด/ข้อตัดสินใจ (อ่านก่อนอ้างว่ามีสำเนานอก VM):**
@@ -1180,7 +1180,7 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
   ผ่าน Scheduled Task "Srisurart mob04 watchdog" ทุก 5 นาที · GET `https://172.30.58.20/health/ready` (timeout 10 วิ) · **ล้มติดกัน 2 รอบ =
   ส่ง Discord 1 ข้อความ** "mob04 /health/ready unreachable since …" · สำเร็จรอบแรกหลังประกาศ = ส่ง "mob04 back" 1 ข้อความ · ถ้า `discord.com`
   ก็ต่อไม่ได้ (PC ออฟไลน์/VPN หลุด) **ไม่นับ**เป็นความล้มของ `mob04` · TLS: ตรวจ chain กับสำเนา `pos-ca.crt` เท่านั้น (root ต้องเป็น CA ตัวนั้น —
-  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%LOCALAPPDATA%\srisurart-watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
+  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%USERPROFILE%\srisurart-ops\watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
   ไม่มีไฟล์ = log เตือนแล้วจบ) · state `state.json` + `watchdog.log` (หมุนที่ ~1 MB) ในโฟลเดอร์เดียวกัน
   🔴 **ทำงานเฉพาะตอน PC เปิดอยู่และต่อ `172.30.58.20` ได้ (VPN/Tailscale)** — PC ดับ/หลับ = ไม่มีใครเฝ้า ไม่ใช่ทางแทนเครื่องที่สอง ·
   ติดตั้ง `.\deploy\scripts\install-pc-watchdog.ps1` (ไม่ต้อง admin; ไม่เขียน webhook ให้ — พิมพ์วิธีใส่) · ถอน `.\deploy\scripts\install-pc-watchdog.ps1 -Uninstall`

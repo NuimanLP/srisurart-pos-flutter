@@ -192,7 +192,7 @@ therefore holds the off-VM copy. This replaces the unsettled SFTP/SMB/rclone que
 It connects as `deploy`, pins the host key against `~/.ssh/known_hosts` (`StrictHostKeyChecking=yes`), lists the
 `pos_{backup,images,sale_photos}_<ts>*.sha256` sidecars in `/opt/pos/backups`, copies every file not yet present locally to
 `<name>.partial`, checks SHA-256 with `Get-FileHash` against the sidecar, then renames. Log:
-`%LOCALAPPDATA%\srisurart-backup-pull\pull.log` (1 MB rotate). Discord alert (same `webhook.txt` as the watchdog) once on the
+`%USERPROFILE%\srisurart-ops\backup-pull\pull.log` (1 MB rotate). Discord alert (same `webhook.txt` as the watchdog) once on the
 2nd consecutive failed day or when the newest verified set is older than 26 h, once on recovery. Exit codes: 0 ok,
 1 ssh failed, 2 copy/hash failed, 3 stale, 4 local config missing. Local retention 30 days, a set is deleted only when a
 newer verified set exists. The destination and log folders have an owner-only ACL (customer data, PDPA).

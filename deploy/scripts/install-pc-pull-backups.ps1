@@ -3,7 +3,7 @@ Installs the mob04 backup pull for the CURRENT user (no admin needed): log/state
 folder (both owner-only ACL - customer data, PDPA), a copy of pc-pull-backups.ps1, and the Scheduled Task
 "Srisurart mob04 backup pull" daily at 11:00 local (ICT; the dump is written 03:00 UTC = 10:00 ICT),
 with "run as soon as possible after a missed start". Uninstall: -Uninstall (keeps folders and backups).
-Needs the same webhook file as the watchdog for alerts: %LOCALAPPDATA%\srisurart-watchdog\webhook.txt.
+Needs the same webhook file as the watchdog for alerts: %USERPROFILE%\srisurart-ops\watchdog\webhook.txt.
 #>
 param(
     [switch]$Uninstall,
@@ -11,7 +11,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $task = 'Srisurart mob04 backup pull'
-$dir = Join-Path $env:LOCALAPPDATA 'srisurart-backup-pull'
+$dir = Join-Path $env:USERPROFILE 'srisurart-ops\backup-pull'
 if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
     Write-Host "Removed task '$task'. Kept: $dir and $Dest (delete by hand if wanted)."
@@ -34,6 +34,6 @@ Register-ScheduledTask -TaskName $task -Action $act -Trigger $trg -Settings $set
     -Description 'Pulls mob04 nightly backups into the BeeStation-synced folder. See 07_CICD_DEPLOY.md 7a (#363)' | Out-Null
 
 Write-Host "Installed task '$task' (daily 11:00, user $me). Destination: $Dest  Log: $dir\pull.log"
-if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'srisurart-watchdog\webhook.txt'))) {
-    Write-Host "NOTE: no Discord webhook at $env:LOCALAPPDATA\srisurart-watchdog\webhook.txt - the pull runs but cannot alert."
+if (-not (Test-Path (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog\webhook.txt'))) {
+    Write-Host "NOTE: no Discord webhook at $env:USERPROFILE\srisurart-ops\watchdog\webhook.txt - the pull runs but cannot alert."
 }

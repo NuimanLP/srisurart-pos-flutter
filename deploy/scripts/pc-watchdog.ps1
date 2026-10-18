@@ -12,7 +12,7 @@ at that exact CA (thumbprint match). Certificate checks are never disabled.
 #>
 param(
     [string]$Url = 'https://172.30.58.20/health/ready',
-    [string]$DataDir = (Join-Path $env:LOCALAPPDATA 'srisurart-watchdog'),
+    [string]$DataDir = (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog'),
     [int]$TimeoutSec = 10
 )
 $ErrorActionPreference = 'Stop'

@@ -19,8 +19,8 @@ Exit codes: 0 ok, 1 mob04 unreachable / ssh failed, 2 copy or hash verification 
 #>
 param(
     [string]$Dest = 'D:\Beestation\Sri_POS\mob04-backups',
-    [string]$DataDir = (Join-Path $env:LOCALAPPDATA 'srisurart-backup-pull'),
-    [string]$WatchdogDir = (Join-Path $env:LOCALAPPDATA 'srisurart-watchdog'),
+    [string]$DataDir = (Join-Path $env:USERPROFILE 'srisurart-ops\backup-pull'),
+    [string]$WatchdogDir = (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog'),
     [string]$HostName = '172.30.58.20',
     [string]$User = 'deploy',
     [string]$KeyFile = (Join-Path $env:USERPROFILE '.ssh\mob04-SriStore'),
