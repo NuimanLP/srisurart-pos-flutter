@@ -153,7 +153,7 @@ if [[ "$STMT_TIMEOUT" != "25s" || "$IDLE_TIMEOUT" != "5s" ]]; then
   exit 1
 fi
 
-MIGRATION_COUNT="$(exec_psql "$TARGET_DB" -t -c "SELECT COUNT(*) FROM typeorm_migrations;" | tr -d '[:space:]')"
+MIGRATION_COUNT="$(exec_psql "$TARGET_DB" -t -c "SELECT COUNT(*) FROM migrations;" | tr -d '[:space:]')"
 echo "  Restored migrations:                       $MIGRATION_COUNT"
 
 echo "=== Restore & Verification Succeeded ==="
