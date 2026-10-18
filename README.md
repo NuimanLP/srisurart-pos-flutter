@@ -12,11 +12,11 @@ React + `localStorage` page; it was rewritten as an offline-first Flutter app (S
 counter PC), and is now being extended into a multi-tenant platform so more than one shop can
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
-> **Status (2026-10-14):** the course-submission freeze ended on 2026-10-10 and normal development
-> resumed. The last code release is `main` `5c7f210` (PR #714, 2026-10-13: multi-arch images), deployed
-> to the demo VM `mob04`; `main` head `62e3688` adds docs only. `develop` is ahead with a **parked**
-> DevOps bundle (Semgrep SAST gate, pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint,
-> SSH host-key checks) that is not released and not on `mob04`. No Raspberry Pi is in service.
+> **Status (2026-10-17):** the course-submission freeze ended on 2026-10-10 and normal development
+> resumed. The last release is `main` `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate,
+> pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks), deployed
+> to the demo VM `mob04` (`.current_sha` checked). Still open there: `ALERT_DISCORD_WEBHOOK` is unset (alerts reach
+> nobody) and the old Healthchecks.io heartbeat still pings until `provision.yml` is run. No Raspberry Pi is in service.
 > Detail: [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
 > [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
 
@@ -178,7 +178,7 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
 - **Tailscale** remote access to `mob04` (2026-10-13): subnet router for `172.30.58.20/32` only, SNAT off, no faculty VPN client needed —
   [`tailscale-remote-access-plan-2026-10-13.md`](docs/research/tailscale-remote-access-plan-2026-10-13.md).
-- **DevOps bundle, parked in `develop`** (not released): Semgrep SAST gate, DB dump before pending migrations,
+- **DevOps bundle, released 2026-10-17** (`main` `21ad935`, PR #727; alert webhook not set yet): Semgrep SAST gate, DB dump before pending migrations,
   Grafana alerting to Discord + Gatus replacing the Healthchecks.io heartbeat, ansible-lint, Trivy config/web-image
   scan, SSH host-key verification —
   [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
@@ -431,7 +431,7 @@ builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Ba
 > `e50f4fa` ([handoff](docs/handoff_log/session-2026-09-30-first-runner-deploy.md)), with a
 > `workflow_dispatch` rollback and an automatic rollback after a failed readiness check both
 > proven on real runs the same day. The latest release on `mob04` is `5c7f210` (PR #714,
-> 2026-10-13, deploy run `38393626652`; images are now amd64 + arm64). `develop` is ahead with parked DevOps changes (see Status above). **A green `Deploy (demo)` run is
+> 2026-10-13, deploy run `38393626652`; images are now amd64 + arm64). the DevOps bundle was released on 2026-10-17 (see Status above). **A green `Deploy (demo)` run is
 > not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
 > run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
 
@@ -494,7 +494,7 @@ and that work is parked (#363), so a dead VM disk still loses every tenant. A gr
 does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
 
 Uptime: on `mob04` today, `healthcheck-ping.sh` pings an external heartbeat every 5 minutes from cron
-(installed 2026-10-04). On `develop` (parked, unreleased) it is replaced by Gatus plus Grafana alerts to Discord.
+(installed 2026-10-04). Since the 2026-10-17 release the code replaces it with Gatus plus Grafana alerts to Discord, but on `mob04` the old ping still runs until `provision.yml` is run.
 
 ---
 

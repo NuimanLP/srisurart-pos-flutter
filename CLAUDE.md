@@ -48,17 +48,25 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `5c7f210`
-(PR #714, merge commit, 2026-10-13)**: multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `21ad935`
+(PR #727, merge commit, 2026-10-17)**: the DevOps bundle (see the 🔴 paragraph after this one). Before it `5c7f210`
+(PR #714, merge commit, 2026-10-13): multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
 (PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" below — deployed to `mob04` (run `38393626652`, `.current_sha`
-checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`); `main` = `62e3688` since (docs-only PR #716, no deploy).
-🔴 **`develop` is ahead of `main` with a PARKED devops bundle (owner, 2026-10-14):** PR #723 (merge commit `840d9d4`) =
-#717 Semgrep + SHA-pinned actions, #718 pre-migrate DB dump, #719 Grafana alerting → Discord + Gatus (retires the
-Healthchecks.io heartbeat), #720 ansible-lint + Trivy config/web scan + SSH host-key checking, #721 review fixes — **not
-released to `main`, not on `mob04`**. Releasing it needs the owner-run order in `07 §10.5` plus the pre-release checklist in
-`docs/handoff_log/session-2026-10-14-devops-develop.md` (Discord egress / webhook-token-in-logs check first). Any other
-`develop` → `main` merge now carries this bundle too. Also in `develop` only (2026-10-14): PR #722 (`cfd4a11`, `host-setup.sh`
-follow-ups) and PR #724 (`3dbc197`, Semgrep scan-error/skipped-file warning step + stale heartbeat refs). Before it `8a44a03`
+checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`).
+🔴 **The devops bundle (parked in `develop` 2026-10-14) was RELEASED 2026-10-17:** PR #727 (`develop` → `main`, merge commit) =
+`main` `21ad935`; Server CI + Flutter CI green, multi-arch images published. Bundle = PR #723 (#717 Semgrep + SHA-pinned actions,
+#718 pre-migrate DB dump, #719 Grafana alerting → Discord + Gatus, #720 ansible-lint + Trivy config/web scan + SSH host-key
+checking, #721 review fixes) + PR #722 + PR #724. Deploy (demo) run `39042973596` approved, Ansible `failed=0`, `/health/ready` ok,
+`/opt/pos/.current_sha` = `21ad935…` checked over SSH (twin run `39042895154` skipped green, normal). No migration was pending, so
+the pre-migrate dump was correctly skipped — **it has still never dumped on `mob04`**. `provision.yml` was NOT run: over SSH as
+`cloud` the release `backup-db.sh` was installed by hand (sha256 `c312728f…`, previous copy `.backup-db.sh.prev-5c7f210`),
+`/opt/pos/node-textfile` created (deploy:deploy 0755) and `backup-db.sh` run once as `deploy` in cron env (rc=0) → gauge
+`pos_backup_last_success_timestamp_seconds` is in Prometheus; all 10 Grafana rules Normal, Gatus 9/9 endpoints success.
+🔴 **Discord alerting live on `mob04` since 2026-10-18:** `ALERT_DISCORD_WEBHOOK` set in `/opt/pos/.env` by hand (backup
+`.env.bak-20261018T041536Z`; egress checked: HTTP 200, issuer Google Trust Services, not FortiGate), `grafana` + `gatus` recreated,
+Grafana contact-point test → `discord ok`. The webhook is a secret: it only lives in `.env` (leaked = delete it in Discord and make a new one). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
+`develop` only, not on `main` yet): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts Docker when
+`DockerRootDir` ≠ `/srv/pos-data/docker`. Before `21ad935` the release was `5c7f210`; before that `8a44a03`
 (PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
 supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
 below), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
@@ -705,7 +713,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   `refs/heads/main`, active, **no bypass actors**) refuses squash/rebase into `main` — so admins
   cannot push directly to `main` either. Verify: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main`.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
-- **Backup before migration (2026-10-13, `agent ร่าง`; in `develop` via PR #723 — parked, never run on `mob04`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
+- **Backup before migration (2026-10-13, 30-day retention owner-ratified 2026-10-18; released in `main` `21ad935` via PR #727 — no migration pending at that deploy, so it has never dumped on `mob04`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
   (or the check fails), a DB-only `backup-db.sh` (`BACKUP_VOLUMES=0`, shipped to the VM with `ansible.builtin.script` because `/opt/pos/scripts`
   is stale until `provision.yml`) into `/opt/pos/backups-pre-migrate/` (sibling of `backups/`, 30 days, no offsite). A failed dump stops the deploy before
   any container/schema change. 🔴 It is the only undo for a migration (no down-migrations); restoring is an owner decision and loses every write after the dump (07 §7).
@@ -719,8 +727,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
-- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *proposed*; in `develop` via PR #723 —
-  CI-side, so it already gates every PR whose merge result contains it, i.e. every PR into `develop`): never
+- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *Accepted* 2026-10-18; in `main` since `21ad935`): never
   path-gated, `server-ci-status` requires `success`, `build-image` needs it. Pinned image digest
   (`--metrics=off`) + pinned `semgrep/semgrep-rules` commit; **any ERROR-severity result fails**,
   WARNING/INFO only go to SARIF. False positive → inline `nosemgrep: rule-id -- reason` (a marker
@@ -739,7 +746,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   migration is never edited — add a new one. 🔴 Two PRs green alone can be red
   together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
   `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
-- **IaC lint + web image scans (2026-10-13, in `develop` via PR #723 — parked, not released to `main`):** `ci-guards` runs
+- **IaC lint + web image scans (2026-10-13, released in `main` `21ad935` via PR #727):** `ci-guards` runs
   **ansible-lint** (`deploy/ansible/.ansible-lint`: profile `production`, offline; hash-pinned
   `deploy/ansible/lint-requirements.txt` on CPython 3.12 pinned by `actions/setup-python` + sha256-checked `ansible.posix`;
   pip wheels and the Galaxy tarball are cached, and a cache hit is still hash-checked) over every playbook in `deploy/ansible/` —
@@ -895,12 +902,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `deploy/grafana/` (deploy.yml copies those trees wholesale).
 - ~~Uptime heartbeat (#596, Healthchecks.io)~~ — **retired 2026-10-13** (not the team's account):
   script/test deleted, `provision.yml` removes the cron (same `name:`, `state: absent`) and the VM copy.
-  🔴 **Retired in `develop` only (PR #723, parked):** `main` still ships `healthcheck-ping.sh` and its cron, and on
-  `mob04` the hand-installed copy (2026-10-04, sha256 `77f79d62…`, key in `/opt/pos/.env`) **keeps pinging every 5 min
-  until the release's `provision.yml` run** — not re-checked over SSH on 2026-10-14. Until then a `provision.yml` from
-  `origin/main` re-installs it; the account owner pauses the check before the release (07 §10.5).
-- **Alerting → Discord + Gatus (2026-10-13, `agent ร่าง`, ADR-0013 addendum *proposed*; 07 §10.5; in `develop` via PR #723 —
-  parked: no Gatus, no alert rule, no `node-textfile` on `mob04` yet).**
+  🔴 **Removed from `mob04` 2026-10-18** by hand over SSH (cron, script, `HEALTHCHECKS_PING_URL`) after the account owner paused
+  the check; backups `/opt/pos/.env.bak-20261018T024347Z`, `/opt/pos/.deploy.cron.bak-20261018T024347Z` (07 §10.5).
+- **Alerting → Discord + Gatus (2026-10-13, ADR-0013 addendum *Accepted* 2026-10-18; 07 §10.5; released in `main` `21ad935` via PR #727 —
+  on `mob04` since 2026-10-17: Gatus 9/9 success, 10 rules Normal, `node-textfile` created by hand; Discord webhook set + tested 2026-10-18).**
   Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
   point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
   `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),

@@ -1,3 +1,5 @@
+> **Update 2026-10-17: this bundle was RELEASED** (PR #727, `main` `21ad935`, deployed to `mob04`) — see `session-2026-10-17-release-727.md`. The text below is the 2026-10-14 state.
+
 # Session 2026-10-13/14 — DevOps bundle (Semgrep, pre-migrate dump, Discord alerting + Gatus, ansible-lint) merged into `develop`, PARKED
 
 **Not released.** `develop` got PR #723 (`devops-improvements` → `develop`, merge commit `840d9d4`, merged 2026-10-14 03:32Z),
