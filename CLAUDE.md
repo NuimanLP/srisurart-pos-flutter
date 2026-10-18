@@ -62,8 +62,9 @@ the pre-migrate dump was correctly skipped — **it has still never dumped on `m
 `cloud` the release `backup-db.sh` was installed by hand (sha256 `c312728f…`, previous copy `.backup-db.sh.prev-5c7f210`),
 `/opt/pos/node-textfile` created (deploy:deploy 0755) and `backup-db.sh` run once as `deploy` in cron env (rc=0) → gauge
 `pos_backup_last_success_timestamp_seconds` is in Prometheus; all 10 Grafana rules Normal, Gatus 9/9 endpoints success.
-🔴 **Still open on `mob04`:** `ALERT_DISCORD_WEBHOOK` is NOT set, so Grafana's Discord notify fails (alerts reach nobody; Discord
-egress checked 2026-10-17: HTTP 200, cert issuer Google Trust Services, not FortiGate — setting it is safe). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
+🔴 **Discord alerting live on `mob04` since 2026-10-18:** `ALERT_DISCORD_WEBHOOK` set in `/opt/pos/.env` by hand (backup
+`.env.bak-20261018T041536Z`; egress checked: HTTP 200, issuer Google Trust Services, not FortiGate), `grafana` + `gatus` recreated,
+Grafana contact-point test → `discord ok`. The webhook is a secret: it only lives in `.env` (leaked = delete it in Discord and make a new one). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
 `develop` only, not on `main` yet): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts Docker when
 `DockerRootDir` ≠ `/srv/pos-data/docker`. Before `21ad935` the release was `5c7f210`; before that `8a44a03`
 (PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
@@ -904,7 +905,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   🔴 **Removed from `mob04` 2026-10-18** by hand over SSH (cron, script, `HEALTHCHECKS_PING_URL`) after the account owner paused
   the check; backups `/opt/pos/.env.bak-20261018T024347Z`, `/opt/pos/.deploy.cron.bak-20261018T024347Z` (07 §10.5).
 - **Alerting → Discord + Gatus (2026-10-13, ADR-0013 addendum *Accepted* 2026-10-18; 07 §10.5; released in `main` `21ad935` via PR #727 —
-  on `mob04` since 2026-10-17: Gatus 9/9 success, 10 rules Normal, `node-textfile` created by hand; `ALERT_DISCORD_WEBHOOK` still unset).**
+  on `mob04` since 2026-10-17: Gatus 9/9 success, 10 rules Normal, `node-textfile` created by hand; Discord webhook set + tested 2026-10-18).**
   Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
   point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
   `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),

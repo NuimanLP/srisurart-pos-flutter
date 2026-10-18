@@ -1115,8 +1115,8 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
 > `provision.yml`** — ทำมือทาง SSH (user `cloud`): ติดตั้ง `backup-db.sh` ของ release (sha256 `c312728f…`, ตัวเก่า
 > `.backup-db.sh.prev-5c7f210`), สร้าง `/opt/pos/node-textfile` (deploy:deploy 0755), รัน `backup-db.sh` หนึ่งครั้งในสภาพ cron (rc=0) →
 > gauge `pos_backup_last_success_timestamp_seconds` ขึ้นใน Prometheus · Grafana 10 rule = Normal · Gatus 9/9 endpoint success ·
-> 🔴 **ยังค้าง:** `ALERT_DISCORD_WEBHOOK` ยังไม่ตั้ง → Grafana ส่ง Discord ไม่สำเร็จ (แจ้งเตือนไม่ถึงใคร; egress ไป Discord ตรวจ 2026-10-17:
-> HTTP 200, ผู้ออกใบรับรอง Google Trust Services ไม่ใช่ FortiGate → ตั้งได้ปลอดภัย) · heartbeat Healthchecks.io (§7b) **ลบออกจาก `mob04` แล้ว 2026-10-18**
+> ✅ **Discord ใช้งานแล้ว 2026-10-18:** ตั้ง `ALERT_DISCORD_WEBHOOK` ใน `/opt/pos/.env` ด้วยมือ (สำรอง `.env.bak-20261018T041536Z`; egress ไป Discord ตรวจ 2026-10-17:
+> HTTP 200, ผู้ออกใบรับรอง Google Trust Services ไม่ใช่ FortiGate) แล้ว recreate `grafana` + `gatus` · ทดสอบ contact point ของ Grafana → `discord ok` · heartbeat Healthchecks.io (§7b) **ลบออกจาก `mob04` แล้ว 2026-10-18**
 > (owner ของบัญชี pause check ก่อน; ลบด้วยมือผ่าน SSH: cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL` — สำรองไว้ที่ `/opt/pos/.env.bak-20261018T024347Z`,
 > `/opt/pos/.deploy.cron.bak-20261018T024347Z`, `/opt/pos/scripts/.healthcheck-ping.sh.removed-20261018T024347Z`) · pre-migrate dump ยังไม่เคยรันจริง ·
 > เจ้าของตัดสินแล้ว 2026-10-18: เก็บ pre-migrate 30 วัน (PDPA) และรับรอง ADR-0013 addendum ทั้ง 2 ฉบับ · บันทึก: `docs/handoff_log/session-2026-10-17-release-727.md`

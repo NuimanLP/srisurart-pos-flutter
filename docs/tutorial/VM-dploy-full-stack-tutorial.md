@@ -600,8 +600,8 @@ PLATFORM_ADMINS=1
 ### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
 
 > 🔴 **release แล้ว (2026-10-17):** ชุด devops (PR #727 → `main` `21ad935` — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking)
-> ขึ้น `mob04` แล้ว (ไม่ได้รัน `provision.yml` — ทำมือ) · **ยังค้าง:** `ALERT_DISCORD_WEBHOOK` ยังไม่ตั้ง, heartbeat Healthchecks.io ยังส่งอยู่,
-> pre-migrate dump ยังไม่เคยรันจริง · §2.6 ด้านล่างเป็นลำดับของ release แรกที่มี alerting (ใช้กับเครื่องใหม่) · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
+> ขึ้น `mob04` แล้ว (ไม่ได้รัน `provision.yml` — ทำมือ) · 2026-10-18: ตั้ง `ALERT_DISCORD_WEBHOOK` + ทดสอบส่ง Discord แล้ว, ลบ heartbeat Healthchecks.io แล้ว ·
+> **ยังค้าง:** pre-migrate dump ยังไม่เคยรันจริง · §2.6 ด้านล่างเป็นลำดับของ release แรกที่มี alerting (ใช้กับเครื่องใหม่) · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
 > `docker logs gatus`, ดู deploy แรกพร้อมคำสั่งเก็บกวาด rollback): `docs/handoff_log/session-2026-10-14-devops-develop.md`
 
 ต้นทางคือ `07_CICD_DEPLOY.md` §10.5 — ที่นี่คือคำสั่ง · 🔴 **ห้ามรัน `provision.yml` ก่อน merge**: ก่อน merge `origin/main` ยังเป็น playbook เก่า

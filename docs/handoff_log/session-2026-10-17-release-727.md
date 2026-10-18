@@ -16,13 +16,16 @@ The bundle parked in `develop` on 2026-10-14 (`session-2026-10-14-devops-develop
 - All 10 Grafana alert rules Normal (inactive/ok); Gatus 9/9 endpoints success.
 
 ## Still open on `mob04`
-- `ALERT_DISCORD_WEBHOOK` NOT set -> Grafana's Discord notify fails; alerts reach nobody.
+- (2026-10-17) `ALERT_DISCORD_WEBHOOK` NOT set -> Grafana's Discord notify failed; alerts reached nobody. **Fixed 2026-10-18, see below.**
   Discord egress from `mob04` checked 2026-10-17: HTTP 200, cert issuer Google Trust Services (not FortiGate) -> setting it is safe.
 
 ## 2026-10-18 follow-up
 - Account owner paused the Healthchecks.io check; the heartbeat was then removed from `mob04` by hand over SSH (no `provision.yml`):
   cron entry, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`. Backups: `/opt/pos/.env.bak-20261018T024347Z`,
   `/opt/pos/.deploy.cron.bak-20261018T024347Z`, `/opt/pos/scripts/.healthcheck-ping.sh.removed-20261018T024347Z`.
+- `ALERT_DISCORD_WEBHOOK` added to `/opt/pos/.env` by hand (via stdin, never echoed; backup `/opt/pos/.env.bak-20261018T041536Z`);
+  `grafana` + `gatus` recreated (`docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate grafana gatus`,
+  as `deploy`, `MONITORING_CONFIG_DIR=./deploy`); Grafana contact-point test -> `discord ok`; no "Notify for alerts failed" since.
 - Owner decisions: pre-migrate retention **30 days** (PDPA) ratified; both ADR-0013 addenda (Semgrep, alerting) **Accepted**.
 
 ## Not on `main` yet
