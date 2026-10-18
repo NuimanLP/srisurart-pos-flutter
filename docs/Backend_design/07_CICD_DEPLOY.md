@@ -1155,6 +1155,15 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
   แล้วค่อยใส่ `ca.crt` หลัง certgen ของ deploy แรก + `--force-recreate gatus` (ขั้นเต็ม: `docs/tutorial/pi5-full-stack-tutorial.md`)
 * 🔴 **Gatus อยู่บนเครื่องเดียวกับที่มันเฝ้า — เครื่องดับทั้งเครื่อง ไม่มีใครรู้** (สิ่งเดียวที่ Healthchecks.io เคยให้) · ยอมรับไว้จนกว่าจะมี
   เครื่องที่สอง (Pi 5) ให้เฝ้ากันข้ามเครื่อง — **บันทึกไว้ ไม่ได้อ้างว่าทำได้** (`agent ร่าง`, owner เปลี่ยนได้)
+* **PC watchdog (owner ตัดสินใจ 2026-10-18) — เฝ้า `mob04` จากนอกเครื่อง:** `deploy/scripts/pc-watchdog.ps1` รันบน Windows PC ของ owner
+  ผ่าน Scheduled Task "Srisurart mob04 watchdog" ทุก 5 นาที · GET `https://172.30.58.20/health/ready` (timeout 10 วิ) · **ล้มติดกัน 2 รอบ =
+  ส่ง Discord 1 ข้อความ** "mob04 /health/ready unreachable since …" · สำเร็จรอบแรกหลังประกาศ = ส่ง "mob04 back" 1 ข้อความ · ถ้า `discord.com`
+  ก็ต่อไม่ได้ (PC ออฟไลน์/VPN หลุด) **ไม่นับ**เป็นความล้มของ `mob04` · TLS: ตรวจ chain กับสำเนา `pos-ca.crt` เท่านั้น (root ต้องเป็น CA ตัวนั้น —
+  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%LOCALAPPDATA%\srisurart-watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
+  ไม่มีไฟล์ = log เตือนแล้วจบ) · state `state.json` + `watchdog.log` (หมุนที่ ~1 MB) ในโฟลเดอร์เดียวกัน
+  🔴 **ทำงานเฉพาะตอน PC เปิดอยู่และต่อ `172.30.58.20` ได้ (VPN/Tailscale)** — PC ดับ/หลับ = ไม่มีใครเฝ้า ไม่ใช่ทางแทนเครื่องที่สอง ·
+  ติดตั้ง `.\deploy\scripts\install-pc-watchdog.ps1` (ไม่ต้อง admin; ไม่เขียน webhook ให้ — พิมพ์วิธีใส่) · ถอน `.\deploy\scripts\install-pc-watchdog.ps1 -Uninstall`
+  · เปลี่ยนสคริปต์/CA = รัน installer ซ้ำ (task รันสำเนาในโฟลเดอร์ ไม่ใช่ไฟล์ใน repo) · host IP เปลี่ยน → ใช้พารามิเตอร์ `-Url` ใน task
 * งบ RAM monitoring 832m → **896m** (gatus 64m) · รวมทั้งเครื่อง ≈ 4.3 GB จาก 6 GB
 * deploy: `deploy.yml` copy `deploy/gatus/` + `deploy/gatus-ca/` (ลบไฟล์ที่หายจาก repo ด้วย เหมือน prometheus/grafana),
   `pull`/`--force-recreate`/`rm -sf` รวม `gatus`, probe `127.0.0.1:3300/api/v1/endpoints/statuses` (ไม่ผ่าน = WARNING เท่านั้น) ·
