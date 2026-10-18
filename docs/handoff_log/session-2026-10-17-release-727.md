@@ -18,9 +18,12 @@ The bundle parked in `develop` on 2026-10-14 (`session-2026-10-14-devops-develop
 ## Still open on `mob04`
 - `ALERT_DISCORD_WEBHOOK` NOT set -> Grafana's Discord notify fails; alerts reach nobody.
   Discord egress from `mob04` checked 2026-10-17: HTTP 200, cert issuer Google Trust Services (not FortiGate) -> setting it is safe.
-- Healthchecks.io heartbeat cron + `healthcheck-ping.sh` still run (`HEALTHCHECKS_PING_URL` still in `.env`). The check's account
-  owner pauses it first; then run `provision.yml` (as `cloud`, from clean `origin/main`) to remove them.
-- Owner decisions open: 30-day pre-migrate retention (PDPA); ratify the two ADR-0013 addenda.
+
+## 2026-10-18 follow-up
+- Account owner paused the Healthchecks.io check; the heartbeat was then removed from `mob04` by hand over SSH (no `provision.yml`):
+  cron entry, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`. Backups: `/opt/pos/.env.bak-20261018T024347Z`,
+  `/opt/pos/.deploy.cron.bak-20261018T024347Z`, `/opt/pos/scripts/.healthcheck-ping.sh.removed-20261018T024347Z`.
+- Owner decisions: pre-migrate retention **30 days** (PDPA) ratified; both ADR-0013 addenda (Semgrep, alerting) **Accepted**.
 
 ## Not on `main` yet
 - PR #728 (squash `0d7ffd6`, into `develop`): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts

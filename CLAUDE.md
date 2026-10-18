@@ -63,10 +63,7 @@ the pre-migrate dump was correctly skipped — **it has still never dumped on `m
 `/opt/pos/node-textfile` created (deploy:deploy 0755) and `backup-db.sh` run once as `deploy` in cron env (rc=0) → gauge
 `pos_backup_last_success_timestamp_seconds` is in Prometheus; all 10 Grafana rules Normal, Gatus 9/9 endpoints success.
 🔴 **Still open on `mob04`:** `ALERT_DISCORD_WEBHOOK` is NOT set, so Grafana's Discord notify fails (alerts reach nobody; Discord
-egress checked 2026-10-17: HTTP 200, cert issuer Google Trust Services, not FortiGate — setting it is safe); the Healthchecks.io
-heartbeat cron + `healthcheck-ping.sh` (and `HEALTHCHECKS_PING_URL` in `.env`) still run until the check's account owner pauses it,
-then run `provision.yml` (as `cloud`, from clean `origin/main`) to remove them. Owner decisions open: 30-day pre-migrate retention
-(PDPA), ratify the two ADR-0013 addenda. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
+egress checked 2026-10-17: HTTP 200, cert issuer Google Trust Services, not FortiGate — setting it is safe). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
 `develop` only, not on `main` yet): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts Docker when
 `DockerRootDir` ≠ `/srv/pos-data/docker`. Before `21ad935` the release was `5c7f210`; before that `8a44a03`
 (PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
@@ -715,7 +712,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   `refs/heads/main`, active, **no bypass actors**) refuses squash/rebase into `main` — so admins
   cannot push directly to `main` either. Verify: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main`.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
-- **Backup before migration (2026-10-13, `agent ร่าง`; released in `main` `21ad935` via PR #727 — no migration pending at that deploy, so it has never dumped on `mob04`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
+- **Backup before migration (2026-10-13, 30-day retention owner-ratified 2026-10-18; released in `main` `21ad935` via PR #727 — no migration pending at that deploy, so it has never dumped on `mob04`):** `deploy.yml` runs `migrate.js status` with the NEW image and, when migrations are pending
   (or the check fails), a DB-only `backup-db.sh` (`BACKUP_VOLUMES=0`, shipped to the VM with `ansible.builtin.script` because `/opt/pos/scripts`
   is stale until `provision.yml`) into `/opt/pos/backups-pre-migrate/` (sibling of `backups/`, 30 days, no offsite). A failed dump stops the deploy before
   any container/schema change. 🔴 It is the only undo for a migration (no down-migrations); restoring is an owner decision and loses every write after the dump (07 §7).
@@ -729,8 +726,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
-- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *proposed*; in `develop` via PR #723 —
-  CI-side, so it already gates every PR whose merge result contains it, i.e. every PR into `develop`): never
+- **SAST = Semgrep** (job `sast` in `server.yml`, 2026-10-13, ADR-0013 addendum *Accepted* 2026-10-18; in `main` since `21ad935`): never
   path-gated, `server-ci-status` requires `success`, `build-image` needs it. Pinned image digest
   (`--metrics=off`) + pinned `semgrep/semgrep-rules` commit; **any ERROR-severity result fails**,
   WARNING/INFO only go to SARIF. False positive → inline `nosemgrep: rule-id -- reason` (a marker
@@ -905,10 +901,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   `deploy/grafana/` (deploy.yml copies those trees wholesale).
 - ~~Uptime heartbeat (#596, Healthchecks.io)~~ — **retired 2026-10-13** (not the team's account):
   script/test deleted, `provision.yml` removes the cron (same `name:`, `state: absent`) and the VM copy.
-  🔴 **Retired in code (PR #723, in `main` since `21ad935`, 2026-10-17), NOT yet on `mob04`:** `provision.yml` was not run at the
-  release, so the hand-installed copy (2026-10-04, sha256 `77f79d62…`, key in `/opt/pos/.env`) **keeps pinging every 5 min**
-  until the check's account owner pauses it and `provision.yml` (as `cloud`, from clean `origin/main`) removes cron + script (07 §10.5).
-- **Alerting → Discord + Gatus (2026-10-13, `agent ร่าง`, ADR-0013 addendum *proposed*; 07 §10.5; released in `main` `21ad935` via PR #727 —
+  🔴 **Removed from `mob04` 2026-10-18** by hand over SSH (cron, script, `HEALTHCHECKS_PING_URL`) after the account owner paused
+  the check; backups `/opt/pos/.env.bak-20261018T024347Z`, `/opt/pos/.deploy.cron.bak-20261018T024347Z` (07 §10.5).
+- **Alerting → Discord + Gatus (2026-10-13, ADR-0013 addendum *Accepted* 2026-10-18; 07 §10.5; released in `main` `21ad935` via PR #727 —
   on `mob04` since 2026-10-17: Gatus 9/9 success, 10 rules Normal, `node-textfile` created by hand; `ALERT_DISCORD_WEBHOOK` still unset).**
   Grafana built-in alerting, file-provisioned in `deploy/grafana/provisioning/alerting/pos-alerts.yml` (contact
   point + policy + 10 rules on datasource uid `Prometheus`; Alertmanager still rejected). Gatus (`monitoring.yml`,
