@@ -2,11 +2,11 @@
 Shared by install-pc-watchdog.ps1, install-pc-pull-backups.ps1 and migrate-pc-ops.ps1 (dot-sourced).
 One ops root for the PC-side mob04 tools (owner decision 2026-10-18), on the BeeStation-synced drive so all of it -
 secrets included, owner accepted - also lands on the shop NAS:
-  bin\      the script copies the Scheduled Tasks run + pos-ca.crt
-  config\   non-secret settings (none yet)
+  bin\      the script copies the Scheduled Tasks run + pos-ca.crt   (owner-only ACL)
+  config\   non-secret settings (none yet)       (owner-only ACL)
   secrets\  webhook.txt, *.env copies            (owner-only ACL)
   logs\     watchdog.log, pull.log, ssh.err
-  state\    watchdog.json, pull.json
+  state\    watchdog.json, pull.json             (owner-only ACL)
   backups\mob04\YYYY-MM\  pulled backup sets     (owner-only ACL - customer data, PDPA)
   README.txt
 Not under %LOCALAPPDATA%: an MSIX-packaged launcher (e.g. the Claude desktop app) has its AppData writes virtualized
@@ -44,8 +44,10 @@ function Initialize-PcOpsRoot([string]$OpsRoot) {
     foreach ($d in 'bin', 'config', 'secrets', 'logs', 'state', 'backups\mob04') {
         New-Item -ItemType Directory -Path (Join-Path $OpsRoot $d) -Force | Out-Null
     }
-    Protect-PcOpsOwnerOnly (Join-Path $OpsRoot 'secrets')
-    Protect-PcOpsOwnerOnly (Join-Path $OpsRoot 'backups')
+    # bin\ holds what the Scheduled Task executes, so it is locked like secrets\. Residual risk: the BeeStation sync
+    # client runs as the owner, so anyone who can write the NAS share can still change bin\ scripts - keep NAS write
+    # access limited to the owner.
+    foreach ($d in 'bin', 'config', 'secrets', 'state', 'backups') { Protect-PcOpsOwnerOnly (Join-Path $OpsRoot $d) }
     Copy-Item (Join-Path $PSScriptRoot 'pc-ops-README.txt') (Join-Path $OpsRoot 'README.txt') -Force
 }
 
