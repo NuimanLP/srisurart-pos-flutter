@@ -216,3 +216,15 @@ newer verified set exists. The destination and log folders have an owner-only AC
 newest and oldest dump. The Scheduled Task's own trigger was not proven from the agent session: `LastTaskResult` was
 `0xFFFD0000` after `Start-ScheduledTask` and the existing watchdog task shows the same code and no log lines since 16:12 -
 check with the owner at the PC whether tasks run unattended.
+
+**Update 2026-10-18 - one ops root.** The paths above are the first layout. By owner decision everything now lives under
+`D:\Beestation\Sri_POS\ops\` (synced to the NAS, secrets included - owner accepted): backups in
+`ops\backups\mob04\YYYY-MM\` (month of the `<ts>` in the name), log `ops\logs\pull.log`, state `ops\state\pull.json`,
+webhook `ops\secrets\webhook.txt`, script copies in `ops\bin\`. The old `%USERPROFILE%\srisurart-ops\{watchdog,backup-pull}`
+and `D:\Beestation\Sri_POS\mob04-backups\` are moved once by `deploy/scripts/migrate-pc-ops.ps1`. Layout and rules:
+`07_CICD_DEPLOY.md §7a.1`.
+Run on the owner's PC 2026-10-18 19:10-19:13: migration moved 60 backup files (11 sets, all `2026-10\`), 30/30 data files
+hash-verified after the move, webhook/state/logs/2 env copies moved, old folders removed; both tasks re-registered with
+`-OpsRoot "D:\Beestation\Sri_POS\ops"`. `Start-ScheduledTask`: watchdog `LastTaskResult` 0 (`OK HTTP 200`); the pull's
+**first** trigger ended `0xC000013A` with no log line (cause not found - it ran right after `attrib +P` pinned `bin\`),
+the next two triggers ended 0 (`mob04 lists 30`, nothing re-copied, `sets verified locally: 11`).

@@ -1,6 +1,9 @@
 <#
 Offsite copy of mob04's nightly backups, pulled by a Windows PC (PowerShell 5.1) into a folder the
-shop's Synology BeeStation syncs (owner decision 2026-10-18, #363). See docs/Backend_design/07_CICD_DEPLOY.md 7a.
+shop's Synology BeeStation syncs (owner decision 2026-10-18, #363). See docs/Backend_design/07_CICD_DEPLOY.md 7a.1.
+Paths under -OpsRoot (layout: pc-ops-layout.ps1): backups\mob04\YYYY-MM\ (month of the <ts> in the file name),
+logs\pull.log + logs\ssh.err, state\pull.json, secrets\webhook.txt. Default root: $env:SRISURART_OPS_ROOT, else
+%USERPROFILE%\srisurart-ops; the installer passes the real root in the task arguments.
 
 Every run: ssh as `deploy` to mob04, list /opt/pos/backups/pos_{backup,images,sale_photos}_<ts>.*.sha256,
 and for every backup set (same <ts>) not yet complete locally copy the missing files with scp to
@@ -11,16 +14,14 @@ Local retention: sets older than -KeepDays (by the <ts> in the name) are deleted
 verified set exists locally. .partial files on the VM are ignored.
 
 SSH: key + known_hosts are pinned (StrictHostKeyChecking=yes against the existing known_hosts file).
-Alerts (Discord, webhook only from <WatchdogDir>\webhook.txt, never argv, never logged): ONE message when
+Alerts (Discord, webhook only from secrets\webhook.txt, never argv, never logged): ONE message when
 the 2nd consecutive day fails, or the newest verified local set is older than -StaleHours; ONE message
 on recovery. Missing webhook = warning in the log, the pull still runs.
 Exit codes: 0 ok, 1 mob04 unreachable / ssh failed, 2 copy or hash verification failed,
 3 no verified set newer than -StaleHours, 4 local config missing (key / known_hosts / destination).
 #>
 param(
-    [string]$Dest = 'D:\Beestation\Sri_POS\mob04-backups',
-    [string]$DataDir = (Join-Path $env:USERPROFILE 'srisurart-ops\backup-pull'),
-    [string]$WatchdogDir = (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog'),
+    [string]$OpsRoot = $(if ($env:SRISURART_OPS_ROOT) { $env:SRISURART_OPS_ROOT } else { Join-Path $env:USERPROFILE 'srisurart-ops' }),
     [string]$HostName = '172.30.58.20',
     [string]$User = 'deploy',
     [string]$KeyFile = (Join-Path $env:USERPROFILE '.ssh\mob04-SriStore'),
@@ -31,12 +32,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$log = Join-Path $DataDir 'pull.log'
-$stateFile = Join-Path $DataDir 'state.json'
-$hookFile = Join-Path $WatchdogDir 'webhook.txt'
+$Dest = Join-Path $OpsRoot 'backups\mob04'
+$log = Join-Path $OpsRoot 'logs\pull.log'
+$stateFile = Join-Path $OpsRoot 'state\pull.json'
+$hookFile = Join-Path $OpsRoot 'secrets\webhook.txt'
 $ssh = Join-Path $env:SystemRoot 'System32\OpenSSH\ssh.exe'
 $scp = Join-Path $env:SystemRoot 'System32\OpenSSH\scp.exe'
-$errFile = Join-Path $DataDir 'ssh.err'
+$errFile = Join-Path $OpsRoot 'logs\ssh.err'
 
 function Log([string]$m) {
     try {
@@ -45,7 +47,7 @@ function Log([string]$m) {
     } catch { }
 }
 
-if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
+foreach ($d in 'logs', 'state') { New-Item -ItemType Directory -Path (Join-Path $OpsRoot $d) -Force | Out-Null }
 foreach ($p in @($ssh, $scp, $KeyFile, $KnownHosts, $Dest)) {
     if (-not (Test-Path $p)) { Log "ERROR missing $p (run install-pc-pull-backups.ps1 / check the key paths)"; exit 4 }
 }
@@ -65,6 +67,8 @@ function Send-Discord([string]$text) {
         $r.GetResponse().Close(); return $true
     } catch { Log "ERROR discord post failed: $($_.Exception.GetType().Name)"; return $false }  # never log the URL
 }
+
+function Month-Dir([string]$ts) { Join-Path $Dest ('{0}-{1}' -f $ts.Substring(0, 4), $ts.Substring(4, 2)) }
 
 function Parse-Ts([string]$ts) {
     [datetime]::ParseExact($ts, "yyyyMMdd_HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture,
@@ -97,11 +101,14 @@ if ($sshRc -ne 0 -and $sshRc -ne 1) {   # grep exits 1 only when no sidecar matc
 
 # --- 2. copy what is missing --------------------------------------------------------------------
 if ($result -eq 0) {
-    Push-Location $Dest
-    try {
-        Get-ChildItem -Filter '*.partial' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force
-        foreach ($name in ($remote.Keys | Sort-Object)) {
-            if ((Test-Path $name) -and (Test-Path "$name.sha256")) { continue }
+    Get-ChildItem -Path $Dest -Recurse -Filter '*.partial' -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force
+    foreach ($name in ($remote.Keys | Sort-Object)) {
+        $null = $name -match $nameRx
+        $mdir = Month-Dir $Matches[2]
+        if ((Test-Path (Join-Path $mdir $name)) -and (Test-Path (Join-Path $mdir "$name.sha256"))) { continue }
+        New-Item -ItemType Directory -Path $mdir -Force | Out-Null
+        Push-Location $mdir   # scp gets a relative local name (no drive-letter colon for it to misread)
+        try {
             $part = "$name.partial"
             $ErrorActionPreference = 'Continue'
             & $scp @sshOpts "${target}:$RemoteDir/$name" $part 2> $errFile
@@ -113,13 +120,13 @@ if ($result -eq 0) {
             Move-Item $part $name -Force
             Set-Content -Path "$name.sha256" -Value ("{0}  {1}" -f $remote[$name], $name) -Encoding ASCII
             Log "OK $name $((Get-Item $name).Length) bytes sha256 verified"
-        }
-    } finally { Pop-Location }
+        } finally { Pop-Location }
+    }
 }
 
 # --- 3. retention + freshness (local only) ------------------------------------------------------
 $sets = @{}   # ts -> $true when its dump (sql.gz + sidecar) is verified locally
-foreach ($f in Get-ChildItem -Path $Dest -File) {
+foreach ($f in Get-ChildItem -Path $Dest -Recurse -File) {
     if ($f.Name -match '^pos_(backup|images|sale_photos)_(\d{8}_\d{6}Z)\.' ) {
         if (-not $sets.ContainsKey($Matches[2])) { $sets[$Matches[2]] = $false }
     }
@@ -130,10 +137,11 @@ $newest = if ($verified.Count) { $verified[-1] } else { $null }
 $cutoff = (Get-Date).ToUniversalTime().AddDays(-$KeepDays)
 foreach ($ts in $sets.Keys) {
     if ((Parse-Ts $ts) -lt $cutoff -and $newest -and $ts -lt $newest) {
-        Get-ChildItem -Path $Dest -File -Filter "pos_*_$ts.*" | Remove-Item -Force
+        Get-ChildItem -Path $Dest -Recurse -File -Filter "pos_*_$ts.*" | Remove-Item -Force
         Log "INFO retention removed local set $ts"
     }
 }
+Get-ChildItem -Path $Dest -Directory | Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force | Select-Object -First 1) } | Remove-Item -Force
 $ageH = if ($newest) { [math]::Round(((Get-Date).ToUniversalTime() - (Parse-Ts $newest)).TotalHours, 1) } else { $null }
 $stale = (-not $newest) -or ($ageH -gt $StaleHours)
 if ($stale -and $result -eq 0) { $result = 3; $reason = "no verified backup set newer than $StaleHours h (newest: $newest)" }
@@ -142,7 +150,7 @@ Log "INFO sets verified locally: $($verified.Count), newest: $newest, age h: $ag
 # --- 4. alerting (state: consecutive failed DAYS, announced) -----------------------------------
 $st = @{ failDays = 0; lastFailDay = $null; announced = $false }
 if (Test-Path $stateFile) {
-    try { $j = Get-Content $stateFile -Raw | ConvertFrom-Json; $st = @{ failDays = [int]$j.failDays; lastFailDay = $j.lastFailDay; announced = [bool]$j.announced } } catch { Log 'WARN state.json unreadable, reset' }
+    try { $j = Get-Content $stateFile -Raw | ConvertFrom-Json; $st = @{ failDays = [int]$j.failDays; lastFailDay = $j.lastFailDay; announced = [bool]$j.announced } } catch { Log 'WARN pull.json unreadable, reset' }
 }
 $today = Get-Date -Format 'yyyy-MM-dd'
 if ($result -eq 0) {
