@@ -6,6 +6,10 @@
 #   * Grafana is healthy and provisioned every rule in pos-alerts.yml, the Discord contact point
 #     and the policy that routes to it; annotations reach Grafana un-interpolated;
 #   * after one evaluation no rule has health "error" (bad PromQL / datasource uid / expression);
+#   * every metric name the rules' PromQL selects has at least one series in this Prometheus — an
+#     empty vector is not an error, so a misspelled name would otherwise pass as "OK / no data".
+#     Names are extracted from the expressions Grafana provisioned, never from a list kept here;
+#     only NO_SERIES_IN_TEST below may be absent (the backup gauge is seeded, not allowlisted);
 #   * Gatus loads its config (every endpoint shows up in /api/v1/endpoints/statuses), its
 #     grafana + prometheus checks pass, and Prometheus scrapes it (up{job="gatus"} == 1);
 #   * the amd64 Gatus binary is GOAMD64=v1 (mob04 is a qemu64 CPU, below x86-64-v2);
@@ -49,9 +53,32 @@ image_of() {
   awk -v svc="$1" '$0 == "  " svc ":" { f = 1; next } f && $1 == "image:" { print $2; exit }' "$MON"
 }
 
+# Metric names a rule may select although nothing in this stack exports them (no api runs here).
+# Every other name must have a series. An entry no rule references any more is a failure too.
+declare -A NO_SERIES_IN_TEST=(
+  [http_requests_total]="exported by api-1..3 (server/src/metrics), which this test does not boot"
+  [http_request_duration_seconds_bucket]="exported by api-1..3 (server/src/metrics), which this test does not boot"
+  [pos_db_pool_connections]="exported by api-1..3 (server/src/metrics), which this test does not boot"
+)
+
+# The backup freshness gauge, seeded the way backup-db.sh writes it, so pos-backup-stale's metric
+# name is checked against a real series. node-exporter's textfile directory is pointed at it; the
+# rest of its command is monitoring.yml's own (read back from `compose config`, `$` re-escaped).
+mkdir -m 0755 "$WORK/textfile"
+printf 'pos_backup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" >"$WORK/textfile/pos_backup.prom"
+chmod 0644 "$WORK/textfile/pos_backup.prom"
+NE_COMMAND="$(MONITORING_CONFIG_DIR="$ROOT/deploy" GRAFANA_ADMIN_PASSWORD="$GRAFANA_PW" \
+  docker compose -p "$PROJECT" -f "$MON" config --format json |
+  jq -c '.services["node-exporter"].command
+    | map(if startswith("--collector.textfile.directory=") then "--collector.textfile.directory=/pos-textfile" else . end
+      | gsub("\\$"; "$$"))')"
+
 # Random loopback ports so the test never collides with a dev stack on 3000/9090/3300.
-cat > "$WORK/override.yml" <<'EOF'
+cat > "$WORK/override.yml" <<EOF
 services:
+  node-exporter:
+    command: $NE_COMMAND
+    volumes: ["$WORK/textfile:/pos-textfile:ro"]
   prometheus:
     ports: !override ["127.0.0.1::9090"]
   grafana:
@@ -126,6 +153,40 @@ check "every rule has been evaluated" wait_for 180 "one evaluation of every rule
 rules_json | jq -r '.data.groups[].rules[] | "     \(.health)\t\(.state)\t\(.name)\(if .lastError then "\t" + .lastError else "" end)"' || true
 no_errors() { rules_json | jq -e '[.data.groups[].rules[] | select(.health == "error")] | length == 0'; }
 check "no rule has health \"error\"" no_errors
+
+# 5b. every metric name a rule selects has a series. The expressions are the ones Grafana provisioned
+# (it parsed pos-alerts.yml). Prometheus 2.55 has no parse_query API, so the names are what is left
+# of each expression after removing strings, {matchers}, [ranges] and by/on/... label lists:
+# identifiers not followed by "(" (functions, aggregations) and not PromQL keywords. Anything else
+# that slipped through still has to have a series, so a mistake here fails loudly, never quietly.
+cat >"$WORK/metric-names.jq" <<'JQ'
+def metric_names:
+  gsub("\"(\\\\.|[^\"\\\\])*\"|'(\\\\.|[^'\\\\])*'|`[^`]*`"; "")
+  | gsub("\\{[^}]*\\}|\\[[^\\]]*\\]"; "")
+  | gsub("(?i)\\b(by|without|on|ignoring|group_left|group_right)\\s*\\([^)]*\\)"; "")
+  | [scan("(?<![0-9.a-zA-Z_:])([a-zA-Z_:][a-zA-Z0-9_:]*)(\\s*\\()?") | select(.[1] == null) | .[0]
+     | select(ascii_downcase | IN("and", "or", "unless", "bool", "offset", "by", "without", "on",
+         "ignoring", "group_left", "group_right", "inf", "nan") | not)];
+JQ
+exprs="$(gf /api/v1/provisioning/alert-rules | jq '[.[].data[] | select(.datasourceUid == "Prometheus") | .model.expr]')"
+metric_names="$WORK/metric-names"
+jq -r "$(cat "$WORK/metric-names.jq") .[] | metric_names | .[]" <<<"$exprs" | sort -u >"$metric_names"
+nameless() { jq -e "$(cat "$WORK/metric-names.jq") [.[] | select(metric_names | length == 0)] | length == 0" <<<"$exprs"; }
+check "every rule expression names at least one metric" nameless
+echo "     metric names in the rules: $(tr '\n' ' ' <"$metric_names")"
+has_series() {
+  curl -sf -G "$PROM/api/v1/series" --data-urlencode "match[]={__name__=\"$1\"}" | jq -e '.data | length > 0'
+}
+while IFS= read -r name; do
+  if [[ -n "${NO_SERIES_IN_TEST[$name]+x}" ]]; then
+    echo "     skip $name — ${NO_SERIES_IN_TEST[$name]}"
+    continue
+  fi
+  check "metric $name has a series in prometheus" has_series "$name"
+done <"$metric_names"
+for name in "${!NO_SERIES_IN_TEST[@]}"; do
+  check "NO_SERIES_IN_TEST entry $name is still used by a rule" grep -qxF "$name" "$metric_names"
+done
 
 # 6. gatus
 expected_endpoints="$(grep -c '^  - name: ' "$GATUS_CFG")"

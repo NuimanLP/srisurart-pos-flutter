@@ -219,8 +219,11 @@ groups:
     folder: POS alerts
     interval: 1m
     rules:
+      # `/` and the Pi 5 data disk (/srv/pos-data holds Docker's data-root — host-setup.sh). node-
+      # exporter strips its /rootfs prefix, so mountpoints are host paths. No /srv/pos-data (mob04)
+      # = only `/` is watched, as before. tmpfs/overlay never count. uid kept (renaming = delete + add).
       - uid: pos-root-disk-full
-        title: Root disk above 85%
+        title: Disk above 85% (root or data)
         condition: C
         data:
           - refId: A
@@ -229,7 +232,9 @@ groups:
             model:
               refId: A
               instant: true
-              expr: '1 - node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}'
+              expr: >-
+                1 - node_filesystem_avail_bytes{mountpoint=~"/|/srv/pos-data",fstype!~"rootfs|tmpfs|overlay"}
+                / node_filesystem_size_bytes{mountpoint=~"/|/srv/pos-data",fstype!~"rootfs|tmpfs|overlay"}
           - refId: C
             datasourceUid: __expr__
             model:
@@ -242,7 +247,7 @@ groups:
         for: 10m
         labels: { severity: critical }
         annotations:
-          summary: 'The root filesystem is more than 85% full — a full disk stops Postgres and the POS.'
+          summary: 'Filesystem {{ $labels.mountpoint }} is more than 85% full — a full disk stops Postgres and the POS.'
 
       - uid: pos-memory-low
         title: Available memory below 10%
