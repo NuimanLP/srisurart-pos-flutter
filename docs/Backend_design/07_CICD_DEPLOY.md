@@ -803,18 +803,27 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 
 ### 7a.1 สำเนานอก VM ด้วย PC ดึงเอง (มติเจ้าของ 2026-10-18 — ใช้แทน rclone จาก `mob04` ระหว่างนี้)
 
-PC Windows ของเจ้าของ**ดึง**backup จาก `mob04` มาเก็บที่ `D:\Beestation\Sri_POS\mob04-backups\` (นอก repo) ซึ่งอยู่ใต้โฟลเดอร์ที่
+PC Windows ของเจ้าของ**ดึง**backup จาก `mob04` มาเก็บที่ `D:\Beestation\Sri_POS\ops\backups\mob04\YYYY-MM\` (นอก repo; เดือนตามเวลาในชื่อไฟล์) ซึ่งอยู่ใต้โฟลเดอร์ที่
 Synology BeeStation ของร้านซิงก์ไว้ — สำเนานอก VM จึงไปอยู่บน BeeStation ผ่านการซิงก์ของมันเอง · `offsite_upload()`/rclone ใน
 `backup-db.sh` **ไม่ถูกแตะ** และยังปิดอยู่ (`BACKUP_RCLONE_REMOTE` ไม่ตั้ง)
+
+**ops root เดียว (มติเจ้าของ 2026-10-18):** ทุกอย่างของเครื่องมือฝั่ง PC อยู่ใต้ `D:\Beestation\Sri_POS\ops\` (ซิงก์ขึ้น NAS ทั้งหมด
+รวม `secrets\` — เจ้าของยอมรับ): `bin\` สำเนาสคริปต์ที่ task รัน + `pos-ca.crt` · `config\` · `secrets\` `webhook.txt` + สำเนา `*.env` (ACL เฉพาะ owner) ·
+`logs\` `watchdog.log`/`pull.log`/`ssh.err` · `state\` `watchdog.json`/`pull.json` · `backups\mob04\YYYY-MM\` (ACL เฉพาะ owner) · `README.txt`
+(โครงสร้าง: `deploy/scripts/pc-ops-layout.ps1`) · สคริปต์รับ `-OpsRoot` (default `$env:SRISURART_OPS_ROOT` หรือ `%USERPROFILE%\srisurart-ops`;
+installer ใส่ root จริงลง argument ของ task) · installer สั่ง `attrib +P -U` กับ `bin\`/`secrets\`/`state\` ("เก็บไว้ในเครื่องเสมอ") เพราะ BeeStation
+อาจเปลี่ยนไฟล์เป็น placeholder บนคลาวด์ แล้ว task ที่ต้องอ่านไฟล์นั้นล้มเมื่อ NAS/เน็ตไม่อยู่ · ห้ามใช้ `%LOCALAPPDATA%` (แอป MSIX ถูก virtualize — Task Scheduler มองไม่เห็น) ·
+ย้ายจากโครงเดิม (`%USERPROFILE%\srisurart-ops\{watchdog,backup-pull}` + `D:\Beestation\Sri_POS\mob04-backups\`) ครั้งเดียวด้วย
+`deploy/scripts/migrate-pc-ops.ps1` (ถอด task ก่อน แล้วรัน installer ทั้งสองซ้ำ; ตรวจ sha256 ทุกไฟล์ backup หลังย้าย, ลบโฟลเดอร์เดิมเมื่อว่างและผ่านหมด)
 
 | ส่วน | รายละเอียด |
 |---|---|
 | สคริปต์ | `deploy/scripts/pc-pull-backups.ps1` + ตัวติดตั้ง `install-pc-pull-backups.ps1` (Scheduled Task `Srisurart mob04 backup pull`, ทุกวัน 11:00 เวลาไทย หลัง dump 03:00 UTC, รันชดเชยถ้าพลาด; `-Uninstall` ถอดได้) |
 | การเชื่อมต่อ | ssh/scp ผู้ใช้ `deploy` ด้วย key ใน `~/.ssh` และตรวจ host key กับ `known_hosts` (`StrictHostKeyChecking=yes` ไม่ปิดเด็ดขาด) |
 | การคัดลอก | อ่าน `*.sha256` ใน `/opt/pos/backups` → ชุดที่ยังไม่มีในเครื่องคัดลอกเป็น `.partial` → ตรวจ SHA-256 (`Get-FileHash`) ตรงกับ sidecar จึงเปลี่ยนชื่อ · ข้าม `.partial` บน VM |
-| เก็บในเครื่อง | 30 วัน — ลบชุดเก่าต่อเมื่อมีชุดใหม่กว่าที่ verify แล้วอย่างน้อย 1 ชุด |
-| แจ้งเตือน | Discord (webhook ไฟล์เดียวกับ watchdog) ครั้งเดียวเมื่อล้มวันที่ 2 ติดกัน หรือชุดล่าสุดเก่ากว่า 26 ชม. และอีกครั้งเมื่อกลับมาปกติ · log `%USERPROFILE%\srisurart-ops\backup-pull\pull.log` |
-| สิทธิ์ | โฟลเดอร์ปลายทางและ log เปิดให้เจ้าของเครื่องเท่านั้น (ข้อมูลลูกค้า — PDPA) |
+| เก็บในเครื่อง | 30 วัน — ลบชุดเก่าต่อเมื่อมีชุดใหม่กว่าที่ verify แล้วอย่างน้อย 1 ชุด · การข้ามชุดที่ดึงแล้วและการลบตามอายุดูทุกโฟลเดอร์ `YYYY-MM` (โฟลเดอร์เดือนที่ว่างถูกลบ) |
+| แจ้งเตือน | Discord (webhook ไฟล์เดียวกับ watchdog) ครั้งเดียวเมื่อล้มวันที่ 2 ติดกัน หรือชุดล่าสุดเก่ากว่า 26 ชม. และอีกครั้งเมื่อกลับมาปกติ · log `ops\logs\pull.log` · state `ops\state\pull.json` |
+| สิทธิ์ | `ops\bin\`, `config\`, `secrets\`, `state\`, `backups\` เปิดให้เจ้าของเครื่องเท่านั้น (ข้อมูลลูกค้า — PDPA; ตั้งด้วย `icacls` เพราะ `Set-Acl` ใช้ไม่ได้บนไดรฟ์นี้) · ความเสี่ยงที่เหลือ: client ซิงก์ BeeStation รันเป็น owner ใครเขียน share บน NAS ได้ก็ยังแก้สคริปต์ใน `bin\` ที่ task รันได้ — ให้สิทธิ์เขียน NAS เฉพาะ owner |
 
 🔴 **ข้อจำกัด/ข้อตัดสินใจ (อ่านก่อนอ้างว่ามีสำเนานอก VM):**
 - **ทำงานเฉพาะตอน PC เปิดและต่อ VPN/Tailscale ถึง `172.30.58.20` ได้** — วันที่พลาดจะถูกดึงย้อนในรอบถัดไป · ไม่ตรวจว่า BeeStation ซิงก์ขึ้นจริงหรือดิสก์ PC เต็ม
@@ -1180,11 +1189,11 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
   ผ่าน Scheduled Task "Srisurart mob04 watchdog" ทุก 5 นาที · GET `https://172.30.58.20/health/ready` (timeout 10 วิ) · **ล้มติดกัน 2 รอบ =
   ส่ง Discord 1 ข้อความ** "mob04 /health/ready unreachable since …" · สำเร็จรอบแรกหลังประกาศ = ส่ง "mob04 back" 1 ข้อความ · ถ้า `discord.com`
   ก็ต่อไม่ได้ (PC ออฟไลน์/VPN หลุด) **ไม่นับ**เป็นความล้มของ `mob04` · TLS: ตรวจ chain กับสำเนา `pos-ca.crt` เท่านั้น (root ต้องเป็น CA ตัวนั้น —
-  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `%USERPROFILE%\srisurart-ops\watchdog\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
-  ไม่มีไฟล์ = log เตือนแล้วจบ) · state `state.json` + `watchdog.log` (หมุนที่ ~1 MB) ในโฟลเดอร์เดียวกัน
+  ไม่ปิดการตรวจ cert) · webhook อ่านจาก `D:\Beestation\Sri_POS\ops\secrets\webhook.txt` ไฟล์เดียว (ACL เฉพาะ owner, ไม่ผ่าน argv, ไม่ลง log, ไม่ commit —
+  ไม่มีไฟล์ = log เตือนแล้วจบ) · state `ops\state\watchdog.json` + log `ops\logs\watchdog.log` (หมุนที่ ~1 MB) · CA `ops\bin\pos-ca.crt` (โครง ops root: §7a.1)
   🔴 **ทำงานเฉพาะตอน PC เปิดอยู่และต่อ `172.30.58.20` ได้ (VPN/Tailscale)** — PC ดับ/หลับ = ไม่มีใครเฝ้า ไม่ใช่ทางแทนเครื่องที่สอง ·
   ติดตั้ง `.\deploy\scripts\install-pc-watchdog.ps1` (ไม่ต้อง admin; ไม่เขียน webhook ให้ — พิมพ์วิธีใส่) · ถอน `.\deploy\scripts\install-pc-watchdog.ps1 -Uninstall`
-  · เปลี่ยนสคริปต์/CA = รัน installer ซ้ำ (task รันสำเนาในโฟลเดอร์ ไม่ใช่ไฟล์ใน repo) · host IP เปลี่ยน → ใช้พารามิเตอร์ `-Url` ใน task
+  · เปลี่ยนสคริปต์/CA = รัน installer ซ้ำ (task รันสำเนาใน `ops\bin\` ไม่ใช่ไฟล์ใน repo) · host IP เปลี่ยน → ใช้พารามิเตอร์ `-Url` ใน task
 * งบ RAM monitoring 832m → **896m** (gatus 64m) · รวมทั้งเครื่อง ≈ 4.3 GB จาก 6 GB
 * deploy: `deploy.yml` copy `deploy/gatus/` + `deploy/gatus-ca/` (ลบไฟล์ที่หายจาก repo ด้วย เหมือน prometheus/grafana),
   `pull`/`--force-recreate`/`rm -sf` รวม `gatus`, probe `127.0.0.1:3300/api/v1/endpoints/statuses` (ไม่ผ่าน = WARNING เท่านั้น) ·

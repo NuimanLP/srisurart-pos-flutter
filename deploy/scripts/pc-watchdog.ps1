@@ -6,21 +6,24 @@ Every run: GET <Url> (default https://172.30.58.20/health/ready), 10 s timeout.
  - 2nd consecutive failure  -> ONE Discord message "down since <time>"
  - first success after that -> ONE Discord message "back"
  - if discord.com is unreachable too, the PC is offline: not counted as a mob04 failure.
-Webhook URL: only from <DataDir>\webhook.txt (never argv, never logged). Missing = warn + exit 0.
-TLS: private CA. A cert is accepted only if its chain is built with <DataDir>\pos-ca.crt and ends
+Paths under -OpsRoot (layout: pc-ops-layout.ps1): secrets\webhook.txt, bin\pos-ca.crt, logs\watchdog.log,
+state\watchdog.json. Default root: $env:SRISURART_OPS_ROOT, else %USERPROFILE%\srisurart-ops; the installer passes
+the real root in the task arguments.
+Webhook URL: only from secrets\webhook.txt (never argv, never logged). Missing = warn + exit 0.
+TLS: private CA. A cert is accepted only if its chain is built with bin\pos-ca.crt and ends
 at that exact CA (thumbprint match). Certificate checks are never disabled.
 #>
 param(
     [string]$Url = 'https://172.30.58.20/health/ready',
-    [string]$DataDir = (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog'),
+    [string]$OpsRoot = $(if ($env:SRISURART_OPS_ROOT) { $env:SRISURART_OPS_ROOT } else { Join-Path $env:USERPROFILE 'srisurart-ops' }),
     [int]$TimeoutSec = 10
 )
 $ErrorActionPreference = 'Stop'
 
-$log = Join-Path $DataDir 'watchdog.log'
-$stateFile = Join-Path $DataDir 'state.json'
-$hookFile = Join-Path $DataDir 'webhook.txt'
-$caFile = Join-Path $DataDir 'pos-ca.crt'
+$log = Join-Path $OpsRoot 'logs\watchdog.log'
+$stateFile = Join-Path $OpsRoot 'state\watchdog.json'
+$hookFile = Join-Path $OpsRoot 'secrets\webhook.txt'
+$caFile = Join-Path $OpsRoot 'bin\pos-ca.crt'
 
 function Log([string]$m) {
     try {
@@ -29,9 +32,9 @@ function Log([string]$m) {
     } catch { }
 }
 
-if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
+foreach ($d in 'logs', 'state') { New-Item -ItemType Directory -Path (Join-Path $OpsRoot $d) -Force | Out-Null }
 if (-not (Test-Path $hookFile)) { Log "WARN webhook.txt missing - nothing to do (see install-pc-watchdog.ps1)"; exit 0 }
-if (-not (Test-Path $caFile)) { Log "ERROR pos-ca.crt missing in $DataDir"; exit 1 }
+if (-not (Test-Path $caFile)) { Log "ERROR $caFile missing"; exit 1 }
 
 Add-Type -TypeDefinition @'
 using System;
@@ -94,7 +97,7 @@ function Send-Discord([string]$text) {
 
 $st = @{ fails = 0; announced = $false; since = $null }
 if (Test-Path $stateFile) {
-    try { $j = Get-Content $stateFile -Raw | ConvertFrom-Json; $st = @{ fails = [int]$j.fails; announced = [bool]$j.announced; since = $j.since } } catch { Log 'WARN state.json unreadable, reset' }
+    try { $j = Get-Content $stateFile -Raw | ConvertFrom-Json; $st = @{ fails = [int]$j.fails; announced = [bool]$j.announced; since = $j.since } } catch { Log 'WARN watchdog.json unreadable, reset' }
 }
 function Save-State { $st | ConvertTo-Json -Compress | Set-Content -Path $stateFile -Encoding UTF8 }
 

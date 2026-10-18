@@ -1,39 +1,40 @@
 <#
-Installs the mob04 backup pull for the CURRENT user (no admin needed): log/state folder and destination
-folder (both owner-only ACL - customer data, PDPA), a copy of pc-pull-backups.ps1, and the Scheduled Task
-"Srisurart mob04 backup pull" daily at 11:00 local (ICT; the dump is written 03:00 UTC = 10:00 ICT),
-with "run as soon as possible after a missed start". Uninstall: -Uninstall (keeps folders and backups).
-Needs the same webhook file as the watchdog for alerts: %USERPROFILE%\srisurart-ops\watchdog\webhook.txt.
+Installs the mob04 backup pull for the CURRENT user (no admin needed): the ops root tree (pc-ops-layout.ps1;
+secrets\ and backups\ owner-only ACL - customer data, PDPA), a copy of pc-pull-backups.ps1 in bin\, and the Scheduled
+Task "Srisurart mob04 backup pull" daily at 11:00 local (ICT; the dump is written 03:00 UTC = 10:00 ICT), with
+"run as soon as possible after a missed start", running bin\pc-pull-backups.ps1 -OpsRoot "<root>".
+Uninstall: -Uninstall (keeps folders and backups). Alerts need <root>\secrets\webhook.txt (same file as the watchdog).
+Moving from the old %USERPROFILE%\srisurart-ops + mob04-backups layout: run migrate-pc-ops.ps1 once.
 #>
 param(
     [switch]$Uninstall,
-    [string]$Dest = 'D:\Beestation\Sri_POS\mob04-backups'
+    [string]$OpsRoot = 'D:\Beestation\Sri_POS\ops'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'pc-ops-layout.ps1')
 $task = 'Srisurart mob04 backup pull'
-$dir = Join-Path $env:USERPROFILE 'srisurart-ops\backup-pull'
+$OpsRoot = [IO.Path]::GetFullPath($OpsRoot).TrimEnd('\')
 if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "Removed task '$task'. Kept: $dir and $Dest (delete by hand if wanted)."
+    Write-Host "Removed task '$task'. Kept: $OpsRoot (delete by hand if wanted)."
     return
 }
-$me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-foreach ($d in @($dir, $Dest)) {
-    New-Item -ItemType Directory -Path $d -Force | Out-Null
-    # owner-only: drop inheritance, grant the current user full control
-    icacls $d /inheritance:r /grant:r "${me}:(OI)(CI)F" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "icacls failed on $d" }
-}
+Initialize-PcOpsRoot $OpsRoot
+$bin = Join-Path $OpsRoot 'bin'
 # the task runs a copy, so it keeps working if the repo/worktree is moved or deleted
-Copy-Item (Join-Path $PSScriptRoot 'pc-pull-backups.ps1') (Join-Path $dir 'pc-pull-backups.ps1') -Force
+Copy-Item (Join-Path $PSScriptRoot 'pc-pull-backups.ps1') (Join-Path $bin 'pc-pull-backups.ps1') -Force
+Set-PcOpsPinned (Get-PcOpsPinDirs $OpsRoot)
 
-$act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dir\pc-pull-backups.ps1`" -Dest `"$Dest`""
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+# conhost --headless (Windows 11): powershell -WindowStyle Hidden still flashed a console window every run.
+# conhost does NOT pass the script's exit code on (LastTaskResult is 0 even when the script fails) - read the log.
+$act = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$bin\pc-pull-backups.ps1`" -OpsRoot `"$OpsRoot`""
 $trg = New-ScheduledTaskTrigger -Daily -At '11:00'
 $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $task -Action $act -Trigger $trg -Settings $set -Force `
-    -Description 'Pulls mob04 nightly backups into the BeeStation-synced folder. See 07_CICD_DEPLOY.md 7a (#363)' | Out-Null
+    -Description 'Pulls mob04 nightly backups into the BeeStation-synced ops root. See 07_CICD_DEPLOY.md 7a.1 (#363)' | Out-Null
 
-Write-Host "Installed task '$task' (daily 11:00, user $me). Destination: $Dest  Log: $dir\pull.log"
-if (-not (Test-Path (Join-Path $env:USERPROFILE 'srisurart-ops\watchdog\webhook.txt'))) {
-    Write-Host "NOTE: no Discord webhook at $env:USERPROFILE\srisurart-ops\watchdog\webhook.txt - the pull runs but cannot alert."
+Write-Host "Installed task '$task' (daily 11:00, user $me). Backups: $OpsRoot\backups\mob04\YYYY-MM  Log: $OpsRoot\logs\pull.log"
+if (-not (Test-Path (Join-Path $OpsRoot 'secrets\webhook.txt'))) {
+    Write-Host "NOTE: no Discord webhook at $OpsRoot\secrets\webhook.txt - the pull runs but cannot alert."
 }
