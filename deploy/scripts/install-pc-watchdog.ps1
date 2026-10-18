@@ -29,7 +29,9 @@ Copy-Item (Join-Path $PSScriptRoot 'pc-watchdog.ps1') (Join-Path $bin 'pc-watchd
 Set-PcOpsPinned (Get-PcOpsPinDirs $OpsRoot)
 
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$bin\pc-watchdog.ps1`" -OpsRoot `"$OpsRoot`""
+# conhost --headless (Windows 11): powershell -WindowStyle Hidden still flashed a console window every run.
+# conhost does NOT pass the script's exit code on (LastTaskResult is 0 even when the script fails) - read the log.
+$act = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$bin\pc-watchdog.ps1`" -OpsRoot `"$OpsRoot`""
 $trg = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $task -Action $act -Trigger $trg -Settings $set -Force `
