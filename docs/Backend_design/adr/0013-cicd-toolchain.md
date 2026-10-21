@@ -45,7 +45,7 @@ Build & Test · Security Scan · Package/Storage · Config & Deploy · KV Storag
 
 ## ผลที่ตามมา
 
-* `server/Dockerfile` runtime stage ไม่มี npm/npx, base pin ด้วย digest · `docker-compose.yml` คง `nginx:1.29-alpine` +
+* `server/Dockerfile` runtime stage ไม่มี npm/npx, base pin ด้วย digest · `docker-compose.yml` คง `nginx:1.30.6-alpine` (เดิม 1.29 จนถึง 2026-10-21, #743) +
   mount conf แต่เพิ่ม volume `web` (เติมโดย one-shot `web-sync` แบบ `certgen`) · เพิ่ม service `etcd` · overlay monitoring แยกไฟล์
 * ระหว่าง scrutinize พบบั๊กเดิม: `location /platform/` ใน Nginx ไม่มีทางถูกเรียกถึงเพราะ global prefix `api/v1` — ต้องแก้เป็น `/api/v1/platform/` พร้อม allowlist (07 §9)
 * โฟลเดอร์ใหม่ `deploy/` ที่ root (Ansible, overlay, web Dockerfile) — ADR-0011 ยังใช้: repo เดียว
