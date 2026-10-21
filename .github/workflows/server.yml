@@ -378,9 +378,9 @@ jobs:
       - name: Trivy — lockfile CVEs + Dockerfile misconfig
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          # The trivy binary is pinned too (= this action version's default), not left to the
+          # The trivy binary is pinned too, not left to the
           # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
-          version: v0.70.0
+          version: v0.76.1
           scan-type: fs
           scan-ref: server
           scanners: vuln,misconfig
@@ -395,7 +395,7 @@ jobs:
         with:
           # The trivy binary is pinned too, not left to the action (trivy-action supply-chain
           # incident 2026-03-19, CVE-2026-33634). Same version as the other Trivy steps.
-          version: v0.70.0
+          version: v0.76.1
           scan-type: config
           scan-ref: deploy/web.Dockerfile
           severity: HIGH,CRITICAL
@@ -541,7 +541,7 @@ jobs:
             -v "$PWD/server/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
-            nginx:1.29-alpine nginx -t
+            nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5 nginx -t
       # Product images (contract §2/§4): /img/ serves exactly /img/<uuid>/<32 hex>_{t,p}.webp from
       # the volume with the immutable headers and refuses everything else; only the two import
       # locations take a body past 10m. Runs the real nginx image against the real nginx.conf.
@@ -555,7 +555,7 @@ jobs:
             -v "$PWD/server/docker/platform-ui/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$PWD/server/docker/platform-ui/html:/usr/share/nginx/html:ro" \
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
-            nginx:1.29-alpine nginx -t
+            nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5 nginx -t
       # certgen: fresh volume, idempotent re-run, and the upgrade off the old self-signed cert.
       - name: certgen.sh tests
         run: deploy/scripts/test/certgen.test.sh
@@ -580,7 +580,7 @@ jobs:
       # Same pinned image as deploy/compose/monitoring.yml — bump both together.
       - name: Prometheus config check (promtool, VM + local overlay)
         env:
-          PROM_IMAGE: prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+          PROM_IMAGE: prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
         run: |
           cfg="$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
           overlay="$PWD/deploy/prometheus-local/local-scrape.yml:/etc/prometheus/scrape.d/local-scrape.yml:ro"
@@ -778,9 +778,9 @@ jobs:
         # a PR leg does not scan (the `audit` job covers the lockfile + Dockerfile on PRs).
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          # The trivy binary is pinned too (= this action version's default), not left to the
+          # The trivy binary is pinned too, not left to the
           # action: trivy-action had a supply-chain incident on 2026-03-19 (CVE-2026-33634).
-          version: v0.70.0
+          version: v0.76.1
           scan-type: image
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
           severity: HIGH,CRITICAL

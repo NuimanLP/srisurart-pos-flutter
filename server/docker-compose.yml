@@ -110,7 +110,7 @@ x-api: &api
 
 services:
   nginx:
-    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    image: nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5
     restart: unless-stopped
     mem_limit: 64m
     ports:
@@ -144,7 +144,7 @@ services:
   # container on this network. It proxies through the MAIN nginx instead — the plane's one
   # trusted hop (`trust proxy` = 1) — the same way a browser reaching the real thing would.
   platform-ui:
-    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    image: nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5
     restart: unless-stopped
     mem_limit: 32m
     networks: { default: { ipv4_address: 172.30.0.20 } }
