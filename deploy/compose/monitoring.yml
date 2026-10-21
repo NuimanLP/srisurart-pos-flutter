@@ -101,6 +101,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Grafana 12 downloads its "preinstalled" app plugins (drilldown/explore apps) from
+      # grafana.com at every boot. Nothing here uses them, and mob04 sits behind the faculty
+      # FortiGate, so the monitoring stack must not depend on that download.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
       # Read by provisioning/alerting/pos-alerts.yml. Grafana refuses to boot on a Discord
       # contact point with an empty URL, so unset = a placeholder nothing listens on (sends fail
       # and are logged; provision.yml warns). Quiet but honest, like an unset offsite backup.
