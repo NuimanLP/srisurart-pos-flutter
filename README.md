@@ -12,11 +12,12 @@ React + `localStorage` page; it was rewritten as an offline-first Flutter app (S
 counter PC), and is now being extended into a multi-tenant platform so more than one shop can
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
-> **Status (2026-10-17):** the course-submission freeze ended on 2026-10-10 and normal development
-> resumed. The last release is `main` `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate,
-> pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks), deployed
-> to the demo VM `mob04` (`.current_sha` checked). Still open there: `ALERT_DISCORD_WEBHOOK` is unset (alerts reach
-> nobody) and the old Healthchecks.io heartbeat still pings until `provision.yml` is run. No Raspberry Pi is in service.
+> **Status (2026-10-21):** the course-submission freeze ended on 2026-10-10 and normal development
+> resumed. The last release is `main` `e6374df` (PR #736, 2026-10-18: follow-ups to #727 — `host-setup.sh` fix,
+> alert-test/disk-alert fixes, `restore-db.sh` check fix, PC watchdog), deployed to the demo VM `mob04` (`.current_sha`
+> checked). Before it `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate, pre-migration DB dump,
+> Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks). Discord alerting is live on `mob04` since
+> 2026-10-18 and the old Healthchecks.io heartbeat is removed. No Raspberry Pi is in service.
 > Detail: [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
 > [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
 
@@ -178,7 +179,7 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
 - **Tailscale** remote access to `mob04` (2026-10-13): subnet router for `172.30.58.20/32` only, SNAT off, no faculty VPN client needed —
   [`tailscale-remote-access-plan-2026-10-13.md`](docs/research/tailscale-remote-access-plan-2026-10-13.md).
-- **DevOps bundle, released 2026-10-17** (`main` `21ad935`, PR #727; alert webhook not set yet): Semgrep SAST gate, DB dump before pending migrations,
+- **DevOps bundle, released 2026-10-17** (`main` `21ad935`, PR #727; Discord webhook set on `mob04` 2026-10-18): Semgrep SAST gate, DB dump before pending migrations,
   Grafana alerting to Discord + Gatus replacing the Healthchecks.io heartbeat, ansible-lint, Trivy config/web-image
   scan, SSH host-key verification —
   [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
@@ -430,8 +431,8 @@ builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Ba
 > **Status:** the pipeline has run end to end since **2026-09-30** — first real runner deploy
 > `e50f4fa` ([handoff](docs/handoff_log/session-2026-09-30-first-runner-deploy.md)), with a
 > `workflow_dispatch` rollback and an automatic rollback after a failed readiness check both
-> proven on real runs the same day. The latest release on `mob04` is `5c7f210` (PR #714,
-> 2026-10-13, deploy run `38393626652`; images are now amd64 + arm64). the DevOps bundle was released on 2026-10-17 (see Status above). **A green `Deploy (demo)` run is
+> proven on real runs the same day. The latest release on `mob04` is `e6374df` (PR #736,
+> 2026-10-18, deploy run `39116359714`; images are amd64 + arm64 since `5c7f210`), after the DevOps bundle `21ad935` (2026-10-17). **A green `Deploy (demo)` run is
 > not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
 > run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
 
@@ -488,13 +489,16 @@ Monitoring binds to loopback only and is reached over an SSH tunnel.
 
 Backups: `provision.yml` installs `backup-db.sh` and a nightly 03:00 `pg_dump` cron writing into
 `/opt/pos/backups`. It has been installed on `mob04` and running nightly since 2026-10-01.
-**No copy leaves the VM** — the offsite upload (`rclone`, optional) is built but not wired,
-and that work is parked (#363), so a dead VM disk still loses every tenant. A green
-`backup-cron.log` therefore does not prove a backup left the machine. Note that a CD deploy
+**Off-VM copy (since 2026-10-18, #363):** the owner's Windows PC pulls the dumps daily into
+`D:\Beestation\Sri_POS\ops\backups\mob04\YYYY-MM\`, which BeeStation syncs to the shop NAS, and alerts Discord
+when the newest copy is older than 26 h. It only works while the PC is on and logged on, and a restore from that
+copy onto a fresh host is not yet proven. The `rclone` upload in `backup-db.sh` stays unconfigured, so a green
+`backup-cron.log` does not prove a backup left the machine. Note that a CD deploy
 does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
 
-Uptime: on `mob04` today, `healthcheck-ping.sh` pings an external heartbeat every 5 minutes from cron
-(installed 2026-10-04). Since the 2026-10-17 release the code replaces it with Gatus plus Grafana alerts to Discord, but on `mob04` the old ping still runs until `provision.yml` is run.
+Uptime: Gatus plus Grafana alerts to Discord (live on `mob04` since 2026-10-18; the old Healthchecks.io
+heartbeat was removed that day). Gatus runs on the host it watches, so "mob04 fully down" is caught only by the
+owner-PC watchdog (every 5 min) — it pages nobody while that PC is off.
 
 ---
 

@@ -69,8 +69,8 @@ the pre-migrate dump was correctly skipped — **it has still never dumped on `m
 `pos_backup_last_success_timestamp_seconds` is in Prometheus; all 10 Grafana rules Normal, Gatus 9/9 endpoints success.
 🔴 **Discord alerting live on `mob04` since 2026-10-18:** `ALERT_DISCORD_WEBHOOK` set in `/opt/pos/.env` by hand (backup
 `.env.bak-20261018T041536Z`; egress checked: HTTP 200, issuer Google Trust Services, not FortiGate), `grafana` + `gatus` recreated,
-Grafana contact-point test → `discord ok`. The webhook is a secret: it only lives in `.env` (leaked = delete it in Discord and make a new one). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash,
-`develop` only, not on `main` yet): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts Docker when
+Grafana contact-point test → `discord ok`. The webhook is a secret: it only lives in `.env` (leaked = delete it in Discord and make a new one). The Healthchecks.io heartbeat (cron, `healthcheck-ping.sh`, `HEALTHCHECKS_PING_URL`) was **removed from `mob04` by hand on 2026-10-18** after the account owner paused the check (backups `/opt/pos/.env.bak-20261018T024347Z`, `.deploy.cron.bak-…`, `scripts/.healthcheck-ping.sh.removed-…`). **Owner decided 2026-10-18:** pre-migrate retention 30 days (PDPA) and both ADR-0013 addenda (Semgrep, alerting) **Accepted**. Record: `docs/handoff_log/session-2026-10-17-release-727.md`. PR #728 (`0d7ffd6`, squash;
+released in `e6374df`): `host-setup.sh` accepts the `5c7f210` `daemon.json` as an upgrade and restarts Docker when
 `DockerRootDir` ≠ `/srv/pos-data/docker`. Before `21ad935` the release was `5c7f210`; before that `8a44a03`
 (PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
 supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
@@ -347,7 +347,7 @@ develops against a demo tenant.
   from `origin/main`, sha256 `fa65dbd5…` matches, previous copy kept as
   `/opt/pos/scripts/.backup-db.sh.prev-be9e7f3`; one run in cron's env (`env -i`, cwd
   `/home/deploy`) → rc=0, 9580-byte `.sql.gz`, `gzip -t` ok, sha256 sidecar OK, no `.partial`, offsite
-  `::warning::` as expected (#363 parked). First real 03:00 cron run with it is still 2026-10-01. A foreign `Origin`
+  `::warning::` as expected (rclone offsite unconfigured). First real 03:00 cron run with it is still 2026-10-01. A foreign `Origin`
   used to get **HTTP 500** (`app.setup.ts` threw; not counted in `http_requests_total`) —
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
@@ -404,16 +404,16 @@ develops against a demo tenant.
   (`GREATEST`; legacy-random numbers skipped; a `device_no` the tenant lacks is skipped and reported as
   `docCounterSkippedDevices`) — without it the first new sale collides (`409 RECEIPT_NO_CONFLICT`).
   🔴 The pre-import copy (`/app/exports/<tenant>/pre-import/<jobId>.json`, `exports` volume) is **never
-  auto-deleted** (PDPA — retention is the owner's call) and lives only on the VM disk (#363 parked).
+  auto-deleted** (PDPA — retention is the owner's call) and lives only on the VM disk (outside `/opt/pos/backups`, so the PC backup pull, #363, does not copy it).
   Known limits: other devices keep stale rows after a replace (clear site data); shifts, drawer entries,
   movements, suppliers, credit-payment history and parked bills in the file are not pulled into the app.
   The real import on `mob04` has not been run yet; the Thai strings and amendment 5 are `agent ร่าง`, unratified.
 - **#616 UUID cutover (2026-10-06, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`).**
   PR #628 (`develop` → `main`, merge commit) = `65861ea`; closed #612/#616/#619/#620/#621.
-  `mob04` ran `65861ea` that day (since 2026-10-07: `53fdd1b`), DB **wiped — no tenant**; dump
-  `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` (all 10 pre-wipe tenants). 🔴 **Correction
-  2026-10-07: there is NO copy off the VM** — the handoff's "copy on the owner's laptop"
-  (`~/Downloads/srisurart-mob04-backups/`) no longer exists (folder gone when checked), #363 is parked.
+  `mob04` ran `65861ea` that day (since 2026-10-07: `53fdd1b`), DB **wiped — no tenant**. 🔴 **Pre-wipe dump (checked 2026-10-21):** `pos_backup_20261006_035714Z.sql.gz` was pruned;
+  the only one left is `/opt/pos/backups-removed-20261007/pos_backup_20261006_030001Z.sql.gz`, **on the VM only** — the
+  handoff's "copy on the owner's laptop" (`~/Downloads/srisurart-mob04-backups/`) no longer exists, and the PC backup pull
+  (#363) copies only `/opt/pos/backups/`.
   `ROLLBACK_FLOOR` = `bedd328` (#617 merge): `pos-deploy` refuses anything older; restoring old
   data is an owner decision, not a rollback. `server/package.json` `pnpm.overrides` pins
   `proxy-addr`/`source-map-js` (#627 — a new advisory turned `pnpm audit` red on `main` too).
@@ -506,7 +506,8 @@ develops against a demo tenant.
     Scheduler, exit `0xFFFD0000`). Tasks run via `conhost.exe --headless` (no console flash) — which always reports exit 0, so
     `LastTaskResult` proves nothing: read `ops\logs` / Discord.
     The PC watchdog ("Srisurart mob04 watchdog", every 5 min, pinned CA, Discord on 2 failures) covers "mob04 fully down", which
-    Gatus on the same host cannot. The history below is kept for the why.
+    Gatus on the same host cannot. Both run only while the PC is on and logged on; the pull also alerts Discord when the newest
+    off-VM copy is older than 26 h (PR #740). The history below is kept for the why.
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
     is still `[ ]` on a reopened ticket (#288 was **reopened 2026-09-21** by the owner).
     🔴 **Mechanism built same day, not wired**:
@@ -537,16 +538,13 @@ develops against a demo tenant.
     Evidence, both example configs, and the still-unverified network questions:
     `docs/handoff_log/research-363-sftp-nas-offsite.md`. AC1 (destination **and**
     credentials) stays unticked until a protocol is picked and creds exist.
-    🔴 **PARKED until after the `mob04` demo (owner, 2026-09-22).** #363/#288 are both
-    still open but `ready-for-agent` was removed from #288 — do not start this work; #344
-    (the demo) comes first (#343 closed 2026-09-30). The cost is accepted knowingly: **no backup leaves the VM at all
-    meanwhile**, so a dead `mob04` disk loses the demo tenant. Never write "backups are
-    ready" anywhere while this is parked.
+    ~~Parked until after the `mob04` demo (owner, 2026-09-22)~~ — superseded 2026-10-18 by the PC pull above: a copy now
+    leaves the VM daily while the owner PC is on. #363/#288 stay open — AC3 (restore from the off-VM copy onto a fresh
+    host) is unproven, so never write "backups are ready".
     **`mob04` backup folder, tidied 2026-10-07:** 20 empty/irrelevant dumps + sidecars (20-byte failed
     dumps 2026-09-29/30, 0-tenant dumps 09-30/10-01, test-tenant-only 10-02..10-05, a duplicate 10-06
     03:00) were **moved, not deleted**, to `/opt/pos/backups-removed-20261007/`. Kept in
-    `/opt/pos/backups/`: `pos_backup_20261006_035714Z.sql.gz` (all 10 pre-wipe tenants), the latest
-    nightly, the etcd snapshot, the cron log. All of it is on the one VM disk.
+    `/opt/pos/backups/`: the latest nightly, the etcd snapshot, the cron log (the pre-wipe dump: see "#616 UUID cutover").
     **First-run rule (owner, 2026-09-22):** dumps written while offsite was unconfigured
     have no `.uploaded` marker and prune keeps them forever by design — on the day offsite
     is switched on, upload the backlog **by hand once**, then let prune resume. No
@@ -772,7 +770,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   scanned; the pushed amd64+arm64 list is a buildx rebuild of the same COPY-only Dockerfile, its arm64 half unscanned. DS-0002 is met by
   `USER 65534` in the image while `web-sync` runs `user: "0:0"` on purpose (root-owned `web` volume) — never call the
   deploy rootless. 🔴 The lint edits to `deploy.yml` (explicit `changed_when`, folded long lines) are proven **only by a
-  real deploy + `.current_sha`** — none happens until the owner releases this branch. `ansible.cfg` no longer sets
+  real deploy + `.current_sha`** — done: released in `21ad935`, deploy run `39042973596` `failed=0`, `.current_sha` checked. `ansible.cfg` no longer sets
   `host_key_checking = False`: pin the host key first (ssh-keyscan vs the console fingerprint, 07 §7 "SSH host key");
   CD is unaffected (`ansible_connection=local`).
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
@@ -864,7 +862,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   runs before `provision.yml`: **never formats** (prints `sfdisk`/`mkfs.ext4` for the owner), refuses page size ≠ 4096
   (Raspberry Pi OS on a Pi 5 = 16K; use Ubuntu Server 26.04/24.04), mounts the data disk at `/srv/pos-data` and moves Docker
   `data-root` to `/srv/pos-data/docker` with a `RequiresMountsFor=/srv/pos-data` drop-in (plus `log-driver local`; Docker is restarted only when `daemon.json`/drop-in actually change, so a re-run is safe) — 🔴 never remove it (Docker would
-  start on an empty SD dir); backups stay on the boot disk (nothing leaves the host — #363 parked).
+  start on an empty SD dir); backups stay on the boot disk (the only off-host copy is the owner-PC pull, #363, wired for `mob04` only).
   A runner on a Pi must set `RUNNER_NAME` + `RUNNER_LABELS` (script refuses on aarch64 otherwise) and **never share
   `srisurart-demo-deploy`**. 🔴 **Pi CD is not wired:** `deploy.yml` runs on `mob04`'s label and passes no platform.
 - **Tailscale on `mob04` (2026-10-13, `docs/research/tailscale-remote-access-plan-2026-10-13.md`):** subnet router for
@@ -940,8 +938,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   window run `provision.yml` as `cloud` from a **clean `origin/main`** worktree (before the merge `origin/main` holds the
   old playbook: heartbeat cron back, no `node-textfile`, old `backup-db.sh`) → seed the gauge by running `backup-db.sh`
   once as `deploy` in cron's env → then approve. `deploy.yml` warns (never fails) when `node-textfile` is missing or
-  `/opt/pos/scripts/backup-db.sh` differs from the release's copy. Before provision: ask the Healthchecks.io account
-  owner to pause/delete the check (not the team's account — removing the cron makes it page *them*), and compare the
+  `/opt/pos/scripts/backup-db.sh` differs from the release's copy. Before provision (the Healthchecks.io check is
+  paused and the heartbeat gone from `mob04` since 2026-10-18), compare the
   local `DEMO_ENV_FILE` sha256 with the VM's `/opt/pos/.env` (stale file = wrong DB/etcd passwords). The nightly
   `backup-db.sh` also prunes `/opt/pos/backups-pre-migrate` past 30 days (top level only; those dumps hold customer
   data — PDPA, owner's retention call). 🔴 **Rollback past this release** (old `deploy.yml`) leaves an orphan `gatus`
@@ -950,7 +948,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   "rollback ข้าม release alerting"); the provisioning API cannot delete a `file`-provenance rule. CI: `monitoring-alerting.test.sh`
   (nginx-check) boots prometheus+grafana+gatus from `monitoring.yml` and checks rules load and evaluate without
   `error`, Gatus config loads, and the Gatus amd64 binary is `GOAMD64=v1` (mob04 = qemu64). 🔴 Gatus runs on the host
-  it watches: a dead host pages nobody until a second host (Pi 5) exists — documented, not claimed. Owner steps on
+  it watches: a dead host is caught only by the owner-PC watchdog (#733), so it pages nobody while the owner PC is
+  off — documented, not claimed. Owner steps on
   `mob04` (Discord egress `curl -v https://discord.com/api/v10/gateway`, webhook, `DEMO_ENV_FILE`, provision) in 07 §10.5.
   🔴 A webhook send that fails at the network level puts the **full webhook URL (token) in `docker logs gatus`** (Go
   error text) — never paste those logs unredacted; leaked = rotate the webhook. Every rule is `execErrState: Alerting`,
