@@ -600,7 +600,7 @@ PLATFORM_ADMINS=1
 ### 2.6 release แรกที่มี alerting (Gatus + Grafana → Discord) — ลำดับที่ถูก (owner, 2026-10-13)
 
 > 🔴 **release แล้ว (2026-10-17):** ชุด devops (PR #727 → `main` `21ad935` — Gatus/alerting, pre-migrate dump, ansible-lint, host-key checking)
-> ขึ้น `mob04` แล้ว (ไม่ได้รัน `provision.yml` — ทำมือ) · 2026-10-18: ตั้ง `ALERT_DISCORD_WEBHOOK` + ทดสอบส่ง Discord แล้ว, ลบ heartbeat Healthchecks.io แล้ว ·
+> ขึ้น `mob04` แล้ว (ไม่ได้รัน `provision.yml` — ทำมือ) · 2026-10-18: ตั้ง `ALERT_DISCORD_WEBHOOK` + ทดสอบส่ง Discord แล้ว, ลบ heartbeat Healthchecks.io แล้ว · release ล่าสุด `e6374df` (PR #736, 2026-10-18, `.current_sha` ตรวจแล้ว) ·
 > **ยังค้าง:** pre-migrate dump ยังไม่เคยรันจริง · §2.6 ด้านล่างเป็นลำดับของ release แรกที่มี alerting (ใช้กับเครื่องใหม่) · checklist ก่อน release (เช็ก egress ไป Discord, token รั่วใน
 > `docker logs gatus`, ดู deploy แรกพร้อมคำสั่งเก็บกวาด rollback): `docs/handoff_log/session-2026-10-14-devops-develop.md`
 
@@ -650,7 +650,7 @@ ssh mob04 'sudo -n -u deploy env -i HOME=/home/deploy PATH=/usr/bin:/bin /opt/po
 ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก (`gh` นอก git repo ต้องใส่ `-R NuimanLP/srisurart-pos-flutter`)
 
 > ✅ **ผ่านแล้ว 2026-09-30:** deploy ครั้งแรกหลังปลดบล็อกเกิดจริงผ่าน runner (`e50f4fa`, ok=48 failed=0) บน `/opt/pos` ที่ว่าง — migration ทั้งหมดรันแล้ว,
-> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` (ล่าสุดดูด้วย `cat /opt/pos/.current_sha` — อย่าเชื่อ SHA ในคู่มือ; 2026-10-13 = `5c7f210`, PR #714) · กล่องข้างล่างเก็บไว้เป็นประวัติ
+> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` (ล่าสุดดูด้วย `cat /opt/pos/.current_sha` — อย่าเชื่อ SHA ในคู่มือ; 2026-10-18 = `e6374df`, PR #736) · กล่องข้างล่างเก็บไว้เป็นประวัติ
 >
 > **(ประวัติ) deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
 > **500+ commit** (ณ 2026-09-29 · นับเองด้วย `git rev-list --count 8e873cd..origin/main`) และมี **ไฟล์ migration ใหม่ 11 ไฟล์** (+ `1788652800000-InitialSchema.ts`
@@ -1240,7 +1240,8 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.nam
 ### 6.3b ประวัติ #616 UUID cutover บน `mob04` (2026-10-06 — ทำครั้งเดียว ห้ามทำซ้ำ)
 
 **ประวัติ:** วันนั้น deploy `65861ea` (develop → main) · ฐานข้อมูลถูก backup ไว้ที่ `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` แล้วล้างทั้งหมด
-เพราะ migration `EntityIdsToUuid` ปฏิเสธฐานข้อมูลที่ไม่ว่าง · 🔴 **ไม่มีสำเนาออกนอก VM** (โฟลเดอร์ของ owner หายไปแล้ว ตรวจ 2026-10-07; #363 parked) ·
+เพราะ migration `EntityIdsToUuid` ปฏิเสธฐานข้อมูลที่ไม่ว่าง · 🔴 **แก้ 2026-10-21:** ไฟล์ `035714Z` นั้นถูก prune ไปแล้ว — dump ก่อนล้างที่เหลืออยู่ชุดเดียวคือ
+`/opt/pos/backups-removed-20261007/pos_backup_20261006_030001Z.sql.gz` **อยู่บน VM เท่านั้น** (โฟลเดอร์ของ owner หายไปแล้ว ตรวจ 2026-10-07; PC pull ของ #363 ดึงเฉพาะ `/opt/pos/backups`) ·
 **วันนี้ `mob04` มีข้อมูลจริงของ tenant `ศรีสุราษฎร์เจริญยนต์`** → 🔴 **ห้ามล้างฐานข้อมูลหรือ volume ใด ๆ ใน deploy ปกติ** ·
 `.current_sha` ปัจจุบันดูด้วย `cat /opt/pos/.current_sha` (§4.1) · tenant ใหม่สร้างผ่าน platform-ui (รหัสชั่วคราวหมดอายุใน 10 นาที) · tenant id ตัวพิมพ์เล็กเท่านั้น (#621) · CORS อนุญาต `X-Device-Token` (#618) ·
 ไฟล์ backup/snapshot จากแอปเดิม (id เช่น `p1`, `s-0001`) ถูก server ปฏิเสธตอน import: `400 INVALID_ID` · เครื่องลูกข่ายก่อนวันนี้ต้องล้าง (Incognito / Clear site data; Android ล้าง storage แล้วลง APK ใหม่ — §6.7) เพราะ outbox เก่าส่ง/discard ไม่ได้ ·
@@ -1286,7 +1287,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.nam
 - [ ] ห้ามลบ `.current_sha` — ใช้ `-e force_redeploy=true`
 - [ ] ห้าม re-key volume หรือทำ network recreate เอง — owner ตัดสิน
 - [ ] ห้ามบันทึก `docker save`/`load` ว่าเป็น CD · ห้ามอ้าง `--check` / Actions เขียว เป็นหลักฐาน
-- [ ] ห้ามเขียนว่า "CORS ปิดบน VM แล้ว" หรือ "backup ออกนอก VM แล้ว" (offsite พักไว้ถึงหลังเดโม — #363/#288)
+- [ ] ห้ามเขียนว่า "CORS ปิดบน VM แล้ว" หรือ "backup พร้อมแล้ว" (สำเนานอก VM มีตั้งแต่ 2026-10-18 แต่เฉพาะตอน PC ของ owner เปิด และยังไม่เคยพิสูจน์การกู้จากสำเนานั้น — #363 AC3)
 - [ ] ห้าม commit / วางลง chat ไฟล์ env หรือค่าในนั้น · ห้ามใส่ `ALLOW_DEV_SECRETS` / `IMAGE_TAG` ใน `.env`
 - [ ] deploy ทีละคน — ประกาศก่อนและหลัง
 
