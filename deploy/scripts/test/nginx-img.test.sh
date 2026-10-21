@@ -12,7 +12,7 @@ export MSYS_NO_PATHCONV=1
 host_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-IMAGE="${NGINX_IMAGE:-nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de}"
+IMAGE="${NGINX_IMAGE:-nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5}"
 WORK="$(mktemp -d "$ROOT/.tmp-nginx-img.XXXXXX")"
 NAME="nginx-img-test-$$"
 cleanup() {

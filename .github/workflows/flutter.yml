@@ -327,7 +327,7 @@ jobs:
         with:
           # The trivy binary is pinned too, not left to the action (trivy-action supply-chain
           # incident 2026-03-19, CVE-2026-33634). Same version as server.yml's Trivy steps.
-          version: v0.70.0
+          version: v0.76.1
           scan-type: image
           image-ref: ${{ env.WEB_IMAGE }}:${{ github.sha }}
           severity: HIGH,CRITICAL

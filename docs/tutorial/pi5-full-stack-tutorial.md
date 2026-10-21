@@ -762,10 +762,10 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 * `provision.yml` ตั้ง cron 03:00 ของ `deploy` → `backup-db.sh` เขียน dump + `pos_images_*.tar.gz` + `pos_sale_photos_*.tar.gz` **เต็มทุกคืน** ลง `/opt/pos/backups` (microSD)
   เก็บ 7 วัน (`BACKUP_KEEP_DAYS` ค่าเริ่ม 7) → รูปเยอะ = SD 32 GB เต็มได้ (root เต็ม = apt/journald พัง) และ SD สึก ·
   ตรวจ `ssh pi5-deploy 'df -h / /srv/pos-data'` หลัง backup สองสามคืนแรก · ใช้ microSD ≥ 64 GB หรือให้ owner ตัดสินลด `BACKUP_KEEP_DAYS`
-* **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — offsite (#363) ยัง parked · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
+* **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — สำเนานอกเครื่อง (#363) ตอนนี้มีแค่ PC ของ owner ดึงจาก `mob04` (ยังไม่ได้ตั้งให้ Pi) · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
   `--data-disk boot` = ข้อมูลกับ backup อยู่บน SD ใบเดียวกัน · ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหน · log สีเขียวไม่ได้แปลว่าออกจากเครื่อง (อ่านบรรทัด `::warning::`)
 * ครั้งแรกบน Pi ให้รัน `backup-db.sh` ด้วยมือหนึ่งครั้งหลัง deploy และอ่าน output (แผนย้าย §4.7) ·
-  **ซ้อม `restore-db.sh` หนึ่งครั้ง** ตอนที่ Pi มีแต่ข้อมูลทดสอบ (`restore-db.sh <pos_backup_….sql.gz> [target_database]`) — `restore-db.sh` ยังไม่กู้รูปสินค้า/รูปหลักฐาน
+  **ซ้อม `restore-db.sh` หนึ่งครั้ง** ตอนที่ Pi มีแต่ข้อมูลทดสอบ (`restore-db.sh <pos_backup_….sql.gz>` — ไม่มี argument ชื่อฐานข้อมูลแล้ว และหยุด/เปิด api/worker/bull-board ให้เอง, PR #741) — `restore-db.sh` ยังไม่กู้รูปสินค้า/รูปหลักฐาน
 * สำเนาด้วยมือระหว่างรอ #363 = owner ตัดสิน (แผนย้าย §3 "ผลต่อ offsite backup")
 
 ---
