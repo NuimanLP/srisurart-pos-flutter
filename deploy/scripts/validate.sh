@@ -66,7 +66,7 @@ if command -v docker >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
     -v "$REPO_ROOT/server/docker/nginx/nginx.conf://etc/nginx/nginx.conf:ro" \
     -v "$NGINX_TMP/certs://etc/nginx/certs:ro" \
     -v "$NGINX_TMP/auth://etc/nginx/auth:ro" \
-    nginx:1.29-alpine nginx -t
+    nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5 nginx -t
   rm -rf "$NGINX_TMP"
   trap - EXIT
   echo "  -> nginx -t passed."
@@ -87,7 +87,7 @@ elif command -v docker >/dev/null 2>&1; then
   else
     PROMETHEUS_CFG_DIR="$REPO_ROOT/deploy/prometheus"
   fi
-  MSYS_NO_PATHCONV=1 docker run --rm --entrypoint promtool -v "$PROMETHEUS_CFG_DIR:/cfg" prom/prometheus:v2.55.1 check config /cfg/prometheus.yml
+  MSYS_NO_PATHCONV=1 docker run --rm --entrypoint promtool -v "$PROMETHEUS_CFG_DIR:/cfg" prom/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9 check config /cfg/prometheus.yml
 else
   echo "  -> promtool and docker not found in PATH (skipping Prometheus config check)."
 fi

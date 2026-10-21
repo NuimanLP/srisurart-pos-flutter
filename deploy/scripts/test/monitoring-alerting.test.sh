@@ -3,8 +3,8 @@
 # prometheus + grafana + gatus (+ node-exporter, a dependency) from monitoring.yml ITSELF — same
 # pinned digests, env defaults, user/read_only, mounts — on a throwaway compose project with
 # random loopback ports, and checks:
-#   * Grafana is healthy and provisioned every rule in pos-alerts.yml, the Discord contact point
-#     and the policy that routes to it; annotations reach Grafana un-interpolated;
+#   * Grafana is healthy, loaded the pos-overview dashboard, and provisioned every rule in
+#     pos-alerts.yml, the Discord contact point and the policy that routes to it; annotations reach Grafana un-interpolated;
 #   * after one evaluation no rule has health "error" (bad PromQL / datasource uid / expression);
 #   * every metric name the rules' PromQL selects has at least one series in this Prometheus — an
 #     empty vector is not an error, so a misspelled name would otherwise pass as "OK / no data".
@@ -140,6 +140,8 @@ contact_ok() { gf /api/v1/provisioning/contact-points | jq -e 'any(.[]; .name ==
 check "the Discord contact point is provisioned" contact_ok
 policy_ok() { gf /api/v1/provisioning/policies | jq -e '.receiver == "discord"'; }
 check "the notification policy routes to discord" policy_ok
+dashboard_ok() { gf /api/dashboards/uid/srisurart-pos-overview | jq -e '(.dashboard.panels | length) > 0'; }
+check "grafana loaded the pos-overview dashboard from deploy/grafana/dashboards" \n  wait_for 60 "pos-overview dashboard" dashboard_ok
 annotation_ok() { gf /api/v1/provisioning/alert-rules/pos-api-instance-down | jq -e '.annotations.summary | contains("{{ $labels.instance }}")'; }
 check "annotations reach grafana un-interpolated" annotation_ok
 
@@ -155,7 +157,7 @@ no_errors() { rules_json | jq -e '[.data.groups[].rules[] | select(.health == "e
 check "no rule has health \"error\"" no_errors
 
 # 5b. every metric name a rule selects has a series. The expressions are the ones Grafana provisioned
-# (it parsed pos-alerts.yml). Prometheus 2.55 has no parse_query API, so the names are what is left
+# (it parsed pos-alerts.yml). No Prometheus parse API is relied on, so the names are what is left
 # of each expression after removing strings, {matchers}, [ranges] and by/on/... label lists:
 # identifiers not followed by "(" (functions, aggregations) and not PromQL keywords. Anything else
 # that slipped through still has to have a series, so a mistake here fails loudly, never quietly.
