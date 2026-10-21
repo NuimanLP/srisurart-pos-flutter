@@ -86,6 +86,16 @@ run_restore 0 other_db
 check "target database argument is refused" test "$rc" -ne 0
 check "refused argument stops nothing" test "$(calls ' stop ')" = 0
 
+# 4. a corrupt archive is refused before anything is stopped or dropped.
+GOOD_DUMP="$DUMP"
+DUMP="$WORK/pos_backup_corrupt.sql.gz"
+printf 'not a gzip stream' > "$DUMP"
+run_restore 0
+check "corrupt archive is refused" test "$rc" -ne 0
+check "corrupt archive stops nothing" test "$(calls ' stop ')" = 0
+check "corrupt archive never reaches psql" test "$(calls 'ON_ERROR_STOP')" = 0
+DUMP="$GOOD_DUMP"
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails check(s) failed"
   exit 1

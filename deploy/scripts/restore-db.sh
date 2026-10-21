@@ -119,6 +119,13 @@ else
   echo "::warning::Checksum file $CHECKSUM_FILE not found, skipping checksum verification."
 fi
 
+# Prove the archive decompresses before anything is stopped or dropped (a missing .sha256 must not
+# let a truncated dump reach DROP DATABASE).
+if ! gzip -t "$BACKUP_FILE"; then
+  echo "::error::$BACKUP_FILE is not a valid gzip archive -- nothing was stopped or dropped." >&2
+  exit 1
+fi
+
 exec_psql() {
   local db="${1:-postgres}"
   shift
