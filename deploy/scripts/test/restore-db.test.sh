@@ -60,6 +60,7 @@ run_restore() { # fail-flag, [extra args...] ; sets rc, writes $LOG and $STUB_LO
 }
 calls() { grep -c -- "$1" "$WORK/calls.log" | tr -d ' '; }
 has() { grep -q -- "$1" "$LOG"; }
+lacks() { ! grep -q -- "$1" "$LOG"; }
 
 # 1. good restore: exit 0, services stopped before the restore and started after, ON_ERROR_STOP used.
 run_restore 0
@@ -78,7 +79,7 @@ run_restore 1
 check "failed restore exits non-zero" test "$rc" -ne 0
 check "failed restore does not start the services" test "$(calls ' start ')" = 0
 check "failed restore prints the start command" has "start api-1 api-2 worker"
-check "failed restore does not claim success" bash -c '! grep -q "Succeeded" "$0"' "$LOG"
+check "failed restore does not claim success" lacks "Succeeded"
 
 # 3. a target-database argument is refused before anything runs.
 run_restore 0 other_db
