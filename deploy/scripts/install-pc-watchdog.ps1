@@ -2,12 +2,14 @@
 Installs the mob04 PC watchdog for the CURRENT user (no admin needed): the ops root tree (pc-ops-layout.ps1;
 secrets\ owner-only ACL), the script + CA copies in bin\, Scheduled Task "Srisurart mob04 watchdog" every 5 minutes
 running bin\pc-watchdog.ps1 -OpsRoot "<root>".
-Does NOT write the Discord webhook - it prints how. Uninstall: -Uninstall (keeps the folder).
+Also sets the user env var SRISURART_OPS_ROOT to the root, so a manual run of the script uses the same root.
+Runs only while this user is logged on. Does NOT write the Discord webhook - it prints how.
+Uninstall: -Uninstall (keeps the folder and the env var).
 Moving from the old %USERPROFILE%\srisurart-ops\watchdog layout: run migrate-pc-ops.ps1 once.
 #>
 param(
     [switch]$Uninstall,
-    [string]$OpsRoot = 'D:\Beestation\Sri_POS\ops'
+    [string]$OpsRoot = $(if ($env:SRISURART_OPS_ROOT) { $env:SRISURART_OPS_ROOT } else { 'D:\Beestation\Sri_POS\ops' })
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'pc-ops-layout.ps1')

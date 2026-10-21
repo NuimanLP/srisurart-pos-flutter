@@ -3,12 +3,13 @@ Installs the mob04 backup pull for the CURRENT user (no admin needed): the ops r
 secrets\ and backups\ owner-only ACL - customer data, PDPA), a copy of pc-pull-backups.ps1 in bin\, and the Scheduled
 Task "Srisurart mob04 backup pull" daily at 11:00 local (ICT; the dump is written 03:00 UTC = 10:00 ICT), with
 "run as soon as possible after a missed start", running bin\pc-pull-backups.ps1 -OpsRoot "<root>".
-Uninstall: -Uninstall (keeps folders and backups). Alerts need <root>\secrets\webhook.txt (same file as the watchdog).
+Also sets the user env var SRISURART_OPS_ROOT to the root, so a manual run of the script uses the same root.
+Runs only while this user is logged on. Uninstall: -Uninstall (keeps folders, backups and the env var). Alerts need <root>\secrets\webhook.txt (same file as the watchdog).
 Moving from the old %USERPROFILE%\srisurart-ops + mob04-backups layout: run migrate-pc-ops.ps1 once.
 #>
 param(
     [switch]$Uninstall,
-    [string]$OpsRoot = 'D:\Beestation\Sri_POS\ops'
+    [string]$OpsRoot = $(if ($env:SRISURART_OPS_ROOT) { $env:SRISURART_OPS_ROOT } else { 'D:\Beestation\Sri_POS\ops' })
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'pc-ops-layout.ps1')
