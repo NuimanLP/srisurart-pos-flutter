@@ -48,8 +48,16 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `e6374df`
-(PR #736, merge commit, 2026-10-18)**: follow-ups to #727 — `host-setup.sh` upgrade/restart fix (#728), alert test checks every
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `d5e2d10`
+(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
+(`GF_PLUGINS_PREINSTALL_DISABLED=true`; 🔴 Grafana cannot downgrade — a rollback past `d5e2d10` starts 11.2 on a 12.4-migrated volume,
+monitoring only), node-exporter 1.12.1, Trivy 0.76.1 (#743); `restore-db.sh` ON_ERROR_STOP + `gzip -t` first + stops/starts
+api-1..3/worker/bull-board on compose + no target-db argument (#741; proven 2026-10-21 against WSL Postgres from the NAS copy);
+vite 8.3.5 direct devDependency (GHSA-587h-7wmj-h5pm, a pnpm override did not re-resolve it); PC ops fixes (#737–#740).
+Deploy run `39633605566` `failed=0`, `.current_sha` checked, 10 rules Normal; `provision.yml` re-run without `DEMO_ENV_FILE`
+(installed `restore-db.sh` `cc854480…`, `.env` unchanged). Record: `docs/handoff_log/session-2026-10-21-review-fixes-release.md`.
+Before it `e6374df`
+(PR #736, merge commit, 2026-10-18): follow-ups to #727 — `host-setup.sh` upgrade/restart fix (#728), alert test checks every
 rule metric has a series + disk alert also watches `/srv/pos-data` (#734), `restore-db.sh` verifies against `migrations` (#735, it used to
 exit 1 after a good restore), PC watchdog (#733), docs. Deploy run `39116359714` `failed=0`, `.current_sha` checked; then `provision.yml`
 from a clean `e6374df` tree run from WSL **without** `DEMO_ENV_FILE` (`failed=0`; installed `restore-db.sh` + `measure-container-rss.sh`;
@@ -791,7 +799,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   also download from outside at run time, so an outage there is a red run too: PyPI + Galaxy (`ci-guards`, cached and
   hash-checked), Docker Hub (`nginx-check`'s grafana/prometheus/gatus/node-exporter pulls, the semgrep image), GitHub
   (`sast`'s `semgrep-rules` fetch, the gitleaks/actionlint/shellcheck releases) and the Trivy DB (`mirror.gcr.io`, then
-  `ghcr.io` — Trivy v0.70.0's own default order, left as is). Re-run; never weaken the gate.
+  `ghcr.io` — Trivy's own default order (checked at v0.70.0; re-check after the v0.76.1 bump), left as is). Re-run; never weaken the gate.
 - **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
