@@ -7,16 +7,34 @@
 # idle_in_transaction_session_timeout = 5s), ensuring DbModule boot check passes with 0 warnings.
 #
 # Usage:
-#   ./restore-db.sh <path-to-backup.sql.gz> [target_database]
+#   ./restore-db.sh <path-to-backup.sql.gz>
+#
+# The dump is made with `pg_dump --create --clean --if-exists`, so it always DROPs and re-CREATEs
+# the database it was taken from (named inside the dump). There is therefore no "target database"
+# argument: restoring under another name is not possible with this dump.
+#
+# Safety rules:
+#   * psql runs with ON_ERROR_STOP=1: the first SQL error aborts and the script exits non-zero.
+#     --single-transaction is NOT used: the dump contains DROP/CREATE DATABASE, which Postgres
+#     refuses inside a transaction block. A failed restore can therefore leave the database
+#     dropped or half-built -- restore again from a good dump.
+#   * On a docker compose stack the app services (api-1/2/3, worker, bull-board) are stopped before
+#     the DROP, so their reconnecting pools cannot race it, and started again only after the
+#     verification passes. On failure they stay stopped and the exact start command is printed.
 #
 # Environment variables:
 #   APP_DIR        Application directory (default: /opt/pos, fallback to repo root/server)
 #   POSTGRES_USER  Superuser name for psql (default: postgres)
+#   POSTGRES_DB    Database the dump recreates (default: pos); used to cut connections and verify
 set -euo pipefail
 
 BACKUP_FILE="${1:-}"
+if [[ $# -gt 1 ]]; then
+  echo "::error::A target database argument is no longer accepted: the dump is made with --create, so it always restores into the database it was taken from, never under another name." >&2
+  exit 1
+fi
 if [[ -z "$BACKUP_FILE" || ! -f "$BACKUP_FILE" ]]; then
-  echo "Usage: $0 <path-to-pos_backup_*.sql.gz> [target_database]" >&2
+  echo "Usage: $0 <path-to-pos_backup_*.sql.gz>" >&2
   exit 1
 fi
 
@@ -28,7 +46,7 @@ if [[ ! -d "$APP_DIR" && -d "$REPO_ROOT/server" ]]; then
 fi
 
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
-TARGET_DB="${2:-pos}"
+TARGET_DB="${POSTGRES_DB:-pos}"
 
 # Determine compose files if running under docker compose
 COMPOSE_ARGS=()
@@ -83,7 +101,7 @@ compose_has_postgres() {
 
 echo "=== Srisurart POS Database Restore ==="
 echo "  Backup Archive: $BACKUP_FILE"
-echo "  Target Database: $TARGET_DB"
+echo "  Database (recreated by the dump): $TARGET_DB"
 
 # 1. Verify Checksum if present
 CHECKSUM_FILE="${BACKUP_FILE}.sha256"
@@ -99,6 +117,13 @@ if [[ -f "$CHECKSUM_FILE" ]]; then
   echo "  -> Checksum verified successfully."
 else
   echo "::warning::Checksum file $CHECKSUM_FILE not found, skipping checksum verification."
+fi
+
+# Prove the archive decompresses before anything is stopped or dropped (a missing .sha256 must not
+# let a truncated dump reach DROP DATABASE).
+if ! gzip -t "$BACKUP_FILE"; then
+  echo "::error::$BACKUP_FILE is not a valid gzip archive -- nothing was stopped or dropped." >&2
+  exit 1
 fi
 
 exec_psql() {
@@ -127,16 +152,48 @@ exec_psql_app() {
   fi
 }
 
+# Compose services that hold database connections. Stopped before the DROP, restarted only after
+# verification. Empty (and untouched) when not running against a docker compose stack.
+APP_SERVICES=(api-1 api-2 api-3 worker bull-board)
+STOPPED_SERVICES=()
+RESTARTED=false
+compose_mode() {
+  command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && compose_has_postgres
+}
+on_exit() {
+  local rc=$?
+  if [[ $rc -ne 0 && ${#STOPPED_SERVICES[@]} -gt 0 && "$RESTARTED" != true ]]; then
+    echo "::error::Restore did not complete (exit $rc). The app services are LEFT STOPPED: ${STOPPED_SERVICES[*]}" >&2
+    echo "Once the database is good again, start them with:" >&2
+    echo "  docker compose ${COMPOSE_ARGS[*]} start ${STOPPED_SERVICES[*]}" >&2
+  fi
+}
+trap on_exit EXIT
+
+if compose_mode; then
+  running="$(docker compose "${COMPOSE_ARGS[@]}" ps --status running --services)"
+  for svc in "${APP_SERVICES[@]}"; do
+    if grep -qx "$svc" <<<"$running"; then STOPPED_SERVICES+=("$svc"); fi
+  done
+  if [[ ${#STOPPED_SERVICES[@]} -gt 0 ]]; then
+    echo "Stopping app services before the restore: ${STOPPED_SERVICES[*]}"
+    docker compose "${COMPOSE_ARGS[@]}" stop "${STOPPED_SERVICES[@]}"
+  fi
+else
+  echo "::warning::Not running against a docker compose stack: stop the API and worker yourself first, or reconnecting pools can race the DROP DATABASE." >&2
+fi
+
 # 2. Terminate existing connections to the target database
 echo "Terminating any active connections to '$TARGET_DB'..."
 exec_psql postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$TARGET_DB' AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
 
 # 3. Restore database from gzip stream
 echo "Restoring database stream..."
-if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && compose_has_postgres; then
-  gzip -dc "$BACKUP_FILE" | docker compose "${COMPOSE_ARGS[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d postgres --quiet
+# ON_ERROR_STOP=1: any SQL error aborts psql with a non-zero status (pipefail carries it out).
+if compose_mode; then
+  gzip -dc "$BACKUP_FILE" | docker compose "${COMPOSE_ARGS[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d postgres --quiet -v ON_ERROR_STOP=1
 else
-  gzip -dc "$BACKUP_FILE" | psql -U "$POSTGRES_USER" -d postgres --quiet
+  gzip -dc "$BACKUP_FILE" | psql -U "$POSTGRES_USER" -d postgres --quiet -v ON_ERROR_STOP=1
 fi
 echo "  -> SQL stream applied successfully."
 
@@ -155,5 +212,16 @@ fi
 
 MIGRATION_COUNT="$(exec_psql "$TARGET_DB" -t -c "SELECT COUNT(*) FROM migrations;" | tr -d '[:space:]')"
 echo "  Restored migrations:                       $MIGRATION_COUNT"
+# Row counts for a human sanity check (compare with what the backup was expected to hold).
+for tbl in tenants sales products; do
+  n="$(exec_psql "$TARGET_DB" -t -c "SELECT COUNT(*) FROM $tbl;" | tr -d '[:space:]')"
+  printf '  Restored rows in %-10s %s\n' "$tbl:" "$n"
+done
+
+if [[ ${#STOPPED_SERVICES[@]} -gt 0 ]]; then
+  echo "Starting app services again: ${STOPPED_SERVICES[*]}"
+  docker compose "${COMPOSE_ARGS[@]}" start "${STOPPED_SERVICES[@]}"
+  RESTARTED=true
+fi
 
 echo "=== Restore & Verification Succeeded ==="
