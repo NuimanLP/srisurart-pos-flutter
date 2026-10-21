@@ -141,7 +141,8 @@ check "the Discord contact point is provisioned" contact_ok
 policy_ok() { gf /api/v1/provisioning/policies | jq -e '.receiver == "discord"'; }
 check "the notification policy routes to discord" policy_ok
 dashboard_ok() { gf /api/dashboards/uid/srisurart-pos-overview | jq -e '(.dashboard.panels | length) > 0'; }
-check "grafana loaded the pos-overview dashboard from deploy/grafana/dashboards" \n  wait_for 60 "pos-overview dashboard" dashboard_ok
+check "grafana loaded the pos-overview dashboard from deploy/grafana/dashboards" \
+  wait_for 60 "pos-overview dashboard" dashboard_ok
 annotation_ok() { gf /api/v1/provisioning/alert-rules/pos-api-instance-down | jq -e '.annotations.summary | contains("{{ $labels.instance }}")'; }
 check "annotations reach grafana un-interpolated" annotation_ok
 
