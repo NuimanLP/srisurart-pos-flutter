@@ -614,8 +614,8 @@ gantt
 >   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`
 > * `deploy` job ของ `deploy.yml` ต้องผ่าน **required reviewer ของ Environment `demo`** ก่อนถึง VM
 >   (ADR-0013 addendum 2026-09-21, #366) · run ที่เขียวไม่ใช่หลักฐานว่า deploy — ดู `/opt/pos/.current_sha` บน VM
-> * **backup ยังไม่ออกจาก VM เลย** — `backup-db.sh` มีกลไก offsite (`rclone`) แต่ยังไม่ต่อสาย และ #363/#288
->   **พักไว้จนหลัง demo** (เจ้าของ 2026-09-22) · ปลายทางเคาะแล้วว่าเป็น NAS ของร้าน แต่ protocol ยังไม่เคาะ
+> * **backup ออกจาก VM เฉพาะตอน PC ของ owner เปิด** (แก้ 2026-10-21) — ตั้งแต่ 2026-10-18 PC ดึง dump ทุกวันลงโฟลเดอร์ที่
+>   BeeStation ซิงก์ขึ้น NAS ของร้าน (`07 §7a.1`) · `rclone` ใน `backup-db.sh` ยังไม่ตั้ง · #363/#288 ยังเปิด — ยังไม่เคยกู้จากสำเนานอก VM (AC3)
 * เฟส 1 รันบน **VM ของคณะ (Docker)** — ใช้สำหรับ**สาธิต/ส่งงานเท่านั้น**
 * โควตาที่คณะให้ (ดู 2026-09-04): **4 vCPU · 6 GB RAM · disk 50 GB (จัดสรรแล้ว 30 GB)** — ใช้โควตา
   CPU/RAM เต็มแล้ว ขยายไม่ได้ · สแตกเฟส 1 ทั้งชุดกินราว 3–3.5 GB จึงพอ แต่ให้ใส่ `mem_limit`
