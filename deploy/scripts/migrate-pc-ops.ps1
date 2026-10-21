@@ -16,7 +16,7 @@ only when every step, including every hash check, passed. File contents are neve
 Exit 0 = all moved and verified, 1 = something was left in place (see the WARN lines).
 #>
 param(
-    [string]$OpsRoot = 'D:\Beestation\Sri_POS\ops',
+    [string]$OpsRoot = $(if ($env:SRISURART_OPS_ROOT) { $env:SRISURART_OPS_ROOT } else { 'D:\Beestation\Sri_POS\ops' }),
     [string]$OldHome = (Join-Path $env:USERPROFILE 'srisurart-ops'),
     [string]$OldBackups = 'D:\Beestation\Sri_POS\mob04-backups',
     [string]$OldEnvDir = 'D:\Beestation\Sri_POS'
@@ -98,8 +98,7 @@ foreach ($dst in $moved) {
 Write-Host "  verified $ok / $($moved.Count)"
 
 # files moved in keep their old ACL - make them inherit the owner-only ACL again, then pin bin/secrets/state
-Protect-PcOpsOwnerOnly $sec
-Protect-PcOpsOwnerOnly (Join-Path $OpsRoot 'backups')
+foreach ($d in 'bin', 'config', 'secrets', 'state', 'backups') { Protect-PcOpsOwnerOnly (Join-Path $OpsRoot $d) }
 Set-PcOpsPinned (Get-PcOpsPinDirs $OpsRoot)
 
 if ($problems -gt 0) { Write-Warning "$problems problem(s) - old folders kept"; exit 1 }

@@ -9,6 +9,8 @@ secrets included, owner accepted - also lands on the shop NAS:
   state\    watchdog.json, pull.json             (owner-only ACL)
   backups\mob04\YYYY-MM\  pulled backup sets     (owner-only ACL - customer data, PDPA)
   README.txt
+Default root everywhere: $env:SRISURART_OPS_ROOT, else D:\Beestation\Sri_POS\ops. Initialize-PcOpsRoot stores the root in
+the user environment variable SRISURART_OPS_ROOT.
 Not under %LOCALAPPDATA%: an MSIX-packaged launcher (e.g. the Claude desktop app) has its AppData writes virtualized
 into its own package folder, which Task Scheduler cannot see (found 2026-10-18).
 #>
@@ -29,14 +31,19 @@ function Set-PcOpsPinned([string[]]$Dirs) {
     # BeeStation (Windows cloud files) may dehydrate files it thinks are unused into online-only placeholders.
     # A task whose script, CA, webhook or state file is a placeholder must fetch it from the NAS first - and fails
     # when the NAS or the network is not there. attrib +P -U = "always keep on this device". Failure = warn, go on.
+    # Under the callers' ErrorActionPreference=Stop, PS 5.1 turns attrib's redirected stderr into a terminating error;
+    # 'Continue' + try/catch keep this step warn-and-continue.
+    $ErrorActionPreference = 'Continue'
     foreach ($d in $Dirs) {
-        $out = & attrib +P -U $d 2>&1
-        $rc = $LASTEXITCODE
-        if ($rc -eq 0 -and (Get-ChildItem -LiteralPath $d -Force | Select-Object -First 1)) {
-            $out = & attrib +P -U "$d\*" /S /D 2>&1
+        try {
+            $out = & attrib +P -U $d 2>&1
             $rc = $LASTEXITCODE
-        }
-        if ($rc -ne 0) { Write-Warning "could not pin $d (attrib rc $rc): $($out | Select-Object -First 1)" }
+            if ($rc -eq 0 -and (Get-ChildItem -LiteralPath $d -Force | Select-Object -First 1)) {
+                $out = & attrib +P -U "$d\*" /S /D 2>&1
+                $rc = $LASTEXITCODE
+            }
+            if ($rc -ne 0) { Write-Warning "could not pin $d (attrib rc $rc): $($out | Select-Object -First 1)" }
+        } catch { Write-Warning "could not pin ${d}: $($_.Exception.Message)" }
     }
 }
 
@@ -49,6 +56,9 @@ function Initialize-PcOpsRoot([string]$OpsRoot) {
     # access limited to the owner.
     foreach ($d in 'bin', 'config', 'secrets', 'state', 'backups') { Protect-PcOpsOwnerOnly (Join-Path $OpsRoot $d) }
     Copy-Item (Join-Path $PSScriptRoot 'pc-ops-README.txt') (Join-Path $OpsRoot 'README.txt') -Force
+    # a manual run of pc-watchdog.ps1 / pc-pull-backups.ps1 (no -OpsRoot) then hits the same root as the tasks
+    [Environment]::SetEnvironmentVariable('SRISURART_OPS_ROOT', $OpsRoot, 'User')
+    $env:SRISURART_OPS_ROOT = $OpsRoot
 }
 
 function Get-PcOpsPinDirs([string]$OpsRoot) { @('bin', 'secrets', 'state') | ForEach-Object { Join-Path $OpsRoot $_ } }
