@@ -562,6 +562,9 @@ jobs:
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh
+      # restore-db.sh: ON_ERROR_STOP, app services stopped then restarted only on success.
+      - name: restore-db.sh tests (stubbed docker)
+        run: deploy/scripts/test/restore-db.test.sh
       # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
       - name: measure-container-rss.sh tests (stubbed docker)
         run: deploy/scripts/test/measure-container-rss.test.sh
