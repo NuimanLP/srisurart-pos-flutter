@@ -17,22 +17,9 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
-  # The API's /health/ready endpoint is JSON, so Prometheus's `up` metric reads 0 (fails text-exposition parse).
-  # Kept as a placeholder; actual metrics are scraped by the api-metrics job below (#339/#340).
-  #
-  # 🔴 Known limitation (measured while building this file, not assumed): Prometheus's `up`
-  # is 0 whenever the response body fails to parse as the Prometheus text-exposition format —
-  # not just on connection/HTTP failures. /health/ready answers 200 with a JSON body, which
-  # fails that parse, so these targets read DOWN in the Prometheus UI even while the API is
-  # actually up (reproduced against a real `prom/prometheus` container: a 200 JSON response
-  # yields `health: "down"`, `lastError: "expected equal, got \":\" ... while parsing"`). This
-  # is the best available signal without adding an exporter the ticket doesn't ask for
-  # (e.g. blackbox_exporter); it is a placeholder, not a fixed reading of "is the API up", and
-  # it stops mattering the moment the job below is switched on.
-  - job_name: api-readiness
-    metrics_path: /health/ready
-    static_configs:
-      - targets: ['api-1:3000', 'api-2:3000', 'api-3:3000']
+  # No `api-readiness` job (removed 2026-10-21): /health/ready answers JSON, which Prometheus 3 refuses
+  # ("unsupported Content-Type") and 2.x failed to parse, so its `up` was always 0 and nothing used it.
+  # Readiness is watched by Gatus (../gatus/config.yaml, through Nginx+TLS); the API's own metrics below.
 
   # Enabled via #339 metrics.serve / #340 metrics.dashboard (internal-only per
   # 02_API_SCREENS.md's endpoint table — never routed through the public Nginx surface).
