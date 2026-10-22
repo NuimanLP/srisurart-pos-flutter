@@ -48,8 +48,7 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `d5e2d10`
-(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `8a7b350` (PR #748, merge commit, 2026-10-22)**: PO print — `พิมพ์` button on open + received PO cards -> A4 purchase-order PDF with no prices/status (PR #747, rules in "PO print" below); client only, no migration. Deploy run `39712318054` approved, `deploy to demo` success, `/opt/pos/.current_sha` = `8a7b350…` checked over SSH, `/health/ready` 200 (twin `39712328656` cancelled); `pnpm audit` hit `ERR_SOCKET_TIMEOUT` twice, re-run green. Record: `docs/handoff_log/session-2026-10-22-po-print.md`. Before it `main` `d5e2d10`(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
 (`GF_PLUGINS_PREINSTALL_DISABLED=true`; 🔴 Grafana cannot downgrade — a rollback past `d5e2d10` starts 11.2 on a 12.4-migrated volume,
 monitoring only), node-exporter 1.12.1, Trivy 0.76.1 (#743); `restore-db.sh` ON_ERROR_STOP + `gzip -t` first + stops/starts
 api-1..3/worker/bull-board on compose + no target-db argument (#741; proven 2026-10-21 against WSL Postgres from the NAS copy);
@@ -798,7 +797,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only". Release-gating jobs
   also download from outside at run time, so an outage there is a red run too: PyPI + Galaxy (`ci-guards`, cached and
   hash-checked), Docker Hub (`nginx-check`'s grafana/prometheus/gatus/node-exporter pulls, the semgrep image), GitHub
-  (`sast`'s `semgrep-rules` fetch, the gitleaks/actionlint/shellcheck releases) and the Trivy DB (`mirror.gcr.io`, then
+  (`sast`'s `semgrep-rules` fetch, the gitleaks/actionlint/shellcheck releases) the npm registry (`pnpm audit`, `ERR_SOCKET_TIMEOUT` 2026-10-22, not an advisory) and the Trivy DB (`mirror.gcr.io`, then
   `ghcr.io` — Trivy's own default order (checked at v0.70.0; re-check after the v0.76.1 bump), left as is). Re-run; never weaken the gate.
 - **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
@@ -997,6 +996,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   window size must use `MediaQueryData.fromView(View.of(context))`; everything else uses `MediaQuery`
   (the zoomed logical screen). The route smoke test runs every screen at 3x on 1920x1080 and 2x on
   1366x768 — a new screen must pass both. The zoom card's Thai strings are `agent ร่าง` (owner to ratify).
+- **PO print (owner request 2026-10-22, PR #747):** `พิมพ์` (outlined `Icons.print`) on **open + received** PO cards only (cancelled = no button, agent default, owner informed) -> A4 PDF via the same `PdfPreview` print/share bar as the A4 quote; widget `presentation/widgets/purchase_order_a4.dart` (owned by `purchase_orders_screen.dart`). 🔴 Owner decisions: **no prices/costs/line totals/grand total anywhere** (PDF, preview, file name `poNo.pdf`, PDF metadata) and **no internal PO status / received / cancelled date on the paper** — the sheet goes to the supplier's sales rep; never add cost, total or status to it (`_total()` prints counts only: `รวม N รายการ · M ชิ้น`). Guards: `frontend/test/purchase_order_a4_pdf_test.dart` reads real PDF text with distinctive costs and fails on any cost/total in any format (keep it reading real text, never a mocked widget tree) + a source tripwire against `.cost`/money helpers; `frontend/test/purchase_order_print_button_test.dart` (open+received only, busy guard, 390 px + 3x zoom). `_printing` guard = double tap, one preview; lines sorted by rowId in the print path only. Local read, same on Drift/API builds, works offline. New Thai strings `agent ร่าง` (`02 §8.1.1`). Not verified: real print/share on a device or the shop PC browser. Follow-up: header/brand colours duplicated with `quote_a4_view.dart`.
 - **Look at the built web app, not only the tests (#693, 2026-10-12):** three layout bugs passed 1848 tests and were only
   seen by eye (a `Container(alignment:)` inside a `Wrap` fills the whole row — wrap it in `IntrinsicWidth`). For a local
   look: `flutter build web --no-tree-shake-icons --no-web-resources-cdn` (CanvasKit from gstatic is blocked in the app's
