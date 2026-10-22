@@ -22,6 +22,7 @@ import '../../core/utils/supplier_name.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/purchase_orders_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
@@ -32,6 +33,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/money_text.dart';
+import '../widgets/purchase_order_a4.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
@@ -66,6 +68,9 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   late Future<List<ProductRow>> _productsFuture;
   // True while _openCreate loads; blocks a double tap opening two dialogs.
   bool _opening = false;
+  // True while a PO print preview is being prepared or shown; blocks a double
+  // tap opening two previews.
+  bool _printing = false;
 
   @override
   void initState() {
@@ -211,6 +216,36 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
     _refresh();
   }
 
+  /// A4 PO preview with the print/share bar (owner request 2026-10-22).
+  /// Reads only local rows, so it works while Degraded too.
+  Future<void> _print(PurchaseOrderWithItems data) async {
+    if (_printing) return;
+    setState(() => _printing = true);
+    try {
+      final settings = await context.read<SettingsRepository>().getSettings();
+      if (!mounted) return;
+      // Lines in the order they were entered (getPOs does not order them).
+      final items = [...data.items]
+        ..sort((a, b) => a.rowId.compareTo(b.rowId));
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: Text(data.po.poNo)),
+            body: PurchaseOrderA4View(
+              data: PurchaseOrderWithItems(data.po, items),
+              settings: settings,
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
+  }
+
   /// A refused write reaches the counter as its Thai message (repositories
   /// already convert ApiException → PosException / plain Exception).
   void _showError(Object e) {
@@ -254,6 +289,8 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
                 onReceive: _receive,
                 onCancel: _cancel,
                 onDelete: _delete,
+                onPrint: _print,
+                printing: _printing,
                 isDegraded: isDegraded,
               );
             },
@@ -297,6 +334,8 @@ class _PoListView extends StatelessWidget {
   final ValueChanged<PurchaseOrderRow> onReceive;
   final ValueChanged<PurchaseOrderRow> onCancel;
   final ValueChanged<PurchaseOrderRow> onDelete;
+  final ValueChanged<PurchaseOrderWithItems> onPrint;
+  final bool printing;
   final bool isDegraded;
 
   const _PoListView({
@@ -306,6 +345,8 @@ class _PoListView extends StatelessWidget {
     required this.onReceive,
     required this.onCancel,
     required this.onDelete,
+    required this.onPrint,
+    this.printing = false,
     this.isDegraded = false,
   });
 
@@ -376,6 +417,7 @@ class _PoListView extends StatelessWidget {
                         onReceive: () => onReceive(pos[i].po),
                         onCancel: () => onCancel(pos[i].po),
                         onDelete: () => onDelete(pos[i].po),
+                        onPrint: printing ? null : () => onPrint(pos[i]),
                         isDegraded: isDegraded,
                       ),
                     ),
@@ -425,6 +467,7 @@ class _PoCard extends StatelessWidget {
   final VoidCallback onReceive;
   final VoidCallback onCancel;
   final VoidCallback onDelete;
+  final VoidCallback? onPrint;
   final bool isDegraded;
 
   const _PoCard({
@@ -433,6 +476,7 @@ class _PoCard extends StatelessWidget {
     required this.onReceive,
     required this.onCancel,
     required this.onDelete,
+    required this.onPrint,
     this.isDegraded = false,
   });
 
@@ -550,6 +594,15 @@ class _PoCard extends StatelessWidget {
                         color: AppColors.steelBlue,
                         fontSize: 12,
                       ),
+                    ),
+                  // Open + received print; a cancelled PO is not sent to a
+                  // supplier (owner default 2026-10-22). A local read, so not
+                  // Degraded-gated. 'พิมพ์' is agent ร่าง (owner to ratify).
+                  if (po.status != 'cancelled')
+                    AppButton.secondary(
+                      label: 'พิมพ์',
+                      icon: Icons.print,
+                      onPressed: onPrint,
                     ),
                   // The server refuses deleting a received PO (the receive
                   // movements point at it); open and cancelled may be deleted.
