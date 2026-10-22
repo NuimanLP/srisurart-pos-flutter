@@ -48,7 +48,7 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `8a7b350` (PR #748, merge commit, 2026-10-22)**: PO print — `พิมพ์` button on open + received PO cards -> A4 purchase-order PDF with no prices/status (PR #747, rules in "PO print" below); client only, no migration. Deploy run `39712318054` approved, `deploy to demo` success, `/opt/pos/.current_sha` = `8a7b350…` checked over SSH, `/health/ready` 200 (twin `39712328656` cancelled); `pnpm audit` hit `ERR_SOCKET_TIMEOUT` twice, re-run green. Record: `docs/handoff_log/session-2026-10-22-po-print.md`. Before it `main` `d5e2d10`(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `4b45093` (PR #756, merge commit, 2026-10-22)**: review fixes round 2 — `/auth/device` throttle (10/IP/min + 100 failures/10 min global, 429 `RATE_LIMITED`; fails open when redis-cache is down, like login) and **single-use refresh tokens** (#755: table `refresh_families`, migration `1788652805300`; the just-replaced token is answered with the current one **once**, within 24 h, else the chain is revoked; ADR-0009 addendum 2026-10-22 `agent ร่าง` — owner to ratify); returns/drawer-entry id reuse → replay or 409 `CLIENT_ID_REUSED`, never 500; `quotes/purge` enqueues after commit; image queue capped at 4 waiters → 503 `IMAGE_BUSY` (`agent ร่าง`) (#753/#754); PO/quote writes parked in `PendingWrites`, no invented server ids, a parked sale blocks shift close (#752); `api-readiness` scrape job removed (#751). Deploy run `39774975792` `failed=0`; **first real pre-migrate dump** `/opt/pos/backups-pre-migrate/pos_backup_20261022_120235Z.sql.gz` (gzip + sha256 ok); `.current_sha` = `4b45093…`, 32 tables, 10 rules Normal. Record: `docs/handoff_log/session-2026-10-22-review-fixes-round2.md`. Before it `main` `8a7b350` (PR #748, merge commit, 2026-10-22): PO print — `พิมพ์` button on open + received PO cards -> A4 purchase-order PDF with no prices/status (PR #747, rules in "PO print" below); client only, no migration. Deploy run `39712318054` approved, `deploy to demo` success, `/opt/pos/.current_sha` = `8a7b350…` checked over SSH, `/health/ready` 200 (twin `39712328656` cancelled); `pnpm audit` hit `ERR_SOCKET_TIMEOUT` twice, re-run green. Record: `docs/handoff_log/session-2026-10-22-po-print.md`. Before it `main` `d5e2d10`(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
 (`GF_PLUGINS_PREINSTALL_DISABLED=true`; 🔴 Grafana cannot downgrade — a rollback past `d5e2d10` starts 11.2 on a 12.4-migrated volume,
 monitoring only), node-exporter 1.12.1, Trivy 0.76.1 (#743); `restore-db.sh` ON_ERROR_STOP + `gzip -t` first + stops/starts
 api-1..3/worker/bull-board on compose + no target-db argument (#741; proven 2026-10-21 against WSL Postgres from the NAS copy);
@@ -495,8 +495,8 @@ develops against a demo tenant.
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
   #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
-- **Postgres has 31 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
-  + `payment_accounts` (#676) + `sale_photos` (migration `1788652805200`, 2026-10-12); recounted 2026-10-10 — product images add the column `products.image_key`
+- **Postgres has 32 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
+  + `payment_accounts` (#676) + `sale_photos` (migration `1788652805200`, 2026-10-12) + `refresh_families` (migration `1788652805300`, #755, 2026-10-22); recounted 2026-10-10 — product images add the column `products.image_key`
   (migration `1788652805100`), not a table; `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.
@@ -1043,8 +1043,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   max+1, which reached 5 and was refused) and resends it on every retry; staff may reorder tiles only before the first
   `บันทึก` (owner 2026-10-12). Capture = in-app camera (`camera` package, `sale_photo_camera.dart`, all platforms incl. the PC
   webcam; `image_picker` removed; the camera counts only shots the sheet accepted) + `file_picker`. 🔴 The Android manifest
-  strips `RECORD_AUDIO`/`WRITE_EXTERNAL_STORAGE` that `camera_android_camerax` merges in (`tools:node="remove"`) — keep it. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
-  is unbounded — follow-up); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
+  strips `RECORD_AUDIO`/`WRITE_EXTERNAL_STORAGE` that `camera_android_camerax` merges in (`tools:node="remove"`) — keep it. `withImageSlot` serialises sharp per process (product images and sale photos share it; since #753 at most 4 uploads
+  wait — the 5th gets 503 `IMAGE_BUSY` + `Retry-After`, the backup import is never refused); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
   `pos_sale_photos_<ts>.tar.gz` **through the worker container** (a failed exec = `::error::` + non-zero exit) — install it on
   the VM only **after** the deploy that ships a worker with `/app/sale-photos`; installed on `mob04` 2026-10-12 (sha256
   `e70debda…`, previous copy `.backup-db.sh.prev-ec31121`). Not in the owner backup ZIP; `restore-db.sh` does not restore
