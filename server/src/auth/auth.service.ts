@@ -559,8 +559,7 @@ export class AuthService {
     }
 
     const rows = (await qr.query(
-      `SELECT current_jti, previous_jti, revoked_at IS NOT NULL AS revoked,
-              extract(epoch FROM now() - rotated_at)::float8 AS seconds_since_rotation
+      `SELECT current_jti, previous_jti, revoked_at IS NOT NULL AS revoked
          FROM refresh_families
         WHERE tenant_id = $1 AND id = $2
         FOR UPDATE`,

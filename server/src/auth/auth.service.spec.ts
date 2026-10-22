@@ -300,9 +300,9 @@ describe('AuthService', () => {
       current_jti: CUR,
       previous_jti: PREV,
       revoked: false,
-      seconds_since_rotation: 3600,
       ...over,
     });
+    const OLDER = '0199a000-0000-7000-8000-0000000000a1';
 
     it('rotates the current token: the reissued one carries a new jti and the same chain', async () => {
       const { result, updates } = await run(CUR, fam());
@@ -313,14 +313,14 @@ describe('AuthService', () => {
       expect(updates[0]).toContain('previous_jti = current_jti');
     });
 
-    it('answers the replaced token inside the grace window with the current jti, changing nothing', async () => {
-      const { result, updates } = await run(PREV, fam({ seconds_since_rotation: 5 }));
+    it('answers the replaced token with the current jti, changing nothing', async () => {
+      const { result, updates } = await run(PREV, fam());
       expect(JSON.parse((result as any).refreshToken)).toMatchObject({ jti: CUR, fid: FID });
       expect(updates).toEqual([]);
     });
 
     it('a reuse revokes the chain, records why, commits, and is a 401', async () => {
-      const { result, audit, qr, updates } = await run(PREV, fam({ seconds_since_rotation: 31 }));
+      const { result, audit, qr, updates } = await run(OLDER, fam());
       expect(result).toBeInstanceOf(UnauthorizedException);
       expect(updates).toHaveLength(1);
       expect(updates[0]).toContain('revoked_at = now()');

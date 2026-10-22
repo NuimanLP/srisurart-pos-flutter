@@ -142,10 +142,10 @@ describe('POST /auth/refresh (e2e)', () => {
       expect(res.status).toBe(200);
       return res.body.data.refreshToken as string;
     };
-    /** Moves the chain's last rotation past the grace window, instead of sleeping 30 s. */
+    /** Pretends the chain's last rotation happened hours ago, instead of waiting. */
     const ageRotation = () =>
       admin.query(
-        `UPDATE refresh_families SET rotated_at = now() - interval '1 minute' WHERE tenant_id = $1::uuid`,
+        `UPDATE refresh_families SET rotated_at = now() - interval '3 hours' WHERE tenant_id = $1::uuid`,
         [TENANT],
       );
 
@@ -158,7 +158,7 @@ describe('POST /auth/refresh (e2e)', () => {
       expect(claims(t2).fid).toBe(claims(t0).jti);
     });
 
-    it('the token just replaced, sent again within the grace window, gets the current jti back — no fork', async () => {
+    it('the token just replaced, sent again, gets the current jti back — no fork', async () => {
       const t0 = login();
       const t1 = await rotate(t0);
       const again = await rotate(t0);
@@ -185,13 +185,24 @@ describe('POST /auth/refresh (e2e)', () => {
       expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
     });
 
-    it('the token just replaced, sent after the grace window, is a reuse too', async () => {
+    it('a lost reply retried hours later (offline till) is still answered with the current jti', async () => {
       const t0 = login();
-      const t1 = await rotate(t0);
+      const t1 = await rotate(t0); // the reply the till never received
       await ageRotation();
 
+      const retried = await rotate(t0);
+      expect(claims(retried).jti).toBe(claims(t1).jti);
+      expect(await rejectionReasons()).toEqual([]);
+    });
+
+    it('once the current token has been presented, the one before it is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      expect(claims(await rotate(t0)).jti).toBe(claims(t1).jti); // still answerable
+      const t2 = await rotate(t1); // t1 presented: its holder got it
+
       expect((await post(t0)).status).toBe(401);
-      expect((await post(t1)).status).toBe(401);
+      expect((await post(t2)).status).toBe(401);
       expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
     });
 

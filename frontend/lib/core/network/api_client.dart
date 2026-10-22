@@ -487,10 +487,12 @@ class ApiClient {
   ///
   /// Refresh tokens are single-use (ADR-0009 addendum 2026-10-22): every
   /// reply carries a new refresh token (new `jti`, same `exp`), which is stored
-  /// below, replacing the one sent. The token just replaced is still answered
-  /// for 30 s — with the current token, so two tabs or a retry after a lost
-  /// reply converge on one — and after that it is a reuse: 401, and the
-  /// server revokes the whole chain, so this session ends like any other 401.
+  /// below, replacing the one sent. The token just replaced stays answerable
+  /// (with the current token) until the current one is presented, so a token
+  /// kept after a lost reply or a timeout still works however late it is
+  /// retried, and two tabs converge on one token. A token older than that is a
+  /// reuse: 401, and the server revokes the whole chain, so this session ends
+  /// like any other 401.
   Future<bool> _executeRefresh() async {
     final storage = tokenStorage;
     if (storage == null) return false;

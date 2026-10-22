@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { judgeRefresh, REFRESH_REUSE_GRACE_SEC } from './refresh-rotation.js';
+import { judgeRefresh } from './refresh-rotation.js';
 
 // Security review 2026-10-21: refresh tokens are single-use. Each login's chain ("family")
 // keeps the jti of the one refresh token that may rotate next, plus the one it replaced.
@@ -11,7 +11,6 @@ const family = (over: Partial<Parameters<typeof judgeRefresh>[0] & object> = {})
   current_jti: J1,
   previous_jti: J0,
   revoked: false,
-  seconds_since_rotation: 3600,
   ...over,
 });
 
@@ -20,38 +19,25 @@ describe('judgeRefresh', () => {
     expect(judgeRefresh(family(), J1)).toEqual({ kind: 'rotate' });
   });
 
-  it('answers the token just replaced, inside the grace window, with the current jti — no new rotation', () => {
-    expect(judgeRefresh(family({ seconds_since_rotation: 2 }), J0)).toEqual({ kind: 'grace', jti: J1 });
-    expect(judgeRefresh(family({ seconds_since_rotation: REFRESH_REUSE_GRACE_SEC - 1 }), J0)).toEqual({
-      kind: 'grace',
-      jti: J1,
-    });
+  it('answers the token just replaced with the current jti, however late — its reply may have been lost', () => {
+    expect(judgeRefresh(family(), J0)).toEqual({ kind: 'grace', jti: J1 });
   });
 
-  it('calls the token just replaced a reuse once the grace window has passed', () => {
-    expect(judgeRefresh(family({ seconds_since_rotation: REFRESH_REUSE_GRACE_SEC }), J0)).toEqual({
-      kind: 'reused',
-    });
-  });
-
-  it('calls any older token of the chain a reuse, even right after a rotation', () => {
-    expect(judgeRefresh(family({ seconds_since_rotation: 0 }), J2)).toEqual({ kind: 'reused' });
+  it('calls a token two generations old a reuse: the current one was presented, so its holder got it', () => {
+    // J0 → J1 (previous J0), then J1 presented → J2 (previous J1): J0 is now a replayed copy.
+    expect(judgeRefresh(family({ current_jti: J2, previous_jti: J1 }), J0)).toEqual({ kind: 'reused' });
   });
 
   it('refuses every token of a revoked chain, the current one included', () => {
     expect(judgeRefresh(family({ revoked: true }), J1)).toEqual({ kind: 'revoked' });
-    expect(judgeRefresh(family({ revoked: true, seconds_since_rotation: 1 }), J0)).toEqual({
-      kind: 'revoked',
-    });
+    expect(judgeRefresh(family({ revoked: true }), J0)).toEqual({ kind: 'revoked' });
   });
 
   it('refuses a token whose chain is not on record', () => {
     expect(judgeRefresh(undefined, J1)).toEqual({ kind: 'unknown' });
   });
 
-  it('a chain that has never rotated has no previous token to grant grace to', () => {
-    expect(judgeRefresh(family({ previous_jti: null, seconds_since_rotation: 0 }), J0)).toEqual({
-      kind: 'reused',
-    });
+  it('a chain that has never rotated has no previous token to answer', () => {
+    expect(judgeRefresh(family({ previous_jti: null }), J0)).toEqual({ kind: 'reused' });
   });
 });

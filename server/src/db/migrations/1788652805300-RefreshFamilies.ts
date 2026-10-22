@@ -10,7 +10,8 @@ import { APP_ROLE } from './1788652800001-RowLevelSecurity.js';
  *   token's first refresh, so login itself writes nothing; every token reissued after it carries
  *   `fid` = this id.
  * - `current_jti` is the one token that may rotate next; `previous_jti` the one it replaced,
- *   accepted again only within the grace window (`refresh-rotation.ts`). Any other jti of the
+ *   answered again (with the current jti) until the current one is presented — which rotates
+ *   it (`refresh-rotation.ts`). Any other jti of the
  *   chain is a reuse and sets `revoked_at`, which refuses every token of the chain.
  * - Session state, not business data: not exported, not imported, and `ON DELETE CASCADE` from
  *   `tenants` — a closed tenant never has to clear it first. `user_id`/`device_id` carry no FK
