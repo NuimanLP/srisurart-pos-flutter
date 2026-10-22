@@ -181,7 +181,11 @@ class ApiShiftsRepository implements ShiftsRepository {
   /// `outbox_ops`) counts as one more unsent item: it may already have
   /// committed on the server, and if it is pressed again after this close the
   /// server stamps it onto the next shift. The counter re-sends it from the
-  /// checkout first (same id + key), then closes.
+  /// checkout first (same id + key), then closes. The same count reaches the
+  /// close button through `SyncService.outboxRemaining` (`setParkedWrites`).
+  /// ⚠️ Only while the attempt is parked: past the [PendingWrites] TTL
+  /// (10 min) it is no longer known and stops blocking — an accepted limit of
+  /// the TTL (08 §5), not a guarantee that the sale did not commit.
   @override
   Future<ShiftRow?> closeShift(double physicalCash) {
     return rethrowThai(() async {

@@ -305,6 +305,19 @@ class PendingWrites {
   bool get anyParked =>
       _open.values.any((p) => DateTime.now().difference(p.at) < _ttl);
 
+  /// When the last live attempt stops counting as parked (its TTL runs out),
+  /// or `null` when none is parked — for a caller that shows [anyParked] and
+  /// must refresh it when it turns false on its own.
+  DateTime? get parkedUntil {
+    final now = DateTime.now();
+    DateTime? until;
+    for (final p in _open.values) {
+      final end = p.at.add(_ttl);
+      if (end.isAfter(now) && (until == null || end.isAfter(until))) until = end;
+    }
+    return until;
+  }
+
   /// Close the attempt only if [e] is a verdict. A 5xx or a 429 leaves it
   /// parked, which is the entire point of this class — see [isVerdict].
   void closeIfVerdict(PendingWrite write, ApiException e) {

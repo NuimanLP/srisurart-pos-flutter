@@ -229,6 +229,24 @@ void main() {
       expect((await po()).receivedAt, DateTime.parse('2026-10-21T04:00:00.000Z').toLocal());
     });
 
+    test('an unreadable 2xx then 409 PO_ALREADY_RECEIVED = our receive landed', () async {
+      final replies = <http.Response>[
+        _ok('not a receive result'),
+        _error(409, 'PO_ALREADY_RECEIVED'),
+        _ok({'id': 'po-1', 'status': 'received', 'receivedAt': '2026-10-21T04:00:00.000Z'}),
+      ];
+      var i = 0;
+      final repo = ApiPurchaseOrdersRepository(db, client((_) async => replies[i++]));
+
+      await expectLater(
+        repo.receivePO('po-1'),
+        throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+      expect((await po()).status, 'open', reason: 'nothing written from an unreadable reply');
+      expect(await repo.receivePO('po-1'), isEmpty);
+      expect((await po()).status, 'received');
+    });
+
     test('409 PO_ALREADY_RECEIVED with no earlier unknown attempt stays an error', () async {
       final (api, _) = scripted([_error(409, 'PO_ALREADY_RECEIVED')]);
       final repo = ApiPurchaseOrdersRepository(db, api);

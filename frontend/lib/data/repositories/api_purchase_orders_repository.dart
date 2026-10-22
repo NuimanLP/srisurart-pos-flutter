@@ -37,6 +37,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
   /// Unlike [_pending] this has no TTL: receiving one PO twice is never two
   /// real actions, so a `409 PO_ALREADY_RECEIVED` for one of these (the parked
   /// key expired, or the first attempt committed) means OUR receive landed.
+  /// In memory only: an app restart forgets it, and the 409 then shows as an
+  /// error (the PO list's next pull still shows it received).
   final Set<String> _receiveFateUnknown = {};
 
   /// Sends one parked write. A 4xx closes the attempt; a 5xx / 429 / transport
@@ -232,7 +234,11 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       _receiveFateUnknown.add(id);
       rethrow;
     }
-    if (res is! Map) throw unreadableResponse();
+    if (res is! Map) {
+      // A 2xx we cannot read: the receive probably committed.
+      _receiveFateUnknown.add(id);
+      throw unreadableResponse();
+    }
     final resMap = Map<String, dynamic>.from(res);
     final unmatched = await db.transaction(() => _applyReceive(id, resMap));
     _receiveFateUnknown.remove(id);
