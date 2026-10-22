@@ -40,6 +40,7 @@ import '../../db/database.dart';
 import '../../sync/sync_facade.dart';
 import '../../sync/sync_service.dart';
 import '../mechanics_repository.dart';
+import '../sales_repository.dart';
 import '../shifts_repository.dart';
 import 'api_wire.dart';
 
@@ -49,6 +50,7 @@ class ApiShiftsRepository implements ShiftsRepository {
     required this.db,
     required this.drift,
     this.mechanics,
+    this.sales,
     this.syncService,
     this.syncFacade,
   });
@@ -58,6 +60,9 @@ class ApiShiftsRepository implements ShiftsRepository {
   /// The credit-payment outbox (#24) — flushes it before a close when no
   /// [syncService] is wired. See [closeShift].
   final MechanicsRepository? mechanics;
+
+  /// Whose parked sale attempt also blocks a close. See [closeShift].
+  final SalesRepository? sales;
 
   final SyncService? syncService;
   final SyncFacade? syncFacade;
@@ -171,6 +176,16 @@ class ApiShiftsRepository implements ShiftsRepository {
   /// the next shift and tonight's count is wrong. So the outbox is sent first,
   /// and the close goes out only if it is empty. (This replaces the owner's
   /// 2026-09-13 rule that counted only queued cash credit payments.)
+  ///
+  /// A sale attempt parked in [sales] (5xx / 429 / lost reply — never in
+  /// `outbox_ops`) counts as one more unsent item: it may already have
+  /// committed on the server, and if it is pressed again after this close the
+  /// server stamps it onto the next shift. The counter re-sends it from the
+  /// checkout first (same id + key), then closes. The same count reaches the
+  /// close button through `SyncService.outboxRemaining` (`setParkedWrites`).
+  /// ⚠️ Only while the attempt is parked: past the [PendingWrites] TTL
+  /// (10 min) it is no longer known and stops blocking — an accepted limit of
+  /// the TTL (08 §5), not a guarantee that the sale did not commit.
   @override
   Future<ShiftRow?> closeShift(double physicalCash) {
     return rethrowThai(() async {
@@ -182,7 +197,8 @@ class ApiShiftsRepository implements ShiftsRepository {
       } else {
         await mechanics?.flushPendingCreditPayments();
       }
-      final unsent = (await db.select(db.outboxOps).get()).length;
+      final unsent = (await db.select(db.outboxOps).get()).length +
+          ((sales?.hasParkedAttempt ?? false) ? 1 : 0);
       if (unsent > 0) {
         // Ratified by the owner 2026-09-27 (#452) — 02_API_SCREENS §8.1.1.
         throw PosException(

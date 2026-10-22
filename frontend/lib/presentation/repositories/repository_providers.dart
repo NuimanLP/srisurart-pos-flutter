@@ -205,6 +205,8 @@ List<RepositoryProvider> repositoryProviders(
           db: db,
           drift: driftShifts,
           mechanics: mechanicsRepo,
+          // A parked sale attempt blocks a close too (its fate is unknown).
+          sales: salesRepository,
           syncService: realSyncService,
           syncFacade: syncFacade,
         )
