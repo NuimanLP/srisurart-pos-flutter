@@ -142,11 +142,11 @@ describe('POST /auth/refresh (e2e)', () => {
       expect(res.status).toBe(200);
       return res.body.data.refreshToken as string;
     };
-    /** Pretends the chain's last rotation happened hours ago, instead of waiting. */
-    const ageRotation = () =>
+    /** Pretends the chain's last rotation happened `hours` ago, instead of waiting. */
+    const ageRotation = (hours: number) =>
       admin.query(
-        `UPDATE refresh_families SET rotated_at = now() - interval '3 hours' WHERE tenant_id = $1::uuid`,
-        [TENANT],
+        `UPDATE refresh_families SET rotated_at = now() - make_interval(hours => $2) WHERE tenant_id = $1::uuid`,
+        [TENANT, hours],
       );
 
     it('every reissued token has a new jti and names the chain (fid) of the first one', async () => {
@@ -188,11 +188,31 @@ describe('POST /auth/refresh (e2e)', () => {
     it('a lost reply retried hours later (offline till) is still answered with the current jti', async () => {
       const t0 = login();
       const t1 = await rotate(t0); // the reply the till never received
-      await ageRotation();
+      await ageRotation(3);
 
       const retried = await rotate(t0);
       expect(claims(retried).jti).toBe(claims(t1).jti);
       expect(await rejectionReasons()).toEqual([]);
+    });
+
+    it('the token just replaced is answered only once: presented a second time it is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      await rotate(t0); // the one grace answer
+
+      expect((await post(t0)).status).toBe(401);
+      expect((await post(t1)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
+    });
+
+    it('the token just replaced, presented more than 24 h after the rotation, is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      await ageRotation(25);
+
+      expect((await post(t0)).status).toBe(401);
+      expect((await post(t1)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
     });
 
     it('once the current token has been presented, the one before it is a reuse', async () => {

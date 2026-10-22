@@ -10,8 +10,8 @@ import { APP_ROLE } from './1788652800001-RowLevelSecurity.js';
  *   token's first refresh, so login itself writes nothing; every token reissued after it carries
  *   `fid` = this id.
  * - `current_jti` is the one token that may rotate next; `previous_jti` the one it replaced,
- *   answered again (with the current jti) until the current one is presented — which rotates
- *   it (`refresh-rotation.ts`). Any other jti of the
+ *   answered again (with the current jti) once (`grace_used`), within 24 h, and only until the
+ *   current one is presented — which rotates it (`refresh-rotation.ts`). Any other jti of the
  *   chain is a reuse and sets `revoked_at`, which refuses every token of the chain.
  * - Session state, not business data: not exported, not imported, and `ON DELETE CASCADE` from
  *   `tenants` — a closed tenant never has to clear it first. `user_id`/`device_id` carry no FK
@@ -36,6 +36,7 @@ export class RefreshFamilies1788652805300 implements MigrationInterface {
         current_jti  UUID NOT NULL,
         previous_jti UUID,
         rotated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        grace_used   BOOLEAN NOT NULL DEFAULT FALSE,
         revoked_at   TIMESTAMPTZ,
         expires_at   TIMESTAMPTZ NOT NULL,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),

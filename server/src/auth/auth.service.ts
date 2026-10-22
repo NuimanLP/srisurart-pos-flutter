@@ -559,7 +559,8 @@ export class AuthService {
     }
 
     const rows = (await qr.query(
-      `SELECT current_jti, previous_jti, revoked_at IS NOT NULL AS revoked
+      `SELECT current_jti, previous_jti, revoked_at IS NOT NULL AS revoked, grace_used,
+              extract(epoch FROM now() - rotated_at)::float8 AS seconds_since_rotation
          FROM refresh_families
         WHERE tenant_id = $1 AND id = $2
         FOR UPDATE`,
@@ -570,12 +571,17 @@ export class AuthService {
       case 'rotate':
         await qr.query(
           `UPDATE refresh_families
-              SET previous_jti = current_jti, current_jti = $3, rotated_at = now()
+              SET previous_jti = current_jti, current_jti = $3, rotated_at = now(), grace_used = FALSE
             WHERE tenant_id = $1 AND id = $2`,
           [tenantId, familyId, nextJti],
         );
         return nextJti;
       case 'grace':
+        // Once per rotation: the same row lock that judged it records it.
+        await qr.query(
+          `UPDATE refresh_families SET grace_used = TRUE WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, familyId],
+        );
         return verdict.jti;
       case 'reused':
         await qr.query(

@@ -300,6 +300,8 @@ describe('AuthService', () => {
       current_jti: CUR,
       previous_jti: PREV,
       revoked: false,
+      grace_used: false,
+      seconds_since_rotation: 60,
       ...over,
     });
     const OLDER = '0199a000-0000-7000-8000-0000000000a1';
@@ -313,10 +315,12 @@ describe('AuthService', () => {
       expect(updates[0]).toContain('previous_jti = current_jti');
     });
 
-    it('answers the replaced token with the current jti, changing nothing', async () => {
+    it('answers the replaced token with the current jti without rotating, and marks the one grace as used', async () => {
       const { result, updates } = await run(PREV, fam());
       expect(JSON.parse((result as any).refreshToken)).toMatchObject({ jti: CUR, fid: FID });
-      expect(updates).toEqual([]);
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toContain('grace_used = TRUE');
+      expect(updates[0]).not.toContain('current_jti');
     });
 
     it('a reuse revokes the chain, records why, commits, and is a 401', async () => {
