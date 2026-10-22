@@ -173,6 +173,21 @@ void main() {
       expect((await row()).imageKey, _key);
     });
 
+    test('503 IMAGE_BUSY (server decode queue full): the wait sentence, key parked',
+        () async {
+      reply = (_) => refusal(503, 'IMAGE_BUSY');
+      await expectLater(
+        repo.setImage('p1', jpeg),
+        throwsA(isA<PosException>().having(
+            (e) => e.message, 'message', 'ระบบกำลังทำงานหนัก กรุณารอสักครู่')),
+      );
+      reply = (_) => product(_key);
+      await repo.setImage('p1', jpeg);
+      expect(sent, hasLength(2));
+      expect(sent[1].headers['idempotency-key'], sent[0].headers['idempotency-key']);
+      expect((await row()).imageKey, _key);
+    });
+
     test('a different picture after a parked one supersedes it (fresh key)', () async {
       reply = (_) => http.Response('', 503);
       await expectLater(repo.setImage('p1', jpeg), throwsA(isA<PosException>()));

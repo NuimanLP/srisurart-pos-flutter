@@ -718,6 +718,72 @@ describe('POST /returns (e2e)', () => {
     expect(await stockOf(testId('p1'))).toBe(before + 1);
   });
 
+  // Review 2026-10-21: the client's `id` under a NEW key used to reach the primary key as
+  // a 500. Same rule as `POST /sales`' replay-by-id and `POST /shifts/open`.
+  describe('a credit note id that already exists, under a new Idempotency-Key', () => {
+    const returnId = testId('cn_reused');
+
+    beforeEach(async () => {
+      await insertSale({
+        id: testId('s_reuse'),
+        receiptNo: 'R-REUSE',
+        subtotal: 170,
+        total: 170,
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
+      });
+    });
+
+    it('the same credit note replays the stored one — even once it has voided the bill', async () => {
+      const before = await stockOf(testId('p1'));
+      const body = {
+        id: returnId,
+        ...credit(testId('s_reuse'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
+        ]),
+      };
+
+      const first = await post(body, { key: 'cn-reuse-1' });
+      expect(first.status).toBe(201);
+      expect(first.body.data.saleVoided).toBe(true);
+
+      const again = await post(body, { key: 'cn-reuse-2' });
+      expect(again.status).toBe(201);
+      expect(again.body.data).toEqual(first.body.data);
+      expect(await returnCount()).toBe(1);
+      expect(await stockOf(testId('p1'))).toBe(before + 2);
+    });
+
+    it('a different credit note on the same id is 409 CLIENT_ID_REUSED, and nothing is written', async () => {
+      const first = await post(
+        {
+          id: returnId,
+          ...credit(testId('s_reuse'), [
+            { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
+          ]),
+        },
+        { key: 'cn-reuse-3' },
+      );
+      expect(first.status).toBe(201);
+      const stock = await stockOf(testId('p1'));
+
+      const other = await post(
+        {
+          id: returnId,
+          ...credit(
+            testId('s_reuse'),
+            [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
+            'โอน',
+          ),
+        },
+        { key: 'cn-reuse-4' },
+      );
+      expect(other.status).toBe(409);
+      expect(other.body.error.code).toBe('CLIENT_ID_REUSED');
+      expect(await returnCount()).toBe(1);
+      expect(await stockOf(testId('p1'))).toBe(stock);
+    });
+  });
+
   it('a backoffice device may not credit goods back', async () => {
     await insertSale({
       id: testId('s_role'),

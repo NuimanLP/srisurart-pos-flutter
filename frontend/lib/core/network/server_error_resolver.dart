@@ -19,8 +19,9 @@ class ServerErrorResolver {
   ///   to the canonical Thai connection sentence (), hiding raw
   ///   English and URLs from cashiers (#199).
   /// - An unhandled [ApiException] resolves to its Thai mapping ([resolve(null)] for 5xx,
-  ///   except 503 `IDEMPOTENCY_KEY_IN_FLIGHT`, which keeps its own sentence —
-  ///   owner 2026-10-06: the counter is told to wait, on every write path).
+  ///   except 503 `IDEMPOTENCY_KEY_IN_FLIGHT` and 503 `IMAGE_BUSY`, which keep
+  ///   their own "wait" sentence — owner 2026-10-06 for IN_FLIGHT: the counter is
+  ///   told to wait, on every write path).
   /// - Generic exceptions drop the leading `Exception: ` prefix, while defensively
   ///   masking any leaked URLs.
   static String resolveCounterError(Object error) {
@@ -28,7 +29,7 @@ class ServerErrorResolver {
       return error.message;
     }
     if (error is ApiException) {
-      if (error.statusCode >= 500 && error.code != 'IDEMPOTENCY_KEY_IN_FLIGHT') {
+      if (error.statusCode >= 500 && !_waitCodes.contains(error.code)) {
         return resolve(null);
       }
       return error.thaiMessage;
@@ -44,6 +45,13 @@ class ServerErrorResolver {
     }
     return clean;
   }
+
+  /// The 5xx codes that tell the counter to wait rather than "check the
+  /// connection": the request was understood and nothing was written.
+  static const Set<String> _waitCodes = {
+    'IDEMPOTENCY_KEY_IN_FLIGHT',
+    'IMAGE_BUSY',
+  };
 
   /// Canonical error strings mapped from 02_API_SCREENS.md §8 & §8.1.
   static const Map<String, String> _canonicalMessages = {
@@ -89,6 +97,9 @@ class ServerErrorResolver {
         'ใบสั่งซื้อนี้ถูกยกเลิกแล้ว รับของไม่ได้ — ถ้าได้รับของจริง กรุณาสร้างใบสั่งซื้อใหม่',
     'IDEMPOTENCY_KEY_REUSED': 'คีย์การทำรายการซ้ำกับคำขออื่น',
     'IDEMPOTENCY_KEY_IN_FLIGHT': 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
+    // agent ร่าง 2026-10-22 — RATE_LIMITED's ratified sentence, verbatim. 503 from
+    // an image upload when the server's decode queue is full; not a verdict.
+    'IMAGE_BUSY': 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
     'IDEMPOTENCY_KEY_INVALID': 'คีย์การทำรายการไม่ถูกต้อง',
     'RECEIPT_NO_CONFLICT': 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
     // ratified 2026-10-07 (see the block above).

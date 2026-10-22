@@ -49,6 +49,32 @@ export function productImageInvalid(): HttpException {
   );
 }
 
+/**
+ * How many uploads may wait for the image slot behind the one decoding (review 2026-10-21).
+ * Each waiter holds its buffered body (≤ 3 MB) in a 384 MB container; past this the upload
+ * is refused at once instead of queueing without bound.
+ */
+export const IMAGE_SLOT_MAX_WAITING = 4;
+
+/** Seconds a refused upload is told to wait — about one decode ahead of it. */
+export const IMAGE_BUSY_RETRY_AFTER_SECONDS = 5;
+
+/**
+ * `503 IMAGE_BUSY` + `Retry-After`: the image slot's queue is full. Not a verdict — nothing was
+ * written and no idempotency key was claimed (the decode runs before the claim), so the client
+ * keeps its parked attempt and resends the same id + key.
+ */
+export function imageBusy(): HttpException {
+  return new HttpException(
+    {
+      code: 'IMAGE_BUSY',
+      message: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+      retryAfter: IMAGE_BUSY_RETRY_AFTER_SECONDS,
+    },
+    HttpStatus.SERVICE_UNAVAILABLE,
+  );
+}
+
 export function productImageTooLarge(): HttpException {
   return new HttpException(
     { code: 'PRODUCT_IMAGE_TOO_LARGE', message: 'รูปใหญ่เกิน 3 MB' },
@@ -97,8 +123,11 @@ export function imageKeyOf(preview: Buffer): string {
  * - Animated input: the first frame only.
  * - The thumbnail is made from the preview (already oriented and stripped), not the original.
  */
-export function processProductImage(input: Buffer): Promise<ProcessedImage> {
-  return processImage(input, { previewSize: PREVIEW_SIZE, inputPixelLimit: INPUT_PIXEL_LIMIT });
+export function processProductImage(
+  input: Buffer,
+  slot: ImageSlotOptions = {},
+): Promise<ProcessedImage> {
+  return processImage(input, { previewSize: PREVIEW_SIZE, inputPixelLimit: INPUT_PIXEL_LIMIT }, slot);
 }
 
 /**
@@ -109,23 +138,54 @@ export function processProductImage(input: Buffer): Promise<ProcessedImage> {
 export const SALE_PHOTO_PREVIEW_SIZE = 1600;
 export const SALE_PHOTO_INPUT_PIXEL_LIMIT = 2048 * 2048;
 
-export function processSalePhoto(input: Buffer): Promise<ProcessedImage> {
-  return processImage(input, {
-    previewSize: SALE_PHOTO_PREVIEW_SIZE,
-    inputPixelLimit: SALE_PHOTO_INPUT_PIXEL_LIMIT,
-  });
+export function processSalePhoto(
+  input: Buffer,
+  slot: ImageSlotOptions = {},
+): Promise<ProcessedImage> {
+  return processImage(
+    input,
+    {
+      previewSize: SALE_PHOTO_PREVIEW_SIZE,
+      inputPixelLimit: SALE_PHOTO_INPUT_PIXEL_LIMIT,
+    },
+    slot,
+  );
+}
+
+export interface ImageSlotOptions {
+  /**
+   * Refuse with `503 IMAGE_BUSY` instead of queueing when this many jobs already wait behind
+   * the running one. The HTTP uploads pass `IMAGE_SLOT_MAX_WAITING`; a backup import (one image
+   * at a time, and a refusal there would drop the image) passes nothing and always waits.
+   */
+  maxWaiting?: number;
 }
 
 let slotTail: Promise<unknown> = Promise.resolve();
+/** Jobs in the slot right now: the running one plus every waiter. */
+let slotJobs = 0;
 
 /**
  * One image decode at a time per process (§3.3). `sharp.concurrency(1)` caps libvips' threads
  * per operation, not the number of operations: two uploads arriving together would decode
  * side by side in a 384 MB container. Every caller of `processImage` queues here, in memory —
  * before any idempotency claim and holding no pooled connection. A failed job frees the slot.
+ * With `maxWaiting`, a job that would queue behind that many waiters is refused with
+ * `503 IMAGE_BUSY` and never enters the queue.
  */
-export function withImageSlot<T>(work: () => Promise<T>): Promise<T> {
-  const run = slotTail.then(() => work());
+export function withImageSlot<T>(
+  work: () => Promise<T>,
+  { maxWaiting }: ImageSlotOptions = {},
+): Promise<T> {
+  // Every job in the slot but the running one is waiting.
+  const waiting = Math.max(0, slotJobs - 1);
+  if (maxWaiting !== undefined && slotJobs > 0 && waiting >= maxWaiting) {
+    return Promise.reject(imageBusy());
+  }
+  slotJobs++;
+  const run = slotTail.then(() => work()).finally(() => {
+    slotJobs--;
+  });
   slotTail = run.catch(() => undefined);
   return run;
 }
@@ -133,10 +193,11 @@ export function withImageSlot<T>(work: () => Promise<T>): Promise<T> {
 function processImage(
   input: Buffer,
   limits: { previewSize: number; inputPixelLimit: number },
+  slot: ImageSlotOptions,
 ): Promise<ProcessedImage> {
   if (input.length > PRODUCT_IMAGE_MAX_BYTES) return Promise.reject(productImageTooLarge());
   if (sniffImageType(input) === null) return Promise.reject(productImageInvalid());
-  return withImageSlot(() => encode(input, limits));
+  return withImageSlot(() => encode(input, limits), slot);
 }
 
 async function encode(

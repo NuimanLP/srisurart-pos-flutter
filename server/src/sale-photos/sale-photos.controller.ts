@@ -27,7 +27,11 @@ import { authorisedTenantId } from '../common/request-context.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { LOGGER } from '../infra/logger.provider.js';
-import { processSalePhoto, productImageInvalid } from '../product-images/image-pipeline.js';
+import {
+  IMAGE_SLOT_MAX_WAITING,
+  processSalePhoto,
+  productImageInvalid,
+} from '../product-images/image-pipeline.js';
 import { salePhotos } from '../product-images/image-store.js';
 import { SalePhotosService, type PreparedSalePhoto, type SalePhoto } from './sale-photos.service.js';
 
@@ -162,7 +166,7 @@ export class SalePhotosController {
     // Content-Type); JSON, a form, or no body at all is not an image.
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw productImageInvalid();
     const sourceSha256 = createHash('sha256').update(req.body).digest('hex');
-    const image = await processSalePhoto(req.body);
+    const image = await processSalePhoto(req.body, { maxWaiting: IMAGE_SLOT_MAX_WAITING });
     const created = await salePhotos.writeImageFiles(authorisedTenantId(), image.key, image);
     return {
       ...query,

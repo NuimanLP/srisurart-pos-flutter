@@ -961,32 +961,17 @@ export class SyncService {
     );
   }
 
+  /**
+   * The drawer's expected cash after a `drawer.entry` — the one drawer-cash rule
+   * (`drawer-cash.sql.ts`, the closing report's own), never a second sum: cash sales,
+   * cash credit payments and cash refunds on the shift count too.
+   */
   private async computeShiftBalance(
     manager: EntityManager,
     tenantId: string,
     shiftId: string,
   ): Promise<string> {
-    const shiftRows = (await manager.query(
-      `SELECT starting_cash FROM shifts WHERE tenant_id = $1::uuid AND id = $2`,
-      [tenantId, shiftId],
-    )) as { starting_cash: string }[];
-    const startingCashSatang = shiftRows[0]
-      ? satangOf(shiftRows[0].starting_cash)
-      : 0;
-
-    const entryRows = (await manager.query(
-      `SELECT type, amount FROM drawer_entries WHERE tenant_id = $1::uuid AND shift_id = $2`,
-      [tenantId, shiftId],
-    )) as { type: 'in' | 'out'; amount: string }[];
-
-    let balanceSatang = startingCashSatang;
-    for (const e of entryRows) {
-      const amountSatang = satangOf(e.amount);
-      if (e.type === 'in') balanceSatang += amountSatang;
-      else balanceSatang -= amountSatang;
-    }
-
-    return fromSatang(balanceSatang);
+    return fromSatang(await expectedCashSatangOf(manager, tenantId, shiftId));
   }
 
   /** `parsed` is undefined when `parseOpPayload` itself refused the op. */

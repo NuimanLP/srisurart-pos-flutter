@@ -431,6 +431,43 @@ describe('POST /sync/push (e2e)', () => {
       });
     });
 
+    it('drawer-entry balanceAfter is the one drawer-cash rule: a cash sale on the shift counts (review 2026-10-21)', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: testId('sh_off_bal'),
+        startingCash: 1000,
+      });
+      // A cash bill on this shift — `startingCash ± entries` alone used to miss it.
+      await admin.query(
+        `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total,
+                            payment_method, shift_id)
+              VALUES ($1::uuid, $2, 'R-BAL-1', 300, 0, 300, 'เงินสด', $3)`,
+        [TENANT, testId('s_off_bal'), testId('sh_off_bal')],
+      );
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: testId('op_drawer_bal'),
+            idempotencyKey: 'k_de_bal',
+            type: 'drawer.entry',
+            payload: {
+              id: testId('de_off_bal'),
+              type: 'out',
+              amount: '100.00',
+              note: '',
+              createdAt: '2026-09-15T01:30:00.000Z',
+            },
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results[0].status).toBe('applied');
+      // 1000 + 300 (cash sale) − 100 — what the closing report expects in the drawer.
+      expect(res.body.data.results[0].response.balanceAfter).toBe('1200.00');
+    });
+
     it('drawer-entry B1 step 2: key row gone + body the parser refuses → the stored entry replays', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_off_s2'), startingCash: 1000 });
       const payload = { id: testId('de_off_s2'), type: 'in', amount: '500.00', note: 'n', createdAt: '2026-09-15T01:30:00.000Z' };
