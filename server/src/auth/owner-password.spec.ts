@@ -366,7 +366,10 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
       const qr = queryRunner((sql) =>
         sql.includes('SELECT u.is_active')
           ? [{ is_active: true, status: 'active', timezone: 'Asia/Bangkok', password_changed_epoch: epoch }]
-          : [],
+          : // The first refresh of a login's token starts its chain (refresh-rotation.ts).
+            sql.includes('INSERT INTO refresh_families')
+            ? [{ id: 'chain' }]
+            : [],
       );
       const svc = new AuthService({ createQueryRunner: () => qr } as any, signer as any, audit as any, rateLimit as any);
       const run = svc.refreshTokenPayload({
@@ -375,7 +378,7 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
         sub: 'u1',
         tid: 't1',
         typ: 'refresh',
-        jti: 'r1',
+        jti: '0199a000-0000-7000-8000-000000000001',
         iat,
         exp: iat + 3600,
       });

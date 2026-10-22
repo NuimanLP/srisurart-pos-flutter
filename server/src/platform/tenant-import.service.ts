@@ -145,8 +145,10 @@ export type ImportRequester = { platformAdminId: string } | { userId: string };
  * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
  * file's `sa_settings` overwrites it), payment_accounts (like settings: replaced only by a file
  * whose `sa_payment_accounts` is non-empty, step 3.5c), idempotency_keys and doc_counters (see
- * `writeSnapshot`), and sale_photos (10_SALE_PHOTO_EVIDENCE.md §0 C: no FK to `sales`, so a bill
- * the file brings back under the same id finds its photos again).
+ * `writeSnapshot`), sale_photos (10_SALE_PHOTO_EVIDENCE.md §0 C: no FK to `sales`, so a bill
+ * the file brings back under the same id finds its photos again), and refresh_families (login
+ * session chains, ADR-0009 addendum 2026-10-22 — not shop data, so an import must not sign
+ * everyone out).
  */
 const REPLACED_TABLES = [
   'owner_review_items',
