@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { EntityManager } from 'typeorm';
+import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
@@ -209,6 +210,15 @@ export class ReturnsService {
   ): Promise<CreateReturnResult> {
     const { tenantId, manager } = currentRequestContext();
 
+    // The client's `id` is a natural idempotency key, as on `POST /sales`: a retry that
+    // lost its Idempotency-Key must replay the credit note, not hit the primary key as a
+    // 500 — and must do it before `lockSale`, because a full return has auto-voided the
+    // bill and the replay would otherwise read `409 SALE_VOIDED`.
+    if (dto.id) {
+      const existing = await this.existingReturn(manager, tenantId, dto.id, dto);
+      if (existing) return existing;
+    }
+
     const sale = await this.lockSale(manager, tenantId, dto.saleId);
     // The DTO whitelists the three refund methods but cannot see the bill, and only a
     // bill naming a mechanic has a tab to deduct from — the Returns screen offers the
@@ -362,6 +372,131 @@ export class ReturnsService {
       movements,
       customerAfter,
       mechanicCreditBalanceAfter,
+      mechanicAfter,
+    };
+  }
+
+  /**
+   * The credit note already stored under [returnId], answered as `POST /returns` answers —
+   * or null when there is none. Same rule as `SalesService.existingSale`: the same id with
+   * the same bill, refund method and lines is a replay (the ledger figures are as they
+   * stand now — a replay moves nothing); the same id with anything else is another credit
+   * note colliding on the id, `409 CLIENT_ID_REUSED`. Plain reads, no lock: nothing here
+   * is written.
+   */
+  private async existingReturn(
+    manager: EntityManager,
+    tenantId: string,
+    returnId: string,
+    dto: ReturnWrite,
+  ): Promise<CreateReturnResult | null> {
+    const rows = (await manager.query(
+      `SELECT ${RETURN_COLUMNS} FROM returns WHERE tenant_id = $1::uuid AND id = $2`,
+      [tenantId, returnId],
+    )) as ReturnRow[];
+    if (rows.length === 0) return null;
+    const row = rows[0];
+
+    const lines = (await manager.query(
+      `SELECT line_no, product_id, name, qty, price, original_qty, cost_at_sale
+         FROM return_items
+        WHERE tenant_id = $1::uuid AND return_id = $2
+        ORDER BY line_no`,
+      [tenantId, returnId],
+    )) as {
+      line_no: number;
+      product_id: string;
+      name: string;
+      qty: number;
+      price: string;
+      original_qty: number | null;
+      cost_at_sale: string | null;
+    }[];
+
+    // `insertLines` stored one row per collapsed demand, in demand order.
+    const demands = aggregate(dto.items);
+    const sameLines =
+      lines.length === demands.length &&
+      demands.every(
+        (d, i) =>
+          lines[i].product_id === d.productId &&
+          lines[i].qty === d.qty &&
+          satangOf(lines[i].price) === d.priceSatang,
+      );
+    if (
+      row.sale_id !== dto.saleId ||
+      row.refund_method !== dto.refundMethod ||
+      !sameLines
+    ) {
+      throw new ClientIdReusedException('return.create', returnId);
+    }
+
+    const productIds = [...new Set(demands.map((d) => d.productId))];
+    const stock = (await manager.query(
+      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [tenantId, productIds],
+    )) as { id: string; stock: number }[];
+    const stockById = new Map(stock.map((p) => [p.id, p.stock]));
+
+    const movements = (await manager.query(
+      `SELECT ${MOVEMENT_COLUMNS} FROM movements
+        WHERE tenant_id = $1::uuid AND type = 'return' AND ref_id = $2`,
+      [tenantId, returnId],
+    )) as MovementRow[];
+    const movementByProduct = new Map(movements.map((m) => [m.product_id, m]));
+
+    const sale = (await manager.query(
+      `SELECT voided FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+      [tenantId, row.sale_id],
+    )) as { voided: boolean }[];
+    const customer =
+      row.customer_id === null
+        ? []
+        : ((await manager.query(
+            `SELECT id, points, total_spend FROM customers
+              WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, row.customer_id],
+          )) as { id: string; points: number; total_spend: string }[]);
+    const mechanic =
+      row.mechanic_id === null
+        ? []
+        : ((await manager.query(
+            `SELECT id, total_sales, total_discount, total_markup, credit_balance
+               FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, row.mechanic_id],
+          )) as MechanicRow[]);
+    const mechanicAfter = mechanic.length === 0 ? null : toMechanicAfter(mechanic[0]);
+
+    return {
+      ...toReturn(
+        row,
+        lines.map((l) => ({
+          lineNo: l.line_no,
+          productId: l.product_id,
+          name: l.name,
+          qty: l.qty,
+          price: l.price,
+          originalQty: l.original_qty ?? null,
+          costAtSale: l.cost_at_sale ?? null,
+        })),
+      ),
+      // As the bill stands now: a later credit note may have voided it since.
+      saleVoided: sale[0]?.voided ?? false,
+      products: productIds
+        .filter((id) => stockById.has(id))
+        .map((id) => ({ id, stock: stockById.get(id)! })),
+      movements: productIds
+        .filter((id) => movementByProduct.has(id))
+        .map((id) => movementOut(movementByProduct.get(id)!)),
+      customerAfter:
+        customer.length === 0
+          ? null
+          : {
+              id: customer[0].id,
+              points: customer[0].points,
+              totalSpend: fromSatang(satangOf(customer[0].total_spend)),
+            },
+      mechanicCreditBalanceAfter: mechanicAfter?.creditBalance ?? null,
       mechanicAfter,
     };
   }
@@ -748,6 +883,12 @@ export class ReturnsService {
           },
           HttpStatus.CONFLICT,
         );
+      }
+      if ((err as { code?: string })?.code === '23505') {
+        // Only the primary key is left: another credit note committed under this id
+        // after `existingReturn` looked (two requests, two keys, one id). A conflict,
+        // never a 500.
+        throw new ClientIdReusedException('return.create', returnId);
       }
       throw err;
     }

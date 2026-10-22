@@ -226,6 +226,12 @@ void main() {
         ServerErrorResolver.resolveCounterError(ex),
         'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
       );
+      // 503 IMAGE_BUSY (review 2026-10-21) also tells the counter to wait.
+      expect(
+        ServerErrorResolver.resolveCounterError(
+            ApiException(statusCode: 503, code: 'IMAGE_BUSY')),
+        'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+      );
       // Any other 503 is still the connection sentence.
       expect(
         ServerErrorResolver.resolveCounterError(

@@ -127,6 +127,30 @@ void main() {
       },
     );
 
+    test(
+      '503 IMAGE_BUSY: retryable, the wait sentence, retry resends the SAME id + key',
+      () async {
+        reply = (_) => _err(503, 'IMAGE_BUSY');
+        await expectLater(
+          upload(),
+          throwsA(
+            isA<SalePhotoException>()
+                .having((e) => e.retryable, 'retryable', isTrue)
+                .having(
+                  (e) => e.message,
+                  'message',
+                  'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+                ),
+          ),
+        );
+        reply = (_) => _ok(_photoJson());
+        await upload();
+        expect(sent, hasLength(2));
+        expect(sent[1].url.path, sent[0].url.path);
+        expect(sent[1].headers['idempotency-key'], _key);
+      },
+    );
+
     test('429 and 503 IN_FLIGHT are retryable', () async {
       for (final (status, code) in [
         (429, 'RATE_LIMITED'),
