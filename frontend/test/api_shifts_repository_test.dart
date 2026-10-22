@@ -20,6 +20,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
+import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
@@ -74,6 +75,14 @@ class _MemTokenStorage implements TokenStorage {
   Future<void> clearAuthTokens() async {}
   @override
   Future<void> clearAll() async {}
+}
+
+/// A sales repository whose last attempt is (or is not) still parked.
+class _ParkedSales extends SalesRepository {
+  _ParkedSales(super.db, {required this.parked});
+  final bool parked;
+  @override
+  bool get hasParkedAttempt => parked;
 }
 
 void main() {
@@ -449,6 +458,52 @@ void main() {
         ),
       );
       expect(closes, 0);
+    });
+
+    group('a parked sale attempt (review 2026-10-21)', () {
+      ApiShiftsRepository withSales(bool parked, void Function() onClose) =>
+          ApiShiftsRepository(
+            api: ApiClient(
+              baseUrl: 'http://example.com',
+              httpClient: MockClient((_) async {
+                onClose();
+                return _successResponse(closedShift());
+              }),
+            ),
+            db: db,
+            drift: drift,
+            sales: _ParkedSales(db, parked: parked),
+          );
+
+      test('blocks the close with the outbox string: it may have committed', () async {
+        var closes = 0;
+        final repo = withSales(true, () => closes++);
+
+        Object? thrown;
+        try {
+          await repo.closeShift(100);
+        } catch (e) {
+          thrown = e;
+        }
+
+        expect(closes, 0, reason: 'the close is never sent');
+        expect(
+          thrown,
+          isA<PosException>().having((e) => e.code, 'code', 'OUTBOX_NOT_EMPTY'),
+        );
+        expect(
+          thrown.toString(),
+          'ยังมี 1 รายการติดปัญหา / ค้างส่ง '
+          '— ต้องส่งเข้าระบบให้หมดก่อนปิดกะ',
+        );
+      });
+
+      test('no parked sale: the close goes out', () async {
+        var closes = 0;
+        final repo = withSales(false, () => closes++);
+        await repo.closeShift(100);
+        expect(closes, 1);
+      });
     });
 
     test('any queued op type blocks the close, not only credit payments', () async {

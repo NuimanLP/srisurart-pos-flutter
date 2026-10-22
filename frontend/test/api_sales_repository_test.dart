@@ -825,6 +825,52 @@ void main() {
       expect(await db.select(db.sales).get(), hasLength(1));
     });
 
+    test(
+      'a parked attempt shows in the outboxRemaining stream (close button), '
+      'never in currentOutboxRemaining (review 2026-10-21)',
+      () async {
+        final tokenStorage = _MemoryTokenStorage();
+        final sync = SyncService(
+          db: db,
+          apiClient: ApiClient(
+            baseUrl: 'http://server.test',
+            httpClient: MockClient((req) async => fail('the sync engine sends nothing here')),
+            tokenStorage: tokenStorage,
+          ),
+          tokenStorage: tokenStorage,
+          autoStartHealthProbe: false,
+        );
+        addTearDown(sync.dispose);
+        final counts = <int>[];
+        final sub = sync.outboxRemaining.listen(counts.add);
+        addTearDown(sub.cancel);
+
+        var attempt = 0;
+        final repo = repoWith((req) async {
+          attempt++;
+          if (attempt == 1) return http.Response('<html>504 Gateway Time-out</html>', 504);
+          return http.Response(
+            _ok(created()),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }, syncService: sync);
+
+        await expectLater(() => repo.saveSale(input()), throwsA(isA<Exception>()));
+        await pumpEventQueue();
+        expect(counts.last, 1, reason: 'the close button must see the parked sale');
+        expect(
+          sync.currentOutboxRemaining,
+          0,
+          reason: 'the parked sale must still be retried online, not queued',
+        );
+
+        await repo.saveSale(input());
+        await pumpEventQueue();
+        expect(counts.last, 0, reason: 'replayed and applied: nothing left to block');
+      },
+    );
+
     test('but a server VERDICT closes the attempt — the next bill is a new one', () async {
       // A 409 is an answer: nothing was committed, and the next press is a
       // different sale that must not inherit the refused bill's id.

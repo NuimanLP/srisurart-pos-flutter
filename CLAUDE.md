@@ -933,7 +933,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   `deploy/gatus/config.yaml`, `127.0.0.1:3300`, 64m) checks `/health/ready` through Nginx+TLS (+ cert > 14 days),
   platform-ui (**403** = up: its nginx allows only the bridge gateway, so every container gets 403), bull-board (401),
   Postgres/Redis×2/etcd TCP, Grafana, Prometheus. Rules: API instance down uses
-  `up{job="api-metrics"}` — **never `api-readiness`** (always 0); anything a rolling deploy can trip has `for:` ≥ 5m;
+  `up{job="api-metrics"}` (the always-0 `api-readiness` job was removed 2026-10-21 — Prometheus 3 refuses its JSON); anything a rolling deploy can trip has `for:` ≥ 5m;
   deleting a rule from the file does not delete it (use `deleteRules:`); annotations are not env-interpolated and
   never carry tenant/customer data. `ALERT_DISCORD_WEBHOOK` is a secret (`/opt/pos/.env` only); unset = a
   placeholder (Grafana refuses an empty Discord URL) + `provision.yml` warning. Gatus trusts the private CA via

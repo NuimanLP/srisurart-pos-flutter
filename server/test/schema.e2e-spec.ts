@@ -18,17 +18,20 @@ import { testId } from './support/test-ids.js';
 const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
 const PAYMENT_ACCOUNTS_TABLE = 'payment_accounts';
 const SALE_PHOTOS_TABLE = 'sale_photos';
+const REFRESH_FAMILIES_TABLE = 'refresh_families';
 const TENANT_SCOPED_TABLES = [
   ...INITIAL_TENANT_SCOPED_TABLES,
   OWNER_REVIEW_ITEMS_TABLE,
   PAYMENT_ACCOUNTS_TABLE,
   SALE_PHOTOS_TABLE,
+  REFRESH_FAMILIES_TABLE,
 ] as const;
 const ALL_TABLES = [
   ...INITIAL_ALL_TABLES,
   OWNER_REVIEW_ITEMS_TABLE,
   PAYMENT_ACCOUNTS_TABLE,
   SALE_PHOTOS_TABLE,
+  REFRESH_FAMILIES_TABLE,
 ] as const;
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
@@ -125,9 +128,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   // migration explains why it could not simply be appended to either exported list.
   const IMPORT_JOBS_TABLE = 'import_jobs';
 
-  it('runs from an empty database to exactly 31 tables (27 + import_jobs + owner_review_items + payment_accounts + sale_photos), without change_log', async () => {
+  it('runs from an empty database to exactly 32 tables (27 + import_jobs + owner_review_items + payment_accounts + sale_photos + refresh_families), without change_log', async () => {
     const tables = await tableNames(owner);
-    expect(tables).toHaveLength(31);
+    expect(tables).toHaveLength(32);
     expect(tables).toEqual([...ALL_TABLES, IMPORT_JOBS_TABLE].sort());
     expect(tables).not.toContain('change_log');
   });
@@ -423,6 +426,30 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     } finally {
       await app.query('ROLLBACK').catch(() => undefined);
       await owner.query(`DELETE FROM sale_photos WHERE id = ANY($1::uuid[])`, [[SP_A, SP_B, SP_APP]]);
+    }
+  });
+
+  it('refresh_families: an emptied app.tenant_id reads 0 rows (not 22P02), and a deleted tenant takes its chains with it (…5300)', async () => {
+    const FAM = '5300aaaa-0000-4000-8000-000000000001';
+    await owner.query(
+      `INSERT INTO refresh_families (tenant_id, id, user_id, current_jti, expires_at)
+       VALUES ($1, $2, $2, $2, now() + interval '1 hour')`,
+      [TENANT_A, FAM],
+    );
+    try {
+      await app.query('BEGIN');
+      await app.query(`SELECT set_config('app.tenant_id', '', true)`);
+      expect((await app.query(`SELECT id FROM refresh_families`)).rows).toEqual([]);
+      await app.query('ROLLBACK');
+      const fk = await owner.query(
+        `SELECT confdeltype FROM pg_constraint
+          WHERE contype = 'f' AND conrelid = 'refresh_families'::regclass`,
+      );
+      // ON DELETE CASCADE ('c') to tenants only: session state, never a reason to keep a tenant.
+      expect(fk.rows).toEqual([{ confdeltype: 'c' }]);
+    } finally {
+      await app.query('ROLLBACK').catch(() => undefined);
+      await owner.query(`DELETE FROM refresh_families WHERE id = $1`, [FAM]);
     }
   });
 
@@ -770,7 +797,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(ran.map((m) => m.name)).toEqual(
         MIGRATIONS.map((m) => new m().name),
       );
-      expect(await tableNames(owner)).toHaveLength(31);
+      expect(await tableNames(owner)).toHaveLength(32);
     } finally {
       await ds.destroy();
     }

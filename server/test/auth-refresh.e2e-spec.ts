@@ -126,4 +126,114 @@ describe('POST /auth/refresh (e2e)', () => {
     expect(res.status).toBe(401);
     expect(await rejectionReasons()).toEqual([]);
   });
+
+  // Security review 2026-10-21 / ADR-0009 addendum 2026-10-22: refresh tokens are single-use.
+  describe('rotation with reuse detection', () => {
+    const login = () =>
+      refreshToken({
+        tenantId: TENANT,
+        userId: fixture.userId,
+        deviceId: fixture.posDeviceId,
+        deviceRole: 'pos',
+      });
+    const claims = (token: string) => jwt.decode(token) as jwt.JwtPayload;
+    const rotate = async (token: string): Promise<string> => {
+      const res = await post(token);
+      expect(res.status).toBe(200);
+      return res.body.data.refreshToken as string;
+    };
+    /** Pretends the chain's last rotation happened `hours` ago, instead of waiting. */
+    const ageRotation = (hours: number) =>
+      admin.query(
+        `UPDATE refresh_families SET rotated_at = now() - make_interval(hours => $2) WHERE tenant_id = $1::uuid`,
+        [TENANT, hours],
+      );
+
+    it('every reissued token has a new jti and names the chain (fid) of the first one', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      const t2 = await rotate(t1);
+      expect(new Set([claims(t0).jti, claims(t1).jti, claims(t2).jti]).size).toBe(3);
+      expect(claims(t1).fid).toBe(claims(t0).jti);
+      expect(claims(t2).fid).toBe(claims(t0).jti);
+    });
+
+    it('the token just replaced, sent again, gets the current jti back — no fork', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      const again = await rotate(t0);
+      expect(claims(again).jti).toBe(claims(t1).jti);
+      // Both holders now carry the one current token, and it still rotates.
+      expect((await post(t1)).status).toBe(200);
+    });
+
+    it('two refreshes of the same token at once both succeed and converge on one jti', async () => {
+      const t0 = login();
+      const [a, b] = await Promise.all([post(t0), post(t0)]);
+      expect([a.status, b.status]).toEqual([200, 200]);
+      expect(claims(a.body.data.refreshToken).jti).toBe(claims(b.body.data.refreshToken).jti);
+    });
+
+    it('a token older than the one just replaced is a reuse: 401, and the whole chain is revoked', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      const t2 = await rotate(t1);
+
+      expect((await post(t0)).status).toBe(401);
+      // The legitimate holder's current token dies with the chain.
+      expect((await post(t2)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
+    });
+
+    it('a lost reply retried hours later (offline till) is still answered with the current jti', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0); // the reply the till never received
+      await ageRotation(3);
+
+      const retried = await rotate(t0);
+      expect(claims(retried).jti).toBe(claims(t1).jti);
+      expect(await rejectionReasons()).toEqual([]);
+    });
+
+    it('the token just replaced is answered only once: presented a second time it is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      await rotate(t0); // the one grace answer
+
+      expect((await post(t0)).status).toBe(401);
+      expect((await post(t1)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
+    });
+
+    it('the token just replaced, presented more than 24 h after the rotation, is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      await ageRotation(25);
+
+      expect((await post(t0)).status).toBe(401);
+      expect((await post(t1)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
+    });
+
+    it('once the current token has been presented, the one before it is a reuse', async () => {
+      const t0 = login();
+      const t1 = await rotate(t0);
+      expect(claims(await rotate(t0)).jti).toBe(claims(t1).jti); // still answerable
+      const t2 = await rotate(t1); // t1 presented: its holder got it
+
+      expect((await post(t0)).status).toBe(401);
+      expect((await post(t2)).status).toBe(401);
+      expect(await rejectionReasons()).toEqual(['refresh_reused', 'refresh_revoked']);
+    });
+
+    it('revoking one chain leaves another login of the same user and device alone', async () => {
+      const a0 = login();
+      const b0 = login();
+      const a1 = await rotate(a0);
+      await rotate(a1);
+      expect((await post(a0)).status).toBe(401);
+
+      expect((await post(b0)).status).toBe(200);
+    });
+  });
 });

@@ -1,6 +1,8 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
+  IMAGE_BUSY_RETRY_AFTER_SECONDS,
+  IMAGE_SLOT_MAX_WAITING,
   imageKeyOf,
   INPUT_PIXEL_LIMIT,
   PREVIEW_SIZE,
@@ -188,6 +190,46 @@ describe('withImageSlot — one image decode at a time per process (§3.3)', () 
     await expect(b).resolves.toBe('b');
     await expect(c).resolves.toBe('c');
     expect(events).toEqual(['a:start', 'b:start', 'b:end', 'c:start']);
+  });
+
+  it(`refuses with 503 IMAGE_BUSY + Retry-After once ${IMAGE_SLOT_MAX_WAITING} jobs wait behind the running one (review 2026-10-21)`, async () => {
+    const gate = deferred();
+    const capped = { maxWaiting: IMAGE_SLOT_MAX_WAITING };
+    const ran: number[] = [];
+    // One running + IMAGE_SLOT_MAX_WAITING waiting: all admitted.
+    const admitted = Array.from({ length: IMAGE_SLOT_MAX_WAITING + 1 }, (_, i) =>
+      withImageSlot(async () => {
+        ran.push(i);
+        await gate.promise;
+        return i;
+      }, capped),
+    );
+    const refused = withImageSlot(async () => {
+      ran.push(-1);
+      return -1;
+    }, capped);
+    const err = (await refused.then(
+      () => null,
+      (e: unknown) => e,
+    )) as { getStatus(): number; getResponse(): Record<string, unknown> } | null;
+    expect(err?.getStatus()).toBe(503);
+    expect(err?.getResponse()).toMatchObject({
+      code: 'IMAGE_BUSY',
+      retryAfter: IMAGE_BUSY_RETRY_AFTER_SECONDS,
+    });
+
+    // A caller without the cap (the backup import) still queues.
+    const uncapped = withImageSlot(async () => 'import');
+
+    gate.resolve();
+    await expect(Promise.all(admitted)).resolves.toEqual(
+      Array.from({ length: IMAGE_SLOT_MAX_WAITING + 1 }, (_, i) => i),
+    );
+    await expect(uncapped).resolves.toBe('import');
+    expect(ran).not.toContain(-1);
+
+    // Drained: the slot admits again.
+    await expect(withImageSlot(async () => 'again', capped)).resolves.toBe('again');
   });
 });
 

@@ -19,7 +19,11 @@ import { authorisedTenantId } from '../common/request-context.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { LOGGER } from '../infra/logger.provider.js';
-import { processProductImage, productImageInvalid } from '../product-images/image-pipeline.js';
+import {
+  IMAGE_SLOT_MAX_WAITING,
+  processProductImage,
+  productImageInvalid,
+} from '../product-images/image-pipeline.js';
 import { writeImageFiles } from '../product-images/image-store.js';
 import { ProductsService, type Product } from './products.service.js';
 
@@ -85,7 +89,7 @@ export class ProductImagesController {
     // A Buffer only when the raw parser ran, i.e. a verified owner token AND an accepted
     // Content-Type; JSON, a form, or no body at all is not an image.
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw productImageInvalid();
-    const image = await processProductImage(req.body);
+    const image = await processProductImage(req.body, { maxWaiting: IMAGE_SLOT_MAX_WAITING });
     const created = await writeImageFiles(authorisedTenantId(), image.key, image);
     return { key: image.key, created };
   }

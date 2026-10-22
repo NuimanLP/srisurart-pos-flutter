@@ -20,7 +20,7 @@ import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
-import { currentRequestContext } from '../common/request-context.js';
+import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { newUuid } from '../common/ids.js';
 import { Paginated, pageParams } from '../common/paginated.js';
@@ -115,21 +115,29 @@ export class QuotesController {
           ? (Array.isArray(idemKey) ? idemKey[0] : idemKey)
           : new Date().toISOString().slice(0, 10);
 
-        const job = await this.maintenanceQueue.add(
-          JOB_QUOTES_PURGE,
-          {
-            tenantId,
-            correlationId,
-            olderThanDays,
-          } satisfies QuotesPurgeJobPayload,
-          {
-            jobId: `quotes-purge:${tenantId}:${jobIdKey}`,
-          },
-        );
+        const jobId = `quotes-purge:${tenantId}:${jobIdKey}`;
+        // After commit, never inside the transaction (like the sale/return jobs): with
+        // redis-queue down `add()` does not return (`maxRetriesPerRequest: null`), and
+        // inside `runTx` it held this request's pool connection for as long. The `jobId`
+        // is ours, so the reply needs nothing back from Redis, and BullMQ still drops a
+        // second add under the same id. A failed add is logged by `runTx` ('post-commit
+        // hook failed'); the purge is maintenance and the next one catches up.
+        const queue = this.maintenanceQueue;
+        onTransactionCommit(async () => {
+          await queue.add(
+            JOB_QUOTES_PURGE,
+            {
+              tenantId,
+              correlationId,
+              olderThanDays,
+            } satisfies QuotesPurgeJobPayload,
+            { jobId },
+          );
+        });
 
         return {
           queued: true,
-          jobId: job.id,
+          jobId,
           olderThanDays,
         };
       },

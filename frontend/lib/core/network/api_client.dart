@@ -485,9 +485,14 @@ class ApiClient {
   /// rule as `isVerdict` for writes (#161): clearing here signed a cashier out
   /// mid-shift on a flaky shop network.
   ///
-  /// Rotation is safe to retry: the server reissues a refresh token with a new
-  /// `jti` but the same `exp`, and keeps no denylist or reuse detection
-  /// (ADR-0009 dropped both), so the token kept after a lost reply still works.
+  /// Refresh tokens are single-use (ADR-0009 addendum 2026-10-22): every
+  /// reply carries a new refresh token (new `jti`, same `exp`), which is stored
+  /// below, replacing the one sent. The token just replaced is answered (with
+  /// the current token) once, within 24 h and before the current one is
+  /// presented, so a token kept after a lost reply or a timeout still works
+  /// when an offline till retries later, and two tabs converge on one token.
+  /// Any other presentation is a reuse: 401, and the server revokes the whole
+  /// chain, so this session ends like any other 401.
   Future<bool> _executeRefresh() async {
     final storage = tokenStorage;
     if (storage == null) return false;

@@ -21,6 +21,11 @@ export interface JwtPayload {
   role?: string;    // user role
   did?: string;     // device id
   drole?: string;   // device role ('pos' | 'backoffice')
+  /**
+   * Refresh tokens only: the chain this token belongs to (`refresh_families.id`, ADR-0009
+   * addendum 2026-10-22). Absent on the first refresh token of a login, whose own `jti` is the id.
+   */
+  fid?: string;
 }
 
 @Injectable()

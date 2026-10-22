@@ -439,6 +439,29 @@ export class ShiftsService {
     options: { offlineReplay?: boolean },
   ): Promise<DrawerEntry> {
     const { tenantId, manager } = currentRequestContext();
+
+    // The client's `id` is a natural idempotency key, as on `POST /shifts/open`: the same
+    // id with the same type and amount is a replay of an entry already written (answered
+    // even if the drawer has closed since); with anything else it is another entry
+    // colliding on the id — `409 CLIENT_ID_REUSED`, the rule `/sync/push` applies. Never
+    // the primary key's 500.
+    const clientId = entry.id?.trim() || null;
+    if (clientId) {
+      const existing = (await manager.query(
+        `SELECT ${ENTRY_COLUMNS} FROM drawer_entries WHERE tenant_id = $1::uuid AND id = $2`,
+        [tenantId, clientId],
+      )) as EntryRow[];
+      if (existing.length > 0) {
+        if (
+          existing[0].type !== entry.type ||
+          satangOf(existing[0].amount) !== entry.amountSatang
+        ) {
+          throw new ClientIdReusedException('drawer.entry', clientId);
+        }
+        return toEntry(existing[0]);
+      }
+    }
+
     const shift = await this.lockActive(manager, tenantId, actor.deviceId);
 
     if (shift.closed_at !== null) {
@@ -461,17 +484,17 @@ export class ShiftsService {
       }
     }
 
-    const entryId = entry.id?.trim() || newUuid();
+    const entryId = clientId ?? newUuid();
     const createdAtVal = entry.createdAt
       ? entry.createdAt instanceof Date
         ? entry.createdAt.toISOString()
         : entry.createdAt
       : null;
 
-    const rows = (await manager.query(
+    const rows = (await mapEntryIdConflict(entryId, () => manager.query(
       `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_by, created_at)
             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, COALESCE($8::timestamptz, now()))
-         RETURNING id, shift_id, type, amount, note, created_at`,
+         RETURNING ${ENTRY_COLUMNS}`,
       [
         tenantId,
         entryId,
@@ -482,14 +505,7 @@ export class ShiftsService {
         actor.userId,
         createdAtVal,
       ],
-    )) as {
-      id: string;
-      shift_id: string;
-      type: 'in' | 'out';
-      amount: string;
-      note: string;
-      created_at: Date;
-    }[];
+    ))) as EntryRow[];
     return toEntry(rows[0]);
   }
 
@@ -670,6 +686,23 @@ function toShift(row: ShiftRow): Shift {
     archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
     deviceId: row.device_id,
   };
+}
+
+const ENTRY_COLUMNS = 'id, shift_id, type, amount, note, created_at';
+
+/**
+ * The drawer entry's primary key taken between the replay read and the insert — another
+ * request with another key, same id. A conflict, never a 500.
+ */
+async function mapEntryIdConflict<T>(entryId: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if ((err as { code?: string })?.code === '23505') {
+      throw new ClientIdReusedException('drawer.entry', entryId);
+    }
+    throw err;
+  }
 }
 
 type EntryRow = {

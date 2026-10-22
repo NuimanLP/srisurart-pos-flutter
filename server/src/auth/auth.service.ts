@@ -7,7 +7,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
 import * as crypto from 'node:crypto';
 import * as argon2 from 'argon2';
 import { JwtSigner, type JwtPayload } from './jwt-keys.service.js';
@@ -23,6 +23,8 @@ import {
   type PasswordPolicyViolation,
 } from '../common/password.js';
 import { returning } from '../common/sql.js';
+import { isUuid } from '../common/ids.js';
+import { judgeRefresh, type RefreshFamilyState } from './refresh-rotation.js';
 
 export interface LoginDto {
   username: string;
@@ -36,6 +38,25 @@ export interface LoginDto {
  * shared screen is dead before anyone else sits down. It has no refresh token.
  */
 export const PWCHANGE_TOKEN_TTL = '10m';
+
+/** `POST /auth/device` throttle (security review 2026-10-21) — see `enrolDevice`. */
+const ENROL_IP_LIMIT = 10;
+const ENROL_IP_WINDOW_SEC = 60;
+const ENROL_GLOBAL_KEY = 'auth:enrol:global';
+const ENROL_GLOBAL_LIMIT = 100;
+const ENROL_GLOBAL_WINDOW_SEC = 600;
+
+/** The same 429 `RATE_LIMITED` login answers; the filter turns `retryAfter` into `Retry-After`. */
+function enrolRateLimited(retryAfter: number): HttpException {
+  return new HttpException(
+    {
+      code: 'RATE_LIMITED',
+      message: 'Too many enrolment attempts. Please try again later.',
+      retryAfter,
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}
 
 /** `WEAK_PASSWORD` (02_API_SCREENS.md §8.1) with the reason, for a password the owner chose. */
 function weakPassword(violation: PasswordPolicyViolation): BadRequestException {
@@ -441,6 +462,9 @@ export class AuthService {
         }
       }
 
+      // ADR-0009 addendum 2026-10-22: single-use refresh tokens with reuse detection.
+      const nextJti = await this.rotateRefreshChain(qr, payload);
+
       await qr.commitTransaction();
 
       // Issue new access token
@@ -457,8 +481,14 @@ export class AuthService {
 
       const accessToken = this.jwtSigner.sign(accessPayload, '15m');
       
-      // Issue new refresh token retaining the exact original expiration timestamp (ADR-0009)
-      const refreshPayload = { ...accessPayload, typ: 'refresh' as const, jti: crypto.randomUUID() };
+      // Issue new refresh token retaining the exact original expiration timestamp (ADR-0009),
+      // with the jti the chain now expects next and the chain's id.
+      const refreshPayload = {
+        ...accessPayload,
+        typ: 'refresh' as const,
+        jti: nextJti,
+        fid: payload.fid ?? payload.jti,
+      };
       const refreshToken = this.jwtSigner.sign(refreshPayload, payload.exp);
 
       return {
@@ -472,6 +502,100 @@ export class AuthService {
       throw err;
     } finally {
       await qr.release();
+    }
+  }
+
+  /**
+   * Rotation with reuse detection (security review 2026-10-21; ADR-0009 addendum 2026-10-22),
+   * inside `/auth/refresh`'s transaction, after the user/tenant/password/device checks. Returns
+   * the jti the reissued refresh token must carry; on a refusal it writes the
+   * `auth.refresh_rejected` row, commits (the revocation must survive) and throws 401.
+   *
+   * The chain row is created by the first refresh of a login's token (`fid` absent: the chain's
+   * id is that token's own jti), with `INSERT … ON CONFLICT DO NOTHING`: two simultaneous first
+   * refreshes serialise on the primary key, and the loser reads the winner's row below and gets
+   * the grace answer. Every later decision reads the row `FOR UPDATE`, so two refreshes of one
+   * chain are judged one after the other. `judgeRefresh` is the whole rule.
+   */
+  private async rotateRefreshChain(qr: QueryRunner, payload: JwtPayload): Promise<string> {
+    const tenantId = payload.tid as string;
+    const familyId = payload.fid ?? payload.jti;
+    const refuse = async (reason: string, message: string): Promise<never> => {
+      await this.audit.log(qr.manager, {
+        tenantId,
+        userId: payload.sub,
+        deviceId: payload.did,
+        action: 'auth.refresh_rejected',
+        before: { reason },
+      });
+      await qr.commitTransaction();
+      throw new UnauthorizedException(message);
+    };
+
+    // Every token this server signed has UUID ids; anything else cannot name a chain.
+    if (!isUuid(payload.jti) || !isUuid(familyId)) {
+      return refuse('refresh_unknown_chain', 'Refresh token is no longer valid');
+    }
+
+    const nextJti = crypto.randomUUID();
+    if (payload.fid === undefined) {
+      const created = await qr.query(
+        `INSERT INTO refresh_families
+                (tenant_id, id, user_id, device_id, current_jti, previous_jti, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $2, to_timestamp($6))
+         ON CONFLICT (tenant_id, id) DO NOTHING
+         RETURNING id`,
+        [tenantId, familyId, payload.sub, payload.did ?? null, nextJti, payload.exp],
+      );
+      if (created.length === 1) {
+        // A new chain is the moment to drop this tenant's long-dead ones (a day past their
+        // 04:00 expiry, so the verifier's clock tolerance never meets a pruned chain).
+        await qr.query(
+          `DELETE FROM refresh_families WHERE tenant_id = $1 AND expires_at < now() - interval '1 day'`,
+          [tenantId],
+        );
+        return nextJti;
+      }
+    }
+
+    const rows = (await qr.query(
+      `SELECT current_jti, previous_jti, revoked_at IS NOT NULL AS revoked, grace_used,
+              extract(epoch FROM now() - rotated_at)::float8 AS seconds_since_rotation
+         FROM refresh_families
+        WHERE tenant_id = $1 AND id = $2
+        FOR UPDATE`,
+      [tenantId, familyId],
+    )) as RefreshFamilyState[];
+    const verdict = judgeRefresh(rows[0], payload.jti);
+    switch (verdict.kind) {
+      case 'rotate':
+        await qr.query(
+          `UPDATE refresh_families
+              SET previous_jti = current_jti, current_jti = $3, rotated_at = now(), grace_used = FALSE
+            WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, familyId, nextJti],
+        );
+        return nextJti;
+      case 'grace':
+        // Once per rotation: the same row lock that judged it records it.
+        await qr.query(
+          `UPDATE refresh_families SET grace_used = TRUE WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, familyId],
+        );
+        return verdict.jti;
+      case 'reused':
+        await qr.query(
+          `UPDATE refresh_families SET revoked_at = now() WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, familyId],
+        );
+        this.logger.warn(
+          `Refresh token reuse: chain ${familyId} of tenant ${tenantId} revoked (jti ${payload.jti})`,
+        );
+        return refuse('refresh_reused', 'Refresh token has already been used');
+      case 'revoked':
+        return refuse('refresh_revoked', 'Refresh token is no longer valid');
+      case 'unknown':
+        return refuse('refresh_unknown_chain', 'Refresh token is no longer valid');
     }
   }
 
@@ -631,8 +755,34 @@ export class AuthService {
   /**
    * Enrols a device using an enrolment code (ADR-0004).
    * Generates a device token, hashes it, and stores it in the device row.
+   *
+   * Throttled like login (security review 2026-10-21): a code is 8 hex characters (32 bits),
+   * valid up to 7 days and looked up across every tenant, and the device token it buys can push
+   * owner writes through `/sync/push`. Every attempt is counted up front with the atomic
+   * `consumeAttempt` (#138), before a pool connection is taken, in two buckets: per client IP,
+   * and one shared by every IP — so spreading guesses over many addresses buys nothing past
+   * `ENROL_GLOBAL_LIMIT` per `ENROL_GLOBAL_WINDOW_SEC`. Only a successful enrolment gives its
+   * own attempts back, so the shared bucket counts failures (plus attempts still in flight).
+   * Accepted cost: one address that fails 10 times a minute for 10 minutes refuses enrolment for
+   * everyone until the window rolls over — enrolment is a rare owner action, and a 32-bit code
+   * otherwise falls to a botnet within its 7-day life.
    */
-  async enrolDevice(code: string) {
+  async enrolDevice(code: string, clientIp?: string) {
+    const ipKey = clientIp ? `auth:enrol:ip:${clientIp}` : null;
+    if (ipKey) {
+      const ipStatus = await this.rateLimit.consumeAttempt(ipKey, ENROL_IP_LIMIT, ENROL_IP_WINDOW_SEC);
+      if (!ipStatus.allowed) throw enrolRateLimited(ipStatus.retryAfter ?? ENROL_IP_WINDOW_SEC);
+    }
+    const globalStatus = await this.rateLimit.consumeAttempt(
+      ENROL_GLOBAL_KEY,
+      ENROL_GLOBAL_LIMIT,
+      ENROL_GLOBAL_WINDOW_SEC,
+    );
+    if (!globalStatus.allowed) {
+      this.logger.warn('Device enrolment refused for every caller: the all-IP failure cap is full');
+      throw enrolRateLimited(globalStatus.retryAfter ?? ENROL_GLOBAL_WINDOW_SEC);
+    }
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
 
@@ -652,6 +802,10 @@ export class AuthService {
       }
 
       const dev = res[0];
+
+      // Like login: a success gives back only its own attempts, never anyone else's failures.
+      if (ipKey) await this.rateLimit.refundAttempt(ipKey, ENROL_IP_WINDOW_SEC);
+      await this.rateLimit.refundAttempt(ENROL_GLOBAL_KEY, ENROL_GLOBAL_WINDOW_SEC);
 
       // Audit log inside tenant RLS context
       await this.logAuthEventWithRls(qr, dev.tenant_id, {

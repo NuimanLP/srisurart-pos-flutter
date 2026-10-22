@@ -321,6 +321,7 @@ Content-Type: image/jpeg            (หรือ image/png | image/webp)
 | 5 | handler | query: `takenAt` ไม่ใช่ ISO-8601 หรือ > `now() + 10 นาที` · `sortOrder` ไม่ใช่จำนวนเต็ม 0–4 (validate ไม่ clamp) | `400 BAD_REQUEST` |
 | 6 | handler | body ไม่ใช่ `Buffer` / ว่าง | `400 PRODUCT_IMAGE_INVALID` |
 | 7 | pipeline (ใน semaphore, ก่อน claim, ไม่ถือ connection) | magic bytes ไม่ใช่ jpeg/png/webp · ถอดไม่ได้/ตัดครึ่ง (`failOn:'error'`) · > 4 MP | `400 PRODUCT_IMAGE_INVALID` |
+| 7a | pipeline: เข้าคิว semaphore *(review 2026-10-21)* | มีงานรอคิวอยู่แล้ว ≥ `IMAGE_SLOT_MAX_WAITING` (4) งานหลังงานที่กำลังถอด — ตรวจ**ก่อน**เข้าคิว — หลังตรวจขนาดและชนิดไฟล์ (magic bytes) แล้ว แต่ก่อนการถอดรหัสภาพของแถว 7 | `503 IMAGE_BUSY` + header `Retry-After` — ไม่ใช่คำตัดสิน (ยังไม่ claim ไม่มีอะไรถูกเขียน) client เก็บรูปไว้ `ลองอีกครั้ง` ด้วย photoId + key เดิม |
 | 8 | เขียนไฟล์ | `writeImageFiles(salePhotosRoot, tenantId, key, …)` ล้ม | `500` |
 | 9 | `runIdempotent` claim | key เดิม + body อื่น / path อื่น | `409 IDEMPOTENCY_KEY_REUSED` · key เดิมยังทำอยู่ `503 IDEMPOTENCY_KEY_IN_FLIGHT` · key เดิม + เหมือนเดิม = replay `200` |
 | 10 | tx | `SELECT … FROM sales WHERE tenant_id AND id FOR UPDATE` ไม่เจอ | `404 SALE_NOT_FOUND` |
@@ -395,6 +396,7 @@ X-Content-Type-Options: nosniff
 | `PRODUCT_IMAGE_TOO_LARGE` | 413 | ใช้ซ้ำ | เดิม `รูปใหญ่เกิน 3 MB` |
 | `SALE_NOT_FOUND` | 404 | ใช้ซ้ำ | client แสดง `ไม่พบบิลนี้บนเซิร์ฟเวอร์` บน route นี้ (`agent ร่าง`) |
 | `CLIENT_ID_REUSED` | 409 | ใช้ซ้ำ | ข้อความเดิม |
+| `IMAGE_BUSY` | 503 | 🆕 *(review 2026-10-21)* | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` (`agent ร่าง` — ลอกตรงตัวจาก `RATE_LIMITED` ที่รับรองแล้ว) · มี `Retry-After` · retryable (ไม่ใช่คำตัดสิน) · ใช้ร่วมกับ `PUT /products/:id/image` (02 §8) |
 | `IDEMPOTENCY_KEY_REUSED` / `IDEMPOTENCY_KEY_IN_FLIGHT` / `IDEMPOTENCY_KEY_INVALID` | 409 / 503 / 400 | ใช้ซ้ำ | ข้อความเดิม |
 | `DEVICE_ROLE_FORBIDDEN` / `INVALID_ID` / `BAD_REQUEST` / `NOT_FOUND` / `UNAUTHORIZED` | 403 / 400 / 400 / 404 / 401 | ใช้ซ้ำ | ข้อความเดิม |
 

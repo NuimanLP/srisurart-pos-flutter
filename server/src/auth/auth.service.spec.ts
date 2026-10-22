@@ -116,6 +116,8 @@ describe('AuthService', () => {
           if (sql.includes('SELECT u.is_active')) {
             return [{ is_active: true, status: 'active', timezone: 'Asia/Bangkok' }];
           }
+          // The first refresh of a login's token starts its chain (refresh-rotation.ts).
+          if (sql.includes('INSERT INTO refresh_families')) return [{ id: 'chain' }];
           return [];
         }),
         manager: {},
@@ -150,7 +152,7 @@ describe('AuthService', () => {
         exp: targetExp,
         iat: targetExp - 3600,
         iss: 'srisurart-pos',
-        jti: 'jti-orig',
+        jti: '0199a000-0000-7000-8000-000000000002',
       });
 
       // Assert unwrapped return shape (no double envelope)
@@ -162,6 +164,13 @@ describe('AuthService', () => {
         expect.objectContaining({ typ: 'refresh' }),
         targetExp,
       );
+      // The first refresh of a login's token names the chain after that token's jti, and the
+      // reissued token carries the jti the chain row now expects next.
+      const refreshCall = signerMock.sign.mock.calls.find(([p]: any[]) => p.typ === 'refresh')!;
+      const insert = qrMock.query.mock.calls.find(([sql]: any[]) => sql.includes('INSERT INTO refresh_families'))!;
+      expect(refreshCall[0].fid).toBe('0199a000-0000-7000-8000-000000000002');
+      expect(refreshCall[0].jti).toBe(insert[1][4]);
+      expect(refreshCall[0].jti).not.toBe('0199a000-0000-7000-8000-000000000002');
     });
 
     it('throws TENANT_SUSPENDED (403) with Thai message if tenant is not active on refresh', async () => {
@@ -240,6 +249,103 @@ describe('AuthService', () => {
     });
   });
 
+  // ADR-0009 addendum 2026-10-22 — the rule itself is `judgeRefresh` (refresh-rotation.spec.ts);
+  // these pin what the service does with each verdict. Real-Postgres cases: auth-refresh.e2e-spec.ts.
+  describe('refreshTokenPayload — single-use chain', () => {
+    const FID = '0199a000-0000-7000-8000-0000000000f0';
+    const CUR = '0199a000-0000-7000-8000-0000000000c1';
+    const PREV = '0199a000-0000-7000-8000-0000000000b1';
+    const run = async (jti: string, family: Record<string, unknown> | undefined) => {
+      const qr = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes('SELECT u.is_active')) return [{ is_active: true, status: 'active' }];
+          if (sql.includes('FROM refresh_families')) return family ? [family] : [];
+          return [];
+        }),
+        manager: {},
+        isTransactionActive: false,
+      };
+      const signer = { sign: vi.fn().mockImplementation((p: any) => JSON.stringify(p)) };
+      const audit = { log: vi.fn() };
+      const service = new AuthService(
+        { createQueryRunner: () => qr } as any,
+        signer as any,
+        audit as any,
+        rateLimitMock as any,
+      );
+      const result = await service
+        .refreshTokenPayload({
+          iss: 'srisurart-pos',
+          aud: 'tenant',
+          typ: 'refresh',
+          sub: 'u1',
+          tid: 't1',
+          jti,
+          fid: FID,
+          iat: 1_788_990_000,
+          exp: 1_789_000_000,
+        })
+        .catch((e: unknown) => e);
+      const updates = qr.query.mock.calls
+        .map(([sql]: any[]) => sql as string)
+        .filter((sql) => sql.includes('UPDATE refresh_families'));
+      return { result, audit, qr, updates };
+    };
+    const fam = (over: Record<string, unknown> = {}) => ({
+      current_jti: CUR,
+      previous_jti: PREV,
+      revoked: false,
+      grace_used: false,
+      seconds_since_rotation: 60,
+      ...over,
+    });
+    const OLDER = '0199a000-0000-7000-8000-0000000000a1';
+
+    it('rotates the current token: the reissued one carries a new jti and the same chain', async () => {
+      const { result, updates } = await run(CUR, fam());
+      const refresh = JSON.parse((result as any).refreshToken);
+      expect(refresh).toMatchObject({ typ: 'refresh', fid: FID });
+      expect(refresh.jti).not.toBe(CUR);
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toContain('previous_jti = current_jti');
+    });
+
+    it('answers the replaced token with the current jti without rotating, and marks the one grace as used', async () => {
+      const { result, updates } = await run(PREV, fam());
+      expect(JSON.parse((result as any).refreshToken)).toMatchObject({ jti: CUR, fid: FID });
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toContain('grace_used = TRUE');
+      expect(updates[0]).not.toContain('current_jti');
+    });
+
+    it('a reuse revokes the chain, records why, commits, and is a 401', async () => {
+      const { result, audit, qr, updates } = await run(OLDER, fam());
+      expect(result).toBeInstanceOf(UnauthorizedException);
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toContain('revoked_at = now()');
+      expect(audit.log.mock.calls[0][1]).toMatchObject({
+        action: 'auth.refresh_rejected',
+        before: { reason: 'refresh_reused' },
+      });
+      expect(qr.commitTransaction).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a revoked chain', CUR, fam({ revoked: true }), 'refresh_revoked'],
+      ['an unknown chain', CUR, undefined, 'refresh_unknown_chain'],
+      ['a jti that is not a uuid', 'jti-1', fam(), 'refresh_unknown_chain'],
+    ])('refuses %s with 401 and records why', async (_label, jti, family, reason) => {
+      const { result, audit } = await run(jti, family);
+      expect(result).toBeInstanceOf(UnauthorizedException);
+      expect(audit.log.mock.calls[0][1]).toMatchObject({ before: { reason } });
+    });
+  });
+
   describe('enrolDevice', () => {
     it('returns unwrapped deviceToken', async () => {
       const qrMock = {
@@ -308,6 +414,87 @@ describe('AuthService', () => {
       const expectedHash = (await crypto.subtle.digest('SHA-256', new TextEncoder().encode('A1B2C3D4')));
       const expectedHex = Buffer.from(expectedHash).toString('hex');
       expect(passedCodeHash).toBe(expectedHex);
+    });
+  });
+
+  // Security review 2026-10-21: an enrolment code is 8 hex characters (32 bits), valid up to 7
+  // days and looked up across every tenant, and the device token it buys can push owner writes
+  // through `/sync/push`. Login's throttle style: every attempt is counted atomically before a
+  // pool connection is taken, and only a success gives its own attempt back.
+  describe('enrolDevice throttle', () => {
+    const enrolQr = (rows: unknown[]) => ({
+      connect: vi.fn(),
+      startTransaction: vi.fn(),
+      commitTransaction: vi.fn(),
+      rollbackTransaction: vi.fn(),
+      release: vi.fn(),
+      query: vi.fn().mockImplementation((sql: string) => (sql.includes('auth_enrol_device') ? rows : [])),
+      manager: {},
+      isTransactionActive: false,
+    });
+    const rl = () => ({
+      consumeAttempt: vi.fn().mockResolvedValue({ allowed: true }),
+      refundAttempt: vi.fn().mockResolvedValue(undefined),
+    });
+
+    it('counts the attempt per ip (10 / 60 s) and across all ips (100 / 600 s)', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await expect(service.enrolDevice('ABCD1234', '10.0.0.20')).rejects.toMatchObject({ status: 401 });
+      expect(rate.consumeAttempt).toHaveBeenCalledWith('auth:enrol:ip:10.0.0.20', 10, 60);
+      expect(rate.consumeAttempt).toHaveBeenCalledWith('auth:enrol:global', 100, 600);
+      // A wrong code keeps both attempts counted.
+      expect(rate.refundAttempt).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the ip bucket', 'auth:enrol:ip:10.0.0.21'],
+      ['the all-ip failure cap', 'auth:enrol:global'],
+    ])('refuses with 429 RATE_LIMITED + retryAfter when %s is full, before taking a connection', async (_label, fullKey) => {
+      const rate = rl();
+      rate.consumeAttempt.mockImplementation(async (key: string) =>
+        key === fullKey ? { allowed: false, retryAfter: 37 } : { allowed: true },
+      );
+      const createQueryRunner = vi.fn();
+      const service = new AuthService({ createQueryRunner } as any, {} as any, {} as any, rate as any);
+
+      const err = await service.enrolDevice('ABCD1234', '10.0.0.21').catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ status: 429 });
+      const env = toErrorEnvelope(err);
+      expect(env.body.error.code).toBe('RATE_LIMITED');
+      expect((err as any).getResponse().retryAfter).toBe(37);
+      expect(createQueryRunner).not.toHaveBeenCalled();
+    });
+
+    it('a successful enrolment gives back its own ip and global attempt', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([{ tenant_id: 't1', id: 'dev-1' }]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await service.enrolDevice('ABCD1234', '10.0.0.22');
+      expect(rate.refundAttempt).toHaveBeenCalledWith('auth:enrol:ip:10.0.0.22', 60);
+      expect(rate.refundAttempt).toHaveBeenCalledWith('auth:enrol:global', 600);
+    });
+
+    it('without a client ip still counts against the all-ip cap', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await expect(service.enrolDevice('ABCD1234')).rejects.toMatchObject({ status: 401 });
+      expect(rate.consumeAttempt.mock.calls.map((c: unknown[]) => c[0])).toEqual(['auth:enrol:global']);
     });
   });
 

@@ -74,6 +74,26 @@ class SyncService implements SyncFacade {
   List<OutboxOpView> get currentNeedsOwner => _currentNeedsOwner;
   int get currentOutboxRemaining => _currentOutboxRemaining;
 
+  /// Writes sent online whose fate is unknown and which are NOT in
+  /// `outbox_ops` — today a parked sale attempt (`ApiSalesRepository`). They
+  /// block a shift close like an outbox op (08 §11), so the [outboxRemaining]
+  /// STREAM — the count the cash-drawer close button and the status pill show —
+  /// includes them. [currentOutboxRemaining] does NOT: it is the "anything
+  /// queued → join the outbox" test of every write path, and a parked sale
+  /// must still be retried online under its own id + key.
+  int _parkedWrites = 0;
+
+  int get _shownRemaining => _currentOutboxRemaining + _parkedWrites;
+
+  /// Sets how many parked writes [outboxRemaining] adds (see [_parkedWrites]).
+  void setParkedWrites(int count) {
+    if (_isDisposed || count == _parkedWrites) return;
+    _parkedWrites = count;
+    if (!_outboxRemainingController.isClosed) {
+      _outboxRemainingController.add(_shownRemaining);
+    }
+  }
+
   void _init() {
     _outboxSubscription = (db.select(db.outboxOps)
           ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
@@ -106,7 +126,7 @@ class SyncService implements SyncFacade {
     if (_isDisposed) return;
     _currentOutboxRemaining = ops.length;
     if (!_outboxRemainingController.isClosed) {
-      _outboxRemainingController.add(_currentOutboxRemaining);
+      _outboxRemainingController.add(_shownRemaining);
     }
 
     _currentNeedsOwner = ops
@@ -211,7 +231,7 @@ class SyncService implements SyncFacade {
 
   late final Stream<int> _outboxRemainingStream =
       Stream<int>.multi((controller) {
-    controller.add(_currentOutboxRemaining);
+    controller.add(_shownRemaining);
     final sub = _outboxRemainingController.stream.listen(
       (val) {
         if (!controller.isClosed) {
