@@ -165,6 +165,8 @@ export const TENANT_TABLES_DEPTH_FIRST = [
   'idempotency_keys',
   'audit_log',
   'tenant_meta',
+  // Refresh-token chains (ADR-0009 addendum 2026-10-22); no FK but tenants' (CASCADE).
+  'refresh_families',
   'devices',
   'users',
   'settings',

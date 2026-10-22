@@ -211,6 +211,40 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
   replica อื่น) · ทั้งสองกรณีคือ trade-off ที่ยอมรับแล้ว ไม่ใช่บั๊ก — ไม่ต้องเปลี่ยน caching logic เพิ่มเพื่อปิดช่องนี้ให้เหลือ 0
 * client: response ของ login แบบรหัสชั่วคราวไม่มี `accessToken` → ไม่เรียก `recordOnlineLogin` และ `OfflinePinRepository.setPin` ปฏิเสธ
 
+## Addendum 2026-10-22 (security review 2026-10-21) — refresh token ใช้ได้ครั้งเดียว + จับการใช้ซ้ำ
+
+> **สถานะ: `agent ร่าง` — รอเจ้าของโปรเจกต์รับรอง** · ขัดกับบรรทัด *"ไม่ต้องทำ refresh-token rotation"* ในหัวข้อ
+> "ผลที่ตามมา" — ถ้า owner รับ addendum นี้ บรรทัดนั้นถูกแทนที่ ถ้าไม่รับ ให้ revert PR นี้ส่วน refresh
+
+**ปัญหา:** `/auth/refresh` ออก `jti` ใหม่ทุกครั้งแต่ไม่เคยจำหรือเช็ค — refresh token ที่หลุดไป (เช่นจาก IndexedDB ของ
+เครื่องหน้าร้าน) ใช้ต่อได้คู่กับเจ้าของจริงจนถึงตี 4 โดยไม่มีใครรู้ สี่ข้อเดิม (`is_active`, `tenants.status`,
+`retired_at`, `password_changed_at`) ตัดได้เฉพาะเมื่อมีคนรู้ตัวแล้วไปกดปิด
+
+**การตัดสินใจ (ร่าง):**
+
+* ตาราง **`refresh_families`** (migration `1788652805300`, RLS `tenant_isolation` แบบ `NULLIF`, `ON DELETE CASCADE`
+  จาก `tenants`) — **หนึ่งแถวต่อสายของการล็อกอินหนึ่งครั้ง** ไม่ใช่ต่อเครื่องหรือต่อ user: ร้านมี user active คนเดียว (F9)
+  ที่ล็อกอินได้หลายเครื่อง/หลายแท็บ และ session ที่ไม่มี device token ก็ต้องได้รับการปกป้องด้วย · เก็บใน Postgres
+  ไม่ใช่ Redis — ตรงกับ "เช็คคอลัมน์ใน DB ตอน refresh" ของสี่ข้อเดิม, ไม่หายตอน redis-cache ล่มหรือ evict
+* `id` ของสาย = `jti` ของ refresh token ใบแรก (ที่ `/auth/token` หรือ `/auth/change-password` ออก ไม่มี claim `fid`) —
+  **login ไม่เขียนอะไรเพิ่ม** แถวถูกสร้างตอน refresh ครั้งแรก (`INSERT … ON CONFLICT DO NOTHING`) · token ที่ refresh ออกทุกใบมี
+  claim ใหม่ **`fid`** = id ของสาย · token รุ่นก่อน deploy (ไม่มี `fid`) จึงเข้าระบบใหม่ได้เองโดยไม่ต้องล็อกอินใหม่
+* แถวเก็บ `current_jti` (ใบเดียวที่ refresh ต่อได้) และ `previous_jti` (ใบที่เพิ่งถูกแทน) · กติกาทั้งหมดอยู่ใน
+  `server/src/auth/refresh-rotation.ts` (`judgeRefresh`):
+  * `jti = current` → หมุน: ออก `jti` ใหม่ บันทึกเป็น current ใบเดิมเป็น previous
+  * `jti = previous` และหมุนมาไม่ถึง **30 วินาที** → ตอบด้วย token ที่มี `jti` **ปัจจุบัน** (ไม่หมุนเพิ่ม) — สองแท็บที่ใช้
+    refresh token ก้อนเดียวกันใน IndexedDB หรือ client ที่ส่งซ้ำหลังคำตอบหายระหว่างทาง จะได้ token ใบเดียวกัน ไม่แตกสาย
+  * ใบอื่นทุกใบ (previous ที่เกิน 30 วิ, ใบที่เก่ากว่านั้น) = **ใช้ซ้ำ** → 401, `revoked_at = now()` ทั้งสาย,
+    `auth.refresh_rejected` เหตุผล `refresh_reused` · หลังจากนั้นทุกใบของสาย (รวมของเจ้าของจริง) → 401 `refresh_revoked`
+  * `fid` ที่ไม่มีแถว / `jti` ที่ไม่ใช่ UUID → 401 `refresh_unknown_chain` (fail-closed)
+* **ทำไม 30 วินาที:** สั้นพอที่คนขโมย token ต้องยิงภายในครึ่งนาทีหลังเจ้าของ refresh ถึงจะไม่โดนจับ (และถึงได้ ก็ได้ใบเดียวกับ
+  เจ้าของ ซึ่งจะโดนจับในการ refresh รอบถัดไปของอีกฝั่ง) · ยาวพอให้สองแท็บที่ refresh พร้อมกัน และการ retry ทันทีหลังเน็ตกระตุกรอด ·
+  ราคาที่ยอมรับ: คำตอบ refresh ที่หายแล้ว client กลับมาลองใหม่เกิน 30 วิ = ถูกมองเป็นการใช้ซ้ำ → ต้องล็อกอินใหม่
+  (`clearAuthTokens` เก็บฐานข้อมูลในเครื่องและ outbox ไว้)
+* ลำดับ: เช็คสาย **หลัง** สี่ข้อเดิม ใน transaction เดียวกัน (`SELECT … FOR UPDATE` บนแถวของสาย) · การปฏิเสธ commit ก่อน throw
+  เพื่อให้การ revoke และ audit อยู่รอด · แถวที่เลย `expires_at` ไปเกิน 1 วันถูกลบตอนสร้างสายใหม่ของ tenant เดียวกัน
+* client (`api_client.dart`) เก็บ refresh token ใหม่จากทุกคำตอบอยู่แล้ว (`_executeRefresh` → `setRefreshToken`) ไม่ต้องแก้โค้ด
+
 ## ผลที่ตามมา
 
 * `02_API_SCREENS.md §1.1` ต้องระบุอายุ token ทั้งสองตัวให้ชัด ไม่ใช่ปล่อยว่าง
@@ -220,6 +254,7 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
   จนถึงตี 4 = ร้านมีเครื่องขาย 2 เครื่องทั้งวันโดยที่ `one_pos_per_tenant` ช่วยอะไรไม่ได้
   ช่องที่เหลือหลังแก้คือ ≤15 นาที (อายุ access token) เท่ากับกรณีปิด `users.is_active`
 * ไม่ต้องทำ refresh-token rotation + Redis denylist ตามข้อเสนอเดิม — **ตัดงานออกไปหนึ่งก้อน**
+  *(2026-10-22: ร่างให้กลับมาทำ rotation + จับการใช้ซ้ำใน Postgres — ดู addendum 2026-10-22, รอ owner รับรอง)*
 * ต้องมีข้อความไทยตอน session หมดอายุ — 🔴 **ห้ามแต่งเอง** (กติกา `02_API_SCREENS.md §8.1`)
 * (2026-09-09) #4 ต้องทำตามหัวข้อ *"การเซ็นและที่เก็บ token"* ทั้งตาราง — `config.ts` เพิ่ม
   `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEYS` เป็น required เฉพาะ process ที่มี `/auth/*`, compose และ

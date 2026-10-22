@@ -25,6 +25,7 @@ import { EntityIdsToUuid1788652804900 } from './migrations/1788652804900-EntityI
 import { PaymentAccounts1788652805000 } from './migrations/1788652805000-PaymentAccounts.js';
 import { ProductImageKey1788652805100 } from './migrations/1788652805100-ProductImageKey.js';
 import { SalePhotos1788652805200 } from './migrations/1788652805200-SalePhotos.js';
+import { RefreshFamilies1788652805300 } from './migrations/1788652805300-RefreshFamilies.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -54,6 +55,7 @@ export const MIGRATIONS = [
   PaymentAccounts1788652805000,
   ProductImageKey1788652805100,
   SalePhotos1788652805200,
+  RefreshFamilies1788652805300,
 ];
 
 /**
