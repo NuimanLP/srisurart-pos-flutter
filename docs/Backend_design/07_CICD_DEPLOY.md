@@ -1014,9 +1014,9 @@ build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL
   ผูก `127.0.0.1:9090`), `grafana` (provisioning จาก `deploy/grafana/` — datasource + dashboard
   JSON 1 อัน ที่ `deploy/grafana/dashboards/pos-overview.json`, ผูก `127.0.0.1:3000`) — ทั้งสามมี
   `mem_limit` (64m / 512m / 256m ตาม §5) และ `healthcheck` แบบเดียวกับ service อื่นในสแต็ก
-* Prometheus scrape สอง job: `node` (node-exporter, ให้ 3 panel แรกของ dashboard) และ
-  `api-readiness` (`/health/ready` บน `api-1..3:3000` ตรง ๆ ไม่ผ่าน Nginx — endpoint ยังไม่มี
-  prefix `api/v1` เหมือน `/health/live`) — job ที่สาม `api-metrics` (`/metrics`, unprefixed ตาม
+* Prometheus scrape job: `node` (node-exporter, ให้ 3 panel แรกของ dashboard) — job `api-readiness`
+  (`/health/ready` ที่ตอบ JSON, `up` เป็น 0 เสมอ) ถูกลบ 2026-10-21 เพราะ Prometheus 3 ปฏิเสธ content-type นั้น
+  และไม่มี rule/panel ใดใช้ (readiness ดูจาก Gatus แทน) — job `api-metrics` (`/metrics`, unprefixed ตาม
   `02_API_SCREENS.md` แถว `GET /metrics | internal`) เปิดใช้งานใน #339/#340
   🔴 **พบระหว่างสร้างไฟล์นี้ (วัดจริงกับ Prometheus container):** `up` ของ Prometheus วัดจากว่า
   parse body เป็น Prometheus text-exposition format ได้ไหม ไม่ใช่แค่ HTTP 200 — `/health/ready`
