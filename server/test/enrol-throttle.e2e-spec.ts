@@ -53,18 +53,16 @@ describe('POST /auth/device throttle (e2e)', () => {
   };
 
   const newEnrolCode = async (): Promise<string> => {
+    const owner = accessToken({
+      tenantId: TENANT,
+      userId: fixture.userId,
+      role: 'owner',
+      deviceId: fixture.backofficeDeviceId,
+      deviceRole: 'backoffice',
+    });
     const res = await request(app.getHttpServer())
       .post('/api/v1/devices')
-      .set(
-        'Authorization',
-        `Bearer ${accessToken({
-          tenantId: TENANT,
-          userId: fixture.userId,
-          role: 'owner',
-          deviceId: fixture.backofficeDeviceId,
-          deviceRole: 'backoffice',
-        })}`,
-      )
+      .set('Authorization', `Bearer ${owner}`)
       .set('Idempotency-Key', `k-enrol-throttle-${++keySeq}-${Date.now()}`)
       .send({ label: `throttle ${keySeq}`, role: 'backoffice' });
     expect(res.status).toBe(201);
