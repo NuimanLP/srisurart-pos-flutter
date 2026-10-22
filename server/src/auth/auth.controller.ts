@@ -68,11 +68,11 @@ export class AuthController {
 
   @Post('device')
   @HttpCode(200)
-  async enrolDevice(@Body() dto: { code: string }) {
+  async enrolDevice(@Body() dto: { code: string }, @Req() req: Request) {
     if (!dto.code) {
       throw new UnauthorizedException('Enrolment code is required');
     }
-    return this.authService.enrolDevice(dto.code);
+    return this.authService.enrolDevice(dto.code, clientIp(req) ?? undefined);
   }
 
   @Get('me')

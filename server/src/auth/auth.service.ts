@@ -37,6 +37,25 @@ export interface LoginDto {
  */
 export const PWCHANGE_TOKEN_TTL = '10m';
 
+/** `POST /auth/device` throttle (security review 2026-10-21) — see `enrolDevice`. */
+const ENROL_IP_LIMIT = 10;
+const ENROL_IP_WINDOW_SEC = 60;
+const ENROL_GLOBAL_KEY = 'auth:enrol:global';
+const ENROL_GLOBAL_LIMIT = 100;
+const ENROL_GLOBAL_WINDOW_SEC = 600;
+
+/** The same 429 `RATE_LIMITED` login answers; the filter turns `retryAfter` into `Retry-After`. */
+function enrolRateLimited(retryAfter: number): HttpException {
+  return new HttpException(
+    {
+      code: 'RATE_LIMITED',
+      message: 'Too many enrolment attempts. Please try again later.',
+      retryAfter,
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}
+
 /** `WEAK_PASSWORD` (02_API_SCREENS.md §8.1) with the reason, for a password the owner chose. */
 function weakPassword(violation: PasswordPolicyViolation): BadRequestException {
   return new BadRequestException({
@@ -631,8 +650,34 @@ export class AuthService {
   /**
    * Enrols a device using an enrolment code (ADR-0004).
    * Generates a device token, hashes it, and stores it in the device row.
+   *
+   * Throttled like login (security review 2026-10-21): a code is 8 hex characters (32 bits),
+   * valid up to 7 days and looked up across every tenant, and the device token it buys can push
+   * owner writes through `/sync/push`. Every attempt is counted up front with the atomic
+   * `consumeAttempt` (#138), before a pool connection is taken, in two buckets: per client IP,
+   * and one shared by every IP — so spreading guesses over many addresses buys nothing past
+   * `ENROL_GLOBAL_LIMIT` per `ENROL_GLOBAL_WINDOW_SEC`. Only a successful enrolment gives its
+   * own attempts back, so the shared bucket counts failures (plus attempts still in flight).
+   * Accepted cost: one address that fails 10 times a minute for 10 minutes refuses enrolment for
+   * everyone until the window rolls over — enrolment is a rare owner action, and a 32-bit code
+   * otherwise falls to a botnet within its 7-day life.
    */
-  async enrolDevice(code: string) {
+  async enrolDevice(code: string, clientIp?: string) {
+    const ipKey = clientIp ? `auth:enrol:ip:${clientIp}` : null;
+    if (ipKey) {
+      const ipStatus = await this.rateLimit.consumeAttempt(ipKey, ENROL_IP_LIMIT, ENROL_IP_WINDOW_SEC);
+      if (!ipStatus.allowed) throw enrolRateLimited(ipStatus.retryAfter ?? ENROL_IP_WINDOW_SEC);
+    }
+    const globalStatus = await this.rateLimit.consumeAttempt(
+      ENROL_GLOBAL_KEY,
+      ENROL_GLOBAL_LIMIT,
+      ENROL_GLOBAL_WINDOW_SEC,
+    );
+    if (!globalStatus.allowed) {
+      this.logger.warn('Device enrolment refused for every caller: the all-IP failure cap is full');
+      throw enrolRateLimited(globalStatus.retryAfter ?? ENROL_GLOBAL_WINDOW_SEC);
+    }
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
 
@@ -652,6 +697,10 @@ export class AuthService {
       }
 
       const dev = res[0];
+
+      // Like login: a success gives back only its own attempts, never anyone else's failures.
+      if (ipKey) await this.rateLimit.refundAttempt(ipKey, ENROL_IP_WINDOW_SEC);
+      await this.rateLimit.refundAttempt(ENROL_GLOBAL_KEY, ENROL_GLOBAL_WINDOW_SEC);
 
       // Audit log inside tenant RLS context
       await this.logAuthEventWithRls(qr, dev.tenant_id, {

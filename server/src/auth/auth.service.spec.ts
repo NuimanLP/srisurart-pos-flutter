@@ -311,6 +311,87 @@ describe('AuthService', () => {
     });
   });
 
+  // Security review 2026-10-21: an enrolment code is 8 hex characters (32 bits), valid up to 7
+  // days and looked up across every tenant, and the device token it buys can push owner writes
+  // through `/sync/push`. Login's throttle style: every attempt is counted atomically before a
+  // pool connection is taken, and only a success gives its own attempt back.
+  describe('enrolDevice throttle', () => {
+    const enrolQr = (rows: unknown[]) => ({
+      connect: vi.fn(),
+      startTransaction: vi.fn(),
+      commitTransaction: vi.fn(),
+      rollbackTransaction: vi.fn(),
+      release: vi.fn(),
+      query: vi.fn().mockImplementation((sql: string) => (sql.includes('auth_enrol_device') ? rows : [])),
+      manager: {},
+      isTransactionActive: false,
+    });
+    const rl = () => ({
+      consumeAttempt: vi.fn().mockResolvedValue({ allowed: true }),
+      refundAttempt: vi.fn().mockResolvedValue(undefined),
+    });
+
+    it('counts the attempt per ip (10 / 60 s) and across all ips (100 / 600 s)', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await expect(service.enrolDevice('ABCD1234', '10.0.0.20')).rejects.toMatchObject({ status: 401 });
+      expect(rate.consumeAttempt).toHaveBeenCalledWith('auth:enrol:ip:10.0.0.20', 10, 60);
+      expect(rate.consumeAttempt).toHaveBeenCalledWith('auth:enrol:global', 100, 600);
+      // A wrong code keeps both attempts counted.
+      expect(rate.refundAttempt).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the ip bucket', 'auth:enrol:ip:10.0.0.21'],
+      ['the all-ip failure cap', 'auth:enrol:global'],
+    ])('refuses with 429 RATE_LIMITED + retryAfter when %s is full, before taking a connection', async (_label, fullKey) => {
+      const rate = rl();
+      rate.consumeAttempt.mockImplementation(async (key: string) =>
+        key === fullKey ? { allowed: false, retryAfter: 37 } : { allowed: true },
+      );
+      const createQueryRunner = vi.fn();
+      const service = new AuthService({ createQueryRunner } as any, {} as any, {} as any, rate as any);
+
+      const err = await service.enrolDevice('ABCD1234', '10.0.0.21').catch((e: unknown) => e);
+
+      expect(err).toMatchObject({ status: 429 });
+      const env = toErrorEnvelope(err);
+      expect(env.body.error.code).toBe('RATE_LIMITED');
+      expect((err as any).getResponse().retryAfter).toBe(37);
+      expect(createQueryRunner).not.toHaveBeenCalled();
+    });
+
+    it('a successful enrolment gives back its own ip and global attempt', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([{ tenant_id: 't1', id: 'dev-1' }]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await service.enrolDevice('ABCD1234', '10.0.0.22');
+      expect(rate.refundAttempt).toHaveBeenCalledWith('auth:enrol:ip:10.0.0.22', 60);
+      expect(rate.refundAttempt).toHaveBeenCalledWith('auth:enrol:global', 600);
+    });
+
+    it('without a client ip still counts against the all-ip cap', async () => {
+      const rate = rl();
+      const service = new AuthService(
+        { createQueryRunner: () => enrolQr([]) } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+        rate as any,
+      );
+      await expect(service.enrolDevice('ABCD1234')).rejects.toMatchObject({ status: 401 });
+      expect(rate.consumeAttempt.mock.calls.map((c: unknown[]) => c[0])).toEqual(['auth:enrol:global']);
+    });
+  });
+
   describe('login', () => {
     it('authenticates with valid Argon2id password hash and returns access & refresh tokens', async () => {
       const passHash = '$argon2id$v=19$m=65536,p=4,t=3$gJw9MtqrLGeVn4IEjCOu8A$t9z3qf7c29GFn4x8qa9LmO25XCYHm06+MKoB4zGVxEU'; // 'password123'

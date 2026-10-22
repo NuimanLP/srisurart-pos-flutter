@@ -36,8 +36,9 @@ return 0
  * The Redis key for a caller-chosen key in the current window (#138). Hashed rather than
  * character-replaced: replacing every non-ASCII character with `_` made two Thai usernames of the
  * same length (and `a.b` / `a_b`) share one bucket and lock each other out.
+ * Exported only so an e2e suite can reset a bucket every suite shares (`auth:enrol:global`).
  */
-function windowKey(key: string, windowSec: number): string {
+export function windowKey(key: string, windowSec: number): string {
   const windowSlice = Math.floor(Math.floor(Date.now() / 1000) / windowSec);
   const digest = createHash('sha256').update(key).digest('hex');
   return `rl:${digest}:${windowSlice}`;

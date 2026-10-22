@@ -81,9 +81,11 @@ describe('AuthController', () => {
   it('enrolDevice delegates to authService.enrolDevice', async () => {
     authServiceMock.enrolDevice.mockResolvedValue({ deviceToken: 'dev-tok' });
 
-    const res = await controller.enrolDevice({ code: 'CODE123' });
+    const reqMock = { ip: '172.18.0.9', headers: { 'x-forwarded-for': '10.0.0.7' } } as any;
+    const res = await controller.enrolDevice({ code: 'CODE123' }, reqMock);
     expect(res).toEqual({ deviceToken: 'dev-tok' });
-    expect(authServiceMock.enrolDevice).toHaveBeenCalledWith('CODE123');
+    // The same validated client address login uses, for the enrol throttle.
+    expect(authServiceMock.enrolDevice).toHaveBeenCalledWith('CODE123', '10.0.0.7');
   });
 
   it('me returns req.user', async () => {
