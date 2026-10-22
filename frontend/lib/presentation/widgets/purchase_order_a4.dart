@@ -4,6 +4,8 @@
 // 🔴 Owner decision 2026-10-22: NO prices on paper — no unit cost, no line
 // total, no grand total (the sales rep must not see the shop's costs). Columns
 // are # / part no / name / qty only; the foot is an item + quantity count.
+// No internal status either (no รอรับสินค้า / received / cancelled dates) — the
+// paper goes to the supplier. Lines print in the order the caller passes.
 //
 // Same infrastructure as QuoteA4View: the `pdf` package builds the document,
 // `printing`'s PdfPreview shows it with its print/share bar, and the bundled
@@ -36,14 +38,6 @@ const PdfColor _steel = PdfColor.fromInt(0xFF6B8FAF);
 const PdfColor _gray = PdfColor.fromInt(0xFF4A6070);
 const PdfColor _cream = PdfColor.fromInt(0xFFF5EFE3);
 const PdfColor _itemBorder = PdfColor.fromInt(0xFFEDE5D8);
-
-/// PO status label on paper — the same words as the screen's status chip.
-String _statusLabel(String status) => switch (status) {
-  'open' => 'รอรับสินค้า',
-  'received' => 'รับแล้ว',
-  'cancelled' => 'ยกเลิก',
-  _ => status,
-};
 
 class PurchaseOrderA4View extends StatelessWidget {
   final PurchaseOrderWithItems data;
@@ -228,11 +222,6 @@ class PurchaseOrderA4View extends StatelessWidget {
             children: [
               _metaRow('เลขที่', po.poNo, cond),
               _metaRow('วันที่', thaiDate(po.createdAt), cond),
-              _metaRow('สถานะ', _statusLabel(po.status), cond),
-              if (po.receivedAt != null)
-                _metaRow('รับสินค้าเมื่อ', thaiDate(po.receivedAt!), cond),
-              if (po.cancelledAt != null)
-                _metaRow('ยกเลิกเมื่อ', thaiDate(po.cancelledAt!), cond),
             ],
           ),
         ),

@@ -68,6 +68,9 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   late Future<List<ProductRow>> _productsFuture;
   // True while _openCreate loads; blocks a double tap opening two dialogs.
   bool _opening = false;
+  // True while a PO print preview is being prepared or shown; blocks a double
+  // tap opening two previews.
+  bool _printing = false;
 
   @override
   void initState() {
@@ -216,23 +219,31 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   /// A4 PO preview with the print/share bar (owner request 2026-10-22).
   /// Reads only local rows, so it works while Degraded too.
   Future<void> _print(PurchaseOrderWithItems data) async {
-    final SettingsRowData settings;
+    if (_printing) return;
+    setState(() => _printing = true);
     try {
-      settings = await context.read<SettingsRepository>().getSettings();
+      final settings = await context.read<SettingsRepository>().getSettings();
+      if (!mounted) return;
+      // Lines in the order they were entered (getPOs does not order them).
+      final items = [...data.items]
+        ..sort((a, b) => a.rowId.compareTo(b.rowId));
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: Text(data.po.poNo)),
+            body: PurchaseOrderA4View(
+              data: PurchaseOrderWithItems(data.po, items),
+              settings: settings,
+            ),
+          ),
+        ),
+      );
     } catch (e) {
       _showError(e);
-      return;
+    } finally {
+      if (mounted) setState(() => _printing = false);
     }
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(data.po.poNo)),
-          body: PurchaseOrderA4View(data: data, settings: settings),
-        ),
-      ),
-    );
   }
 
   /// A refused write reaches the counter as its Thai message (repositories
@@ -279,6 +290,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
                 onCancel: _cancel,
                 onDelete: _delete,
                 onPrint: _print,
+                printing: _printing,
                 isDegraded: isDegraded,
               );
             },
@@ -323,6 +335,7 @@ class _PoListView extends StatelessWidget {
   final ValueChanged<PurchaseOrderRow> onCancel;
   final ValueChanged<PurchaseOrderRow> onDelete;
   final ValueChanged<PurchaseOrderWithItems> onPrint;
+  final bool printing;
   final bool isDegraded;
 
   const _PoListView({
@@ -333,6 +346,7 @@ class _PoListView extends StatelessWidget {
     required this.onCancel,
     required this.onDelete,
     required this.onPrint,
+    this.printing = false,
     this.isDegraded = false,
   });
 
@@ -403,7 +417,7 @@ class _PoListView extends StatelessWidget {
                         onReceive: () => onReceive(pos[i].po),
                         onCancel: () => onCancel(pos[i].po),
                         onDelete: () => onDelete(pos[i].po),
-                        onPrint: () => onPrint(pos[i]),
+                        onPrint: printing ? null : () => onPrint(pos[i]),
                         isDegraded: isDegraded,
                       ),
                     ),
@@ -453,7 +467,7 @@ class _PoCard extends StatelessWidget {
   final VoidCallback onReceive;
   final VoidCallback onCancel;
   final VoidCallback onDelete;
-  final VoidCallback onPrint;
+  final VoidCallback? onPrint;
   final bool isDegraded;
 
   const _PoCard({
@@ -581,13 +595,15 @@ class _PoCard extends StatelessWidget {
                         fontSize: 12,
                       ),
                     ),
-                  // Every status prints; a local read, so not Degraded-gated.
-                  // 'พิมพ์' is agent ร่าง (owner to ratify).
-                  AppButton.secondary(
-                    label: 'พิมพ์',
-                    icon: Icons.print,
-                    onPressed: onPrint,
-                  ),
+                  // Open + received print; a cancelled PO is not sent to a
+                  // supplier (owner default 2026-10-22). A local read, so not
+                  // Degraded-gated. 'พิมพ์' is agent ร่าง (owner to ratify).
+                  if (po.status != 'cancelled')
+                    AppButton.secondary(
+                      label: 'พิมพ์',
+                      icon: Icons.print,
+                      onPressed: onPrint,
+                    ),
                   // The server refuses deleting a received PO (the receive
                   // movements point at it); open and cancelled may be deleted.
                   if (po.status != 'received')
