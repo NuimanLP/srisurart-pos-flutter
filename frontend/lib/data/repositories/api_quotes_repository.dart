@@ -4,11 +4,19 @@
 //  • Server issues QT numbers (ADR-0007) and validates quote conversions/purges.
 //  • Quotes do not touch stock or the cash drawer until converted into sales.
 //  • Writes results through to Drift immediately.
+//  • A create / duplicate is parked in [PendingWrites] (api_wire.dart): pressed
+//    again after a lost reply (5xx, 429, timeout) it goes out under the SAME
+//    `Idempotency-Key`, so the server replays the first quote instead of
+//    issuing a second QT number. It closes only after the local apply.
+//  • The server mints the quote id and QT number; a reply without them is a
+//    contract error (the attempt stays parked) — never filled in locally.
+
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
-import '../../core/utils/ids.dart';
+import '../../core/network/api_exception.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
 import 'api/api_wire.dart';
@@ -18,6 +26,33 @@ class ApiQuotesRepository extends QuotesRepository {
   final ApiClient apiClient;
 
   ApiQuotesRepository(super.db, this.apiClient);
+
+  /// Creates / duplicates sent and never answered with a verdict.
+  final PendingWrites _pending = PendingWrites();
+
+  /// Sends one parked write. A 4xx closes the attempt; a 5xx / 429 / transport
+  /// failure leaves it parked so the next press replays it under the same key.
+  Future<Object?> _send(
+    PendingWrite attempt,
+    Future<Object?> Function(Map<String, String> headers) call,
+  ) async {
+    try {
+      return await call(attempt.headers);
+    } on ApiException catch (e) {
+      _pending.closeIfVerdict(attempt, e);
+      throw posExceptionFromApi(e);
+    }
+  }
+
+  /// The server-owned id + QT number of a quote reply, or a contract error.
+  static (String, String) _serverIds(Map<String, dynamic> res) {
+    final id = res['id'];
+    final quoteNo = res['quoteNo'] ?? res['quote_no'];
+    if (id is! String || id.isEmpty || quoteNo is! String || quoteNo.isEmpty) {
+      throw unreadableResponse();
+    }
+    return (id, quoteNo);
+  }
 
   Future<void> syncFromServer() async {
     // A reset (tenant switch) while this pull is in flight voids its replies.
@@ -133,11 +168,15 @@ class ApiQuotesRepository extends QuotesRepository {
           .toList(),
     };
 
-    final res = await rethrowCounterError(() => apiClient.post('/api/v1/quotes', body: body, headers: idempotencyKey()));
+    // The body is the fingerprint: the same quote pressed again is the same bytes.
+    final attempt = _pending.of('create|${jsonEncode(body)}');
+    final res = await _send(
+      attempt,
+      (headers) => apiClient.post('/api/v1/quotes', body: body, headers: headers),
+    );
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
-      final realId = (resMap['id'] ?? newUuid()) as String;
-      final quoteNo = (resMap['quoteNo'] ?? resMap['quote_no'] ?? docNo('QT')) as String;
+      final (realId, quoteNo) = _serverIds(resMap);
       final date = stampOrNull(resMap['date']) ?? DateTime.now();
       final validUntil = stampOrNull(resMap['validUntil'] ?? resMap['valid_until']) ??
           date.add(Duration(days: input.validDays ?? 30));
@@ -160,39 +199,42 @@ class ApiQuotesRepository extends QuotesRepository {
         validDays: (resMap['validDays'] as num?)?.toInt() ?? input.validDays,
       );
 
-      await db.into(db.quotes).insertOnConflictUpdate(quoteRow);
-      await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(realId))).go();
+      await db.transaction(() async {
+        await db.into(db.quotes).insertOnConflictUpdate(quoteRow);
+        await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(realId))).go();
 
-      final rawItems = resMap['items'];
-      if (rawItems is List && rawItems.isNotEmpty) {
-        for (final line in rawItems) {
-          if (line is Map) {
-            final lineMap = Map<String, dynamic>.from(line);
+        final rawItems = resMap['items'];
+        if (rawItems is List && rawItems.isNotEmpty) {
+          for (final line in rawItems) {
+            if (line is Map) {
+              final lineMap = Map<String, dynamic>.from(line);
+              await db.into(db.quoteItems).insert(
+                    QuoteItemsCompanion.insert(
+                      quoteId: realId,
+                      productId: Value(lineMap['productId'] as String?),
+                      name: (lineMap['name'] ?? '') as String,
+                      qty: (lineMap['qty'] as num?)?.toInt() ?? 1,
+                      price: money(lineMap['price']),
+                    ),
+                  );
+            }
+          }
+        } else {
+          for (final item in input.items) {
             await db.into(db.quoteItems).insert(
                   QuoteItemsCompanion.insert(
                     quoteId: realId,
-                    productId: Value(lineMap['productId'] as String?),
-                    name: (lineMap['name'] ?? '') as String,
-                    qty: (lineMap['qty'] as num?)?.toInt() ?? 1,
-                    price: money(lineMap['price']),
+                    productId: Value(item.productId),
+                    name: item.name,
+                    qty: item.qty,
+                    price: item.price,
                   ),
                 );
           }
         }
-      } else {
-        for (final item in input.items) {
-          await db.into(db.quoteItems).insert(
-                QuoteItemsCompanion.insert(
-                  quoteId: realId,
-                  productId: Value(item.productId),
-                  name: item.name,
-                  qty: item.qty,
-                  price: item.price,
-                ),
-              );
-        }
-      }
-
+      });
+      // Closed only after the local apply: if it throws, the next press replays.
+      _pending.close(attempt);
       return quoteRow;
     }
     throw unreadableResponse();
@@ -226,11 +268,14 @@ class ApiQuotesRepository extends QuotesRepository {
 
   @override
   Future<QuoteRow?> duplicateQuote(String id) async {
-    final res = await rethrowCounterError(() => apiClient.post('/api/v1/quotes/$id/duplicate', headers: idempotencyKey()));
+    final attempt = _pending.of('duplicate|$id');
+    final res = await _send(
+      attempt,
+      (headers) => apiClient.post('/api/v1/quotes/$id/duplicate', headers: headers),
+    );
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
-      final newIdStr = (resMap['id'] ?? newUuid()) as String;
-      final newQuoteNo = (resMap['quoteNo'] ?? resMap['quote_no'] ?? docNo('QT')) as String;
+      final (newIdStr, newQuoteNo) = _serverIds(resMap);
       final date = stampOrNull(resMap['date']) ?? DateTime.now();
       final validUntil = stampOrNull(resMap['validUntil'] ?? resMap['valid_until']) ?? date.add(const Duration(days: 30));
       final customerName = (resMap['customerName'] ?? resMap['customer']) as String?;
@@ -254,43 +299,47 @@ class ApiQuotesRepository extends QuotesRepository {
         notes: notes,
         validDays: (resMap['validDays'] as num?)?.toInt(),
       );
-      await db.into(db.quotes).insertOnConflictUpdate(newRow);
+      await db.transaction(() async {
+        await db.into(db.quotes).insertOnConflictUpdate(newRow);
 
-      final items = resMap['items'];
-      if (items is List && items.isNotEmpty) {
-        await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(newIdStr))).go();
-        for (final line in items) {
-          if (line is Map) {
-            final lineMap = Map<String, dynamic>.from(line);
+        final items = resMap['items'];
+        if (items is List && items.isNotEmpty) {
+          await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(newIdStr))).go();
+          for (final line in items) {
+            if (line is Map) {
+              final lineMap = Map<String, dynamic>.from(line);
+              await db.into(db.quoteItems).insert(
+                    QuoteItemsCompanion.insert(
+                      quoteId: newIdStr,
+                      productId: Value(lineMap['productId'] as String?),
+                      name: (lineMap['name'] ?? '') as String,
+                      qty: (lineMap['qty'] as num?)?.toInt() ?? 1,
+                      price: money(lineMap['price']),
+                    ),
+                  );
+            }
+          }
+        } else {
+          // If items not returned in server body, copy from local source
+          final sourceItems = await (db.select(db.quoteItems)..where((t) => t.quoteId.equals(id))).get();
+          for (final item in sourceItems) {
             await db.into(db.quoteItems).insert(
                   QuoteItemsCompanion.insert(
                     quoteId: newIdStr,
-                    productId: Value(lineMap['productId'] as String?),
-                    name: (lineMap['name'] ?? '') as String,
-                    qty: (lineMap['qty'] as num?)?.toInt() ?? 1,
-                    price: money(lineMap['price']),
+                    productId: Value(item.productId),
+                    name: item.name,
+                    qty: item.qty,
+                    price: item.price,
                   ),
                 );
           }
         }
-      } else {
-        // If items not returned in server body, copy from local source
-        final sourceItems = await (db.select(db.quoteItems)..where((t) => t.quoteId.equals(id))).get();
-        for (final item in sourceItems) {
-          await db.into(db.quoteItems).insert(
-                QuoteItemsCompanion.insert(
-                  quoteId: newIdStr,
-                  productId: Value(item.productId),
-                  name: item.name,
-                  qty: item.qty,
-                  price: item.price,
-                ),
-              );
-        }
-      }
+      });
+      // Closed only after the local apply: if it throws, the next press replays.
+      _pending.close(attempt);
       return newRow;
     }
-    return null;
+    throw unreadableResponse();
   }
 
   @override

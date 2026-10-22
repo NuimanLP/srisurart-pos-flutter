@@ -197,7 +197,30 @@ class ApiSalesRepository implements SalesRepository {
       // makes the retry replay this same bill instead of opening a second one.
       _pending.close(attempt);
       return sale;
-    });
+    }).whenComplete(_publishParked);
+  }
+
+  /// Fires when the last parked attempt's TTL runs out, to clear the count.
+  Timer? _parkedExpiry;
+
+  /// Tells the sync engine whether a sale attempt is still parked, so the
+  /// cash-drawer close button and the status pill count it as unsent — the
+  /// same rule `ApiShiftsRepository.closeShift` refuses on (08 §11). Re-runs
+  /// itself when the TTL ends: past it the attempt is no longer known (an
+  /// accepted limit of [PendingWrites], 08 §5).
+  void _publishParked() {
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync == null) return;
+    _parkedExpiry?.cancel();
+    final until = _pending.parkedUntil;
+    sync.setParkedWrites(until == null ? 0 : 1);
+    if (until != null) {
+      _parkedExpiry = Timer(
+        until.difference(DateTime.now()) + const Duration(milliseconds: 10),
+        _publishParked,
+      );
+    }
   }
 
   /// The bill id and `Idempotency-Key` this cart should be sent under.
