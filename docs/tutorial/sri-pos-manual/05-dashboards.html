@@ -92,7 +92,6 @@
     <tr><th>Job</th><th>เก็บจาก</th><th>สถานะที่ถูกต้อง</th></tr>
     <tr><td><code>node</code></td><td><code>node-exporter:9100</code></td><td class="ok">UP — ป้อนแผง CPU/Memory/Disk</td></tr>
     <tr><td><code>api-metrics</code></td><td><code>/metrics</code> ของ <code>api-1..3:3000</code> (ภายในเท่านั้น)</td><td class="ok">UP ทั้ง 3 — ป้อนแผง API ทั้งหมด</td></tr>
-    <tr><td><code>api-readiness</code></td><td><code>/health/ready</code> ของ <code>api-1..3</code></td><td class="no">DOWN — ปกติ! endpoint ตอบ JSON ซึ่ง Prometheus อ่านไม่ได้ (เก็บไว้เป็นตัวยึดตำแหน่ง)</td></tr>
   </table>
   <ol class="steps">
     <li><span class="st-title">ดูว่า <code>node</code> และ <code>api-metrics</code> ครบ 3 ตัวเป็น UP</span>ถ้า <code>api-N</code> ของ <code>api-metrics</code> DOWN = instance นั้นมีปัญหา → ดู <code>docker compose logs api-N</code></li>
@@ -136,7 +135,7 @@
   <h2 class="sub">เช็กลิสต์ระบบปกติ <span class="en">Healthy checklist</span></h2>
   <ul class="ticks">
     <li><code>/health/ready</code> ตอบ 200 และทุกคอนเทนเนอร์ <code>(healthy)</code></li>
-    <li>Prometheus: <code>node</code> + <code>api-metrics</code> ×3 เป็น UP (<code>api-readiness</code> DOWN ได้)</li>
+    <li>Prometheus: <code>node</code> + <code>api-metrics</code> ×3 เป็น UP (job <code>api-readiness</code> ถูกลบแล้ว 2026-10-21 — readiness ดูใน Gatus)</li>
     <li>Grafana: API success rate ใกล้ 100% · 5xx เป็น 0 · p95 นิ่ง · Memory ต่ำกว่างบ</li>
     <li>Bull-Board: ไม่มี FAILED ใหม่ · <code>dlq</code> ว่าง</li>
   </ul>
