@@ -45,7 +45,7 @@ groups:
     folder: POS alerts
     interval: 1m
     rules:
-      # api-metrics, never api-readiness: that job's `up` is always 0 (JSON body, prometheus.yml).
+      # api-metrics: its `up` is the scrape of /metrics (the old api-readiness job was removed, always 0).
       - uid: pos-api-instance-down
         title: API instance down
         condition: C

@@ -27,8 +27,8 @@ import type { MetricsService } from './metrics.service.js';
  * (*API success rate*, *API p95 latency*, `02_API_SCREENS.md §9`) average over every series
  * in `http_requests_total`. Left in, a shop where every real sale is failing still reads as
  * ~92% success, because the scrapes carry the ratio. The health probes are excluded for the
- * same reason: compose health-checks each api instance every 15s, and the `api-readiness`
- * scrape job polls `/health/ready` on all three at the same interval.
+ * same reason: compose health-checks each api instance every 15s (the old `api-readiness`
+ * scrape job that also polled `/health/ready` was removed 2026-10-21).
  */
 const UNMEASURED_PATHS = new Set(['/metrics', '/health/live', '/health/ready']);
 

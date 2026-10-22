@@ -56,9 +56,9 @@ const REFUND_METHODS = ['เงินสด', 'โอน', 'หักจาก�
  * nor `date` (see `ReturnWrite`).
  * `cnNo` is optional (Phase 2): when present, the server validates it against the
  * caller's device token and records the high-water mark; when omitted, the server
- * falls back to issuing one (C16). The credit note's `id` is the server's too —
- * unlike a sale, the client does not create one ahead of the request, so there is
- * nothing to echo back.
+ * falls back to issuing one (C16). `id` is optional: the API client mints one per
+ * credit note, and an id that already exists is replayed or refused by
+ * `ReturnsService.existingReturn`; without one the server mints it.
  */
 export function parseCreateReturn(body: unknown): CreateReturn {
   const b = asObject(body, 'body');

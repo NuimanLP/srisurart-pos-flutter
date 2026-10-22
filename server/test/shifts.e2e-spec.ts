@@ -481,6 +481,37 @@ describe('shifts and the cash drawer (e2e)', () => {
     });
   });
 
+  // Review 2026-10-21: an entry id that already exists, under a new Idempotency-Key (every
+  // `post` here mints one), used to reach the primary key as a 500. Same rule as `/open`.
+  it('an entry id that already exists replays the entry, or is CLIENT_ID_REUSED — never a 500', async () => {
+    await post('/open', { startingCash: '1000.00' });
+    const id = testId('de_reused');
+
+    const first = await post('/current/entries', { id, type: 'in', amount: '50.00', note: 'ทอน' });
+    expect(first.status).toBe(201);
+    expect(first.body.data.id).toBe(id);
+
+    const again = await post('/current/entries', { id, type: 'in', amount: '50.00', note: 'ทอน' });
+    expect(again.status).toBe(201);
+    expect(again.body.data).toEqual(first.body.data);
+
+    // Answered even once the drawer has closed — it was written while it was open.
+    await post('/close', { physicalCash: '1050.00' });
+    const afterClose = await post('/current/entries', { id, type: 'in', amount: '50.00' });
+    expect(afterClose.status).toBe(201);
+    expect(afterClose.body.data).toEqual(first.body.data);
+
+    const clash = await post('/current/entries', { id, type: 'out', amount: '50.00' });
+    expect(clash.status).toBe(409);
+    expect(clash.body.error.code).toBe('CLIENT_ID_REUSED');
+
+    const rows = await admin.query(
+      `SELECT count(*)::int AS n FROM drawer_entries WHERE tenant_id = $1::uuid`,
+      [TENANT],
+    );
+    expect(rows[0].n).toBe(1);
+  });
+
   it('an entry after close is refused with the verbatim Thai message', async () => {
     await post('/open', { startingCash: '1000.00' });
     await post('/close', { physicalCash: '1000.00' });
