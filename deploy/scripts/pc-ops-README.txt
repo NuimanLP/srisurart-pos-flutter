@@ -7,7 +7,7 @@ This folder is under D:\Beestation, so all of it - secrets\ included (owner acce
 bin\       สำเนาสคริปต์ที่ Scheduled Task รัน + pos-ca.crt (แก้ใน repo แล้วรัน installer ซ้ำ ห้ามแก้ที่นี่)
            Script copies the Scheduled Tasks run + pos-ca.crt. Change the repo, then re-run the installer.
 config\    ค่าตั้งที่ไม่ใช่ความลับ (ยังไม่มี) / non-secret settings (none yet)
-secrets\   webhook.txt (Discord), *.env สำเนา .env ของ VM - ห้ามวางใน chat/ticket/commit
+secrets\   webhook.txt (Discord), *.env สำเนา .env ของ VM, mob04-certs-ca-*.tar.gz (CA + ca.key ของ TLS) - ห้ามวางใน chat/ticket/commit
            Discord webhook and VM .env copies. Never paste them anywhere. Owner-only ACL.
 logs\      watchdog.log, pull.log, ssh.err
 state\     watchdog.json, pull.json (นับความล้ม/การแจ้งเตือน / failure counters)

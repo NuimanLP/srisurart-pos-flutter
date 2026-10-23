@@ -184,7 +184,7 @@ repositories (don't reinvent them). Design package: `docs/Backend_design/` —
 `02_API_SCREENS.md` (endpoints), `03_ARCHITECTURE.md` (rollout+DoD),
 `04_QA_SCRUTINY.md`, and **`adr/`** — the binding decision record. **Where a doc
 contradicts an ADR, the ADR wins.** Open questions only the owner can answer are
-collected at the end of `adr/README.md`. Phase-2 spec/lanes: see below.
+collected at the end of `adr/README.md`. Phase-2 spec/lanes: `docs/rules/phase2.md`.
 
 ---
 

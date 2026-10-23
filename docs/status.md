@@ -11,7 +11,7 @@
 2026-06-24 through 2026-09-17 — the backend stand-up, all three CI/CD levels, the
 phase-1 lane-A/B/C work, and the phase-2 kickoff — is preserved verbatim in
 `docs/handoff_log/claude-md-full-history-archive-2026-09-17.md`. Read it for the *why*
-behind any rule below, or the story of a specific PR/ticket this section only names.
+behind any rule in `docs/rules/`, or the story of a specific PR/ticket this section only names.
 What follows is current state plus the rules from that log that still bind new code.
 
 **Done:** scaffold; data layer + unit tests; all 11 screens; shared UI kit + nav; shifts
@@ -56,7 +56,7 @@ develops against a demo tenant.
   network team exempting `ghcr.io`/`registry-1.docker.io`/`gcr.io` for `172.30.58.20`;
   `docker save`/`load` by hand is a demo-day rescue, **not** CD. Original evidence:
   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
-- ~~#67~~ (**closed 2026-09-30, 15/15** — kept here for the rules below) — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
+- ~~#67~~ (**closed 2026-09-30, 15/15** — kept here for the rules in `docs/rules/ci-cd-deploy.md`) — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
   `gha-runner`, via `setup-mob04-runner.sh`; `gh api …/actions/runners` = 1, online) and the
   **first real deploy ran**: `Deploy (demo)` for `e50f4fa`, approved by `NuimanLP`, Ansible
   `failed=0`, `.current_sha` = `e50f4fa`, `/health/ready` 200
@@ -65,7 +65,7 @@ develops against a demo tenant.
   `36687687309`, schema unchanged), same-SHA rerun = "Skipping duplicate deployment"
   (`36688248109`). **#67 closed 15/15 2026-09-30 evening (evidence comment 5912257527, closing comment 5913430909):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). The fork half of the hook AC was proven from code + settings only, owner-accepted, **no real fork run** (comment 5913430909): the `demo` environment has a `main`-only branch policy and fork-PR
   approval is `all_external_contributors` (owner-approved 2026-09-30). A same-SHA `workflow_dispatch` (with `.env` unchanged) exits before etcd-init and `deploy.yml` has no force input, so re-testing `log_level` seeding needs a real SHA change. Still verify with
-  `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
+  `.current_sha` before claiming a deploy — a green run alone proves nothing (`docs/rules/ci-cd-deploy.md`).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   **First real measurement ran 2026-10-05** (`docs/handoff_log/session-2026-10-05-k6-capacity-run.md`:
   scenario 1 inside the criterion, scenario 2 @200 p95 ~3 s over it, scenario 3 @100 unclean on 429) but
@@ -269,7 +269,7 @@ develops against a demo tenant.
     service is not green", never as a message about a password; never `down -v`.
   - **#366** (closed, PR #371) — owner picked option 3 2026-09-21: auto-deploy stays,
     gated by a required reviewer on the `demo` environment. See the binding CI/CD rule
-    below.
+    in `docs/rules/ci-cd-deploy.md`.
   - **#367** (closed, PR #373) — `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` now reach the
     containers via the `x-app-env` anchor, and a set-but-empty list throws at boot instead
     of silently falling back to `'*'`. `mob04` is **not** `'*'`: its `.env` already had
@@ -300,7 +300,7 @@ third item — load-time RAM of the full stack on `mob04` — says "measured in 
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `4b45093` (PR #756, merge commit, 2026-10-22)**: review fixes round 2 — `/auth/device` throttle (10/IP/min + 100 failures/10 min global, 429 `RATE_LIMITED`; fails open when redis-cache is down, like login) and **single-use refresh tokens** (#755: table `refresh_families`, migration `1788652805300`; the just-replaced token is answered with the current one **once**, within 24 h, else the chain is revoked; ADR-0009 addendum 2026-10-22 `agent ร่าง` — owner to ratify); returns/drawer-entry id reuse → replay or 409 `CLIENT_ID_REUSED`, never 500; `quotes/purge` enqueues after commit; image queue capped at 4 waiters → 503 `IMAGE_BUSY` (`agent ร่าง`) (#753/#754); PO/quote writes parked in `PendingWrites`, no invented server ids, a parked sale blocks shift close (#752); `api-readiness` scrape job removed (#751). Deploy run `39774975792` `failed=0`; **first real pre-migrate dump** `/opt/pos/backups-pre-migrate/pos_backup_20261022_120235Z.sql.gz` (gzip + sha256 ok); `.current_sha` = `4b45093…`, 32 tables, 10 rules Normal. Record: `docs/handoff_log/session-2026-10-22-review-fixes-round2.md`. Before it `main` `8a7b350` (PR #748, merge commit, 2026-10-22): PO print — `พิมพ์` button on open + received PO cards -> A4 purchase-order PDF with no prices/status (PR #747, rules in "PO print" below); client only, no migration. Deploy run `39712318054` approved, `deploy to demo` success, `/opt/pos/.current_sha` = `8a7b350…` checked over SSH, `/health/ready` 200 (twin `39712328656` cancelled); `pnpm audit` hit `ERR_SOCKET_TIMEOUT` twice, re-run green. Record: `docs/handoff_log/session-2026-10-22-po-print.md`. Before it `main` `d5e2d10`(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" in `docs/rules/features.md`). **Last release = `main` `4b45093` (PR #756, merge commit, 2026-10-22)**: review fixes round 2 — `/auth/device` throttle (10/IP/min + 100 failures/10 min global, 429 `RATE_LIMITED`; fails open when redis-cache is down, like login) and **single-use refresh tokens** (#755: table `refresh_families`, migration `1788652805300`; the just-replaced token is answered with the current one **once**, within 24 h, else the chain is revoked; ADR-0009 addendum 2026-10-22, ratified by the owner 2026-10-23); returns/drawer-entry id reuse → replay or 409 `CLIENT_ID_REUSED`, never 500; `quotes/purge` enqueues after commit; image queue capped at 4 waiters → 503 `IMAGE_BUSY` (Thai string ratified 2026-10-23) (#753/#754); PO/quote writes parked in `PendingWrites`, no invented server ids, a parked sale blocks shift close (#752); `api-readiness` scrape job removed (#751). Deploy run `39774975792` `failed=0`; **first real pre-migrate dump** `/opt/pos/backups-pre-migrate/pos_backup_20261022_120235Z.sql.gz` (gzip + sha256 ok); `.current_sha` = `4b45093…`, 32 tables, 10 rules Normal. Record: `docs/handoff_log/session-2026-10-22-review-fixes-round2.md`. Before it `main` `8a7b350` (PR #748, merge commit, 2026-10-22): PO print — `พิมพ์` button on open + received PO cards -> A4 purchase-order PDF with no prices/status (PR #747, rules in "PO print" in `docs/rules/features.md`); client only, no migration. Deploy run `39712318054` approved, `deploy to demo` success, `/opt/pos/.current_sha` = `8a7b350…` checked over SSH, `/health/ready` 200 (twin `39712328656` cancelled); `pnpm audit` hit `ERR_SOCKET_TIMEOUT` twice, re-run green. Record: `docs/handoff_log/session-2026-10-22-po-print.md`. Before it `main` `d5e2d10`(PR #744, merge commit, 2026-10-21)**: review fixes — nginx 1.30.6, Prometheus 3.13.5 LTS, Grafana 12.4.13
 (`GF_PLUGINS_PREINSTALL_DISABLED=true`; 🔴 Grafana cannot downgrade — a rollback past `d5e2d10` starts 11.2 on a 12.4-migrated volume,
 monitoring only), node-exporter 1.12.1, Trivy 0.76.1 (#743); `restore-db.sh` ON_ERROR_STOP + `gzip -t` first + stops/starts
 api-1..3/worker/bull-board on compose + no target-db argument (#741; proven 2026-10-21 against WSL Postgres from the NAS copy);
@@ -315,7 +315,7 @@ from a clean `e6374df` tree run from WSL **without** `DEMO_ENV_FILE` (`failed=0`
 `.env` sha256 unchanged). Before it `21ad935`
 (PR #727, merge commit, 2026-10-17): the DevOps bundle (see the 🔴 paragraph after this one). Before that `5c7f210`
 (PR #714, merge commit, 2026-10-13): multi-arch (amd64+arm64) images (PR #711), `CERT_SAN_IPS` (PR #712) and `host-setup.sh`
-(PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" below — deployed to `mob04` (run `38393626652`, `.current_sha`
+(PR #713) — rules in "Multi-arch images + Raspberry Pi 5 host" in `docs/rules/ci-cd-deploy.md` — deployed to `mob04` (run `38393626652`, `.current_sha`
 checked; `docs/handoff_log/session-2026-10-13-pi5-multiarch.md`).
 🔴 **The devops bundle (parked in `develop` 2026-10-14) was RELEASED 2026-10-17:** PR #727 (`develop` → `main`, merge commit) =
 `main` `21ad935`; Server CI + Flutter CI green, multi-arch images published. Bundle = PR #723 (#717 Semgrep + SHA-pinned actions,
@@ -333,10 +333,10 @@ released in `e6374df`): `host-setup.sh` accepts the `5c7f210` `daemon.json` as a
 `DockerRootDir` ≠ `/srv/pos-data/docker`. Before `21ad935` the release was `5c7f210`; before that `8a44a03`
 (PR #704, merge commit, 2026-10-13): the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
 supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
-below), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
+in `docs/rules/features.md`), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
 `docs/handoff_log/session-2026-10-13-camera-suppliers.md`). Before it `c3e33aa`
 (PR #699, merge commit, 2026-10-12): camera barcode scan (PR #697) + sale photo evidence (PR #698; rules in "Camera
-barcode scan" / "Sale photo evidence" below), deployed to `mob04` (run `38260777086`, `.current_sha` checked over SSH, the
+barcode scan" / "Sale photo evidence" in `docs/rules/features.md`), deployed to `mob04` (run `38260777086`, `.current_sha` checked over SSH, the
 new `backup-db.sh` installed by hand the same day; `docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md`). Before
 it `ec31121` (PR #696, 2026-10-12, run `38189738827`): the owner-ratified Thai strings of the UI/UX pass (PR #695). Before that `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
 presentation-only UI/UX polish of every screen (PR #693; audits in `docs/research/ui-ux-audit-2026-10-11/`,
@@ -351,7 +351,7 @@ PR #682 (`docs/handoff_log/session-2026-10-10-product-images.md`). A Raspberry P
 (`docs/tutorial/pi5-full-stack-tutorial.md`) but **no Pi is in service** and `mob04` stays production. 🔴 **`develop` → `main` showing
 "conflict" while `git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into
 `develop` with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to**
-(a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
+(a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson in `docs/rules/client-write-path.md`).
 
 ## Pending follow-ups (not yet built)
 
