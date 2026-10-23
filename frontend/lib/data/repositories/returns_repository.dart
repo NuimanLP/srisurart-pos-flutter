@@ -157,6 +157,14 @@ class ReturnsRepository {
     });
   }
 
+  /// Credit-note headers (no items, no order) on these bills — the mechanic
+  /// credit statement's input, read without the per-return item query.
+  Future<List<ReturnRow>> getReturnsForSales(Iterable<String> saleIds) async {
+    final list = saleIds.toSet().toList();
+    if (list.isEmpty) return const [];
+    return (db.select(db.returns)..where((t) => t.saleId.isIn(list))).get();
+  }
+
   /// Returns, newest first (with their items). With no bounds: all returns.
   /// [from] is inclusive, [to] exclusive (#417).
   Future<List<ReturnWithItems>> getReturns({
