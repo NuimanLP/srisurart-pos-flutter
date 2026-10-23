@@ -8,7 +8,9 @@
 // creditBalance display with over-limit warning, the credit-payment intake
 // (addCreditPayment → reduces balance, records a CP receipt), the detail panel
 // with totalSales / totalCredit (ลดให้ช่าง) / totalMarkup (ส่วนต่างช่าง) stats,
-// and the merged sales + payments account history.
+// and the merged sales + payments account history. The detail also prints the
+// A4 credit statement / ใบวางบิล with debt aging (`พิมพ์ใบแจ้งยอด`,
+// MechanicStatementA4View; survey 2026-10-23 §4.2).
 //
 // Layout: master list on the left, detail panel on the right when a mechanic is
 // selected (wide); on narrow screens the detail opens as a full-screen sheet.
@@ -23,12 +25,16 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/mechanics_repository.dart';
+import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/credit_statement.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/mechanic_statement_a4.dart';
 import '../widgets/money_text.dart';
 import '../widgets/search_field.dart';
 import '../widgets/sync_status_builder.dart';
@@ -1183,7 +1189,13 @@ class _DetailPanel extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
+          // Credit statement / ใบวางบิล (survey 2026-10-23 §4.2).
+          Align(
+            alignment: Alignment.centerRight,
+            child: _StatementButton(mechanic: m),
+          ),
+          const SizedBox(height: 12),
           // History.
           _AccountHistory(
             mechanic: m,
@@ -1365,6 +1377,81 @@ class _StatBox extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// `พิมพ์ใบแจ้งยอด` — opens the A4 credit statement with debt aging
+/// (MechanicStatementA4View). Reads local rows only (sales, returns, settings)
+/// through the repositories, so it works while Degraded and on both builds; the
+/// total is the mechanic's stored creditBalance (allocateCreditStatement).
+class _StatementButton extends StatefulWidget {
+  final MechanicRow mechanic;
+  const _StatementButton({required this.mechanic});
+
+  @override
+  State<_StatementButton> createState() => _StatementButtonState();
+}
+
+class _StatementButtonState extends State<_StatementButton> {
+  bool _busy = false;
+
+  Future<void> _open() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final m = widget.mechanic;
+      final salesRepo = context.read<SalesRepository>();
+      final returnsRepo = context.read<ReturnsRepository>();
+      final settingsRepo = context.read<SettingsRepository>();
+      final sales = await salesRepo.getMechanicCreditSales(m.id);
+      final returns = await returnsRepo.getReturnsForSales(
+        sales.map((s) => s.id),
+      );
+      final shop = await settingsRepo.getSettings();
+      final asOf = DateTime.now();
+      // On the API build both lists are the local Drift copy: a credit bill
+      // from another device is not here and its share of the balance lands in
+      // the ยอดยกมา/ไม่มีบิลอ้างอิง line — the intended answer.
+      final statement = allocateCreditStatement(
+        mechanicId: m.id,
+        creditBalance: m.creditBalance,
+        sales: sales,
+        returns: returns,
+        asOf: asOf,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: Text('ใบแจ้งยอด ${m.code}')),
+            body: MechanicStatementA4View(
+              mechanic: m,
+              statement: statement,
+              settings: shop,
+              asOf: asOf,
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppButton.secondary(
+      label: 'พิมพ์ใบแจ้งยอด',
+      icon: Icons.print,
+      busy: _busy,
+      onPressed: _busy ? null : _open,
     );
   }
 }
