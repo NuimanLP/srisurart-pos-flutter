@@ -62,6 +62,12 @@ stack; monitoring stack not brought up.
 - #771 `GET /backup/jobs/:id` re-reads a job that completed between snapshot and `getState()` (was `completed` + `data: null`; flaky e2e seen on #769) — merged
 - #770 UX: ≥48 px counter tap targets (incl. price-reset, chip ✕), 14 px degraded banner, scan button named once; tested at 1280/390/320 px on Android + Windows densities. Cart lines ~20 px taller on desktop (owner-visible cost). Scan-button search fields 40 → 48 px on desktop/web
 
+## Release
+
+`develop` → `main` PR #773 (merge commit `b748387`, `bedd328` still an ancestor), Deploy run `39965141859` approved:
+Ansible `failed=0`, `.current_sha` = `b74838752c…`, `/health/ready` 200, `node -v` in api = v24.22.1, `require("sharp")` ok,
+Prometheus api-metrics ×3/gatus/node up, no Deploy run left waiting. The twin run `39964907220` skipped (images not ready yet).
+
 ## Still open
 
 - `backup-ro` key, `age` encryption, team dead man's switch — not chosen; ask again later.
