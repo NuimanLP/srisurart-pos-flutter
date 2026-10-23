@@ -1001,9 +1001,15 @@ on void/return paths. Keep this order in any new write touching more than one of
   `docs/research/thai-vat-abbreviated-invoice-2026-10-23.md`):** Settings → ทั่วไป edits `taxId` (13 digits, no check digit —
   the doc gives none) and `branchNo` (5 digits, agent assumption) via `core/utils/tax_identity.dart`, validated before the
   existing `updateSettings` path. Settings → ส่งออก CSV → รายงานภาษีขาย (`widgets/sales_tax_report_section.dart`, figures in
-  `domain/reports/sales_tax_report.dart`): one line per day for bills + one negative line per credit note by its own date;
-  manual void out (named in the remark), auto-void in with its CN — the `NetSales` rule; integer satang, VAT rounded **per
-  line** (agent pick, `[ยังไม่ยืนยัน]` O5); CSV negatives as `(107.00)` because `csvSafe` escapes a leading `-`. 🔴 Never print
+  `domain/reports/sales_tax_report.dart`): one line per day **per RC series** (`RCnn` prefix = one POS machine) + one
+  negative line per credit note by its own date. A "first–last" range is printed only for sequential `RCnn-YYYY-MM-nnnn`
+  numbers; the Drift build's `docNo('RC')` (epoch digits + hex, wraps every ~27.8 h) shows first / last **by time** with the
+  remark `เลขไม่ต่อเนื่อง`. Voids read **as of the month's end** (`toReportLites(asOf:)` rule): a manual void inside the month is
+  out (named in the remark), one made after the month ended still counts there so a filed month never changes — and it
+  shows in no later month (open accountant question, not built); auto-void stays with its CN. Rate = today's setting for
+  every month (no history; note on screen + CSV). Integer satang, VAT rounded **per line** (agent pick, `[ยังไม่ยืนยัน]` O5);
+  CSV negatives `csvMoney` → `(107.00)` because `csvSafe` escapes a leading `-`. An untouched legacy tax id/branch is not
+  validated or sent, so it never blocks saving other fields. 🔴 Never print
   "ใบกำกับภาษีอย่างย่อ" or change the receipt until the owner confirms ภ.พ.06 (doc O1). Thai strings `agent ร่าง` (`02 §8.1.1`).
 - **Look at the built web app, not only the tests (#693, 2026-10-12):** three layout bugs passed 1848 tests and were only
   seen by eye (a `Container(alignment:)` inside a `Wrap` fills the whole row — wrap it in `IntrinsicWidth`). For a local

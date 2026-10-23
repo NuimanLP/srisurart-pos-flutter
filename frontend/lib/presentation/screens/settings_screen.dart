@@ -950,6 +950,12 @@ class _GeneralTabState extends State<_GeneralTab> {
   String? _taxIdError;
   String? _branchNoError;
 
+  /// The stored values when the tab opened. An untouched field is neither
+  /// validated nor sent, so a legacy value typed before validation existed
+  /// never blocks saving the other fields.
+  String _loadedTaxId = '';
+  String _loadedBranchNo = '';
+
   @override
   void initState() {
     super.initState();
@@ -966,8 +972,8 @@ class _GeneralTabState extends State<_GeneralTab> {
     _address.text = s.address ?? '';
     _taxRate.text = _trimNum(s.taxRate);
     _quoteValidDays.text = s.quoteValidDays.toString();
-    _taxId.text = s.taxId ?? '';
-    _branchNo.text = s.branchNo ?? '';
+    _taxId.text = _loadedTaxId = s.taxId ?? '';
+    _branchNo.text = _loadedBranchNo = s.branchNo ?? '';
     setState(() => _loaded = true);
   }
 
@@ -997,8 +1003,14 @@ class _GeneralTabState extends State<_GeneralTab> {
     }
     // Validate first: a malformed tax id / branch is refused, never trimmed
     // into shape, and nothing is saved while either is wrong.
-    final taxId = parseTaxId(_taxId.text);
-    final branchNo = parseBranchNo(_branchNo.text);
+    final taxIdEdited = _taxId.text != _loadedTaxId;
+    final branchEdited = _branchNo.text != _loadedBranchNo;
+    final taxId = taxIdEdited
+        ? parseTaxId(_taxId.text)
+        : (value: null, error: null);
+    final branchNo = branchEdited
+        ? parseBranchNo(_branchNo.text)
+        : (value: null, error: null);
     setState(() {
       _taxIdError = taxId.error;
       _branchNoError = branchNo.error;
@@ -1018,8 +1030,8 @@ class _GeneralTabState extends State<_GeneralTab> {
           address: Value(_address.text.isEmpty ? null : _address.text),
           taxRate: Value(taxRate),
           quoteValidDays: Value(validDays),
-          taxId: Value(taxId.value),
-          branchNo: Value(branchNo.value),
+          taxId: taxIdEdited ? Value(taxId.value) : const Value.absent(),
+          branchNo: branchEdited ? Value(branchNo.value) : const Value.absent(),
         ),
       );
     } catch (e) {
@@ -1032,7 +1044,12 @@ class _GeneralTabState extends State<_GeneralTab> {
       return;
     }
     if (!mounted) return;
-    setState(() => _saved = true);
+    setState(() {
+      _saved = true;
+      // What is stored now is the baseline for "edited" on the next save.
+      if (taxIdEdited) _taxId.text = _loadedTaxId = taxId.value ?? '';
+      if (branchEdited) _branchNo.text = _loadedBranchNo = branchNo.value ?? '';
+    });
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _saved = false);
     });

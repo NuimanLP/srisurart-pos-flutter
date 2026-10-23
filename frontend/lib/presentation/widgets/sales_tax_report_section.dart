@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/tax_identity.dart';
 import '../../data/db/database.dart';
@@ -45,21 +46,20 @@ String _roundingNote(double rate) {
       'เลขช่องอ้างอิงแบบ ภ.พ.30 พิมพ์ 2568 กรุณาเทียบกับแบบที่ใช้ยื่นจริง';
 }
 
-/// Satang as a CSV money cell: `1234.50`, negatives in accounting brackets
-/// `(107.00)`. Brackets, not a minus sign: csvSafe (which every cell passes,
-/// CONTRACT §7) turns a leading `-` into `'-…` text, while Excel reads
-/// `(107.00)` as the number −107.
-String csvMoney(int satang) {
-  final abs = satang.abs();
-  final text = '${abs ~/ 100}.${(abs % 100).toString().padLeft(2, '0')}';
-  return satang < 0 ? '($text)' : text;
-}
+/// The rate is today's setting for every month (no rate history) — agent ร่าง.
+String salesTaxRateNote(double rate) =>
+    'ใช้อัตราภาษีปัจจุบันในหน้าตั้งค่า (${formatRate(rate)}%) กับทุกเดือน '
+    'ถ้าเดือนที่เลือกใช้อัตราอื่น ตัวเลขจะไม่ตรง';
+
+/// Remark of a daily line whose numbers are not a sequential range.
+const salesTaxNotSequential = 'เลขไม่ต่อเนื่อง (แสดงใบแรก / ใบสุดท้ายตามเวลา)';
 
 String _docCell(SalesTaxLine l) => l.docNo.isEmpty ? '-' : l.docNo;
 
 String _remark(SalesTaxLine l) {
   if (l.kind == SalesTaxLineKind.creditNote) return 'ใบลดหนี้';
   final parts = ['รวม ${l.billCount} บิล'];
+  if (!l.sequential) parts.add(salesTaxNotSequential);
   if (l.voidedReceiptNos.isNotEmpty) {
     parts.add('ยกเลิก (ไม่นับ): ${l.voidedReceiptNos.join(', ')}');
   }
@@ -83,6 +83,7 @@ List<List<Object?>> salesTaxCsvRows(
     ['เลขประจำตัวผู้เสียภาษี', taxId.isEmpty ? '-' : formatTaxId(taxId)],
     ['สถานประกอบการ', branch.isEmpty ? '-' : branch],
     ['อัตราภาษี', '${formatRate(report.taxRate)}%'],
+    ['อัตราภาษีที่ใช้คำนวณ', salesTaxRateNote(report.taxRate)],
     ['หมายเหตุ', salesTaxDisclaimer],
     ['การคำนวณ', _roundingNote(report.taxRate)],
     [],
@@ -268,8 +269,7 @@ class _SalesTaxReportSectionState extends State<SalesTaxReportSection> {
               loaded: snap.data!,
               onDownload: () => widget.onDownloadCsv(
                 salesTaxCsvRows(snap.data!.report, snap.data!.settings),
-                'sales-tax-${_month.year}-'
-                '${_month.month.toString().padLeft(2, '0')}.csv',
+                'sales-tax-${monthKey(_month)}.csv',
               ),
             );
           },
@@ -333,8 +333,13 @@ class _ReportBody extends StatelessWidget {
               : null,
         ),
         Text('สถานประกอบการ ${branch.isEmpty ? '-' : branch}'),
+        Text('อัตราภาษี ${formatRate(report.taxRate)}%'),
         Text(
-          'อัตราภาษี ${formatRate(report.taxRate)}%',
+          salesTaxRateNote(report.taxRate),
+          style: const TextStyle(
+            color: AppColors.warning,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 12),
         if (report.lines.isEmpty)

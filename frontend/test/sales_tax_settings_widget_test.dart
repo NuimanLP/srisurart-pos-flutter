@@ -63,6 +63,7 @@ Future<void> _insertSale(
       date: date,
       voided: Value(voided),
       voidReason: Value(voided ? 'ลูกค้ายกเลิก' : null),
+      voidedAt: Value(voided ? date.add(const Duration(minutes: 5)) : null),
     ),
   );
   await db.into(db.saleItems).insert(
@@ -76,12 +77,12 @@ Future<void> _insertSale(
   );
 }
 
-/// Last month: RC-A1 (2 × ฿107), RC-A2 manually voided, RC-A3 fully returned
+/// Last month: RC01-2569-09-0001 (2 × ฿107), RC01-2569-09-0002 manually voided, RC01-2569-09-0003 fully returned
 /// today (auto-void; its credit note is dated this month).
 Future<void> _seedMonth(AppDatabase db) async {
-  await _insertSale(db, 's-a1', 'RC-A1', 2, _lastMonth(5, 9));
-  await _insertSale(db, 's-a2', 'RC-A2', 1, _lastMonth(5, 10), voided: true);
-  await _insertSale(db, 's-a3', 'RC-A3', 1, _lastMonth(5, 11));
+  await _insertSale(db, 's-a1', 'RC01-2569-09-0001', 2, _lastMonth(5, 9));
+  await _insertSale(db, 's-a2', 'RC01-2569-09-0002', 1, _lastMonth(5, 10), voided: true);
+  await _insertSale(db, 's-a3', 'RC01-2569-09-0003', 1, _lastMonth(5, 11));
   await ReturnsRepository(db).createReturn(
     const ReturnInput(
       saleId: 's-a3',
@@ -182,6 +183,36 @@ void main() {
       s = await SettingsRepository(db).getSettings();
       expect(s.taxId, isNull);
       expect(s.branchNo, isNull);
+      await db.close();
+    });
+  });
+
+  testWidgets('ทั่วไป: an untouched legacy tax id does not block saving', (
+    tester,
+  ) async {
+    setSize(tester, const Size(1280, 1600));
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await SettingsRepository(db).updateSettings(
+        const SettingsRowCompanion(taxId: Value('12345'), branchNo: Value('1')),
+      );
+      await tester.pumpWidget(_settingsApp(db));
+      await settle(tester);
+      await tester.enterText(_field('เบอร์โทร'), '077-123456');
+      await tester.tap(find.text('บันทึกการตั้งค่า'));
+      await settle(tester);
+      expect(find.text(taxIdInvalidMessage), findsNothing);
+      expect(find.text(branchNoInvalidMessage), findsNothing);
+      final s = await SettingsRepository(db).getSettings();
+      expect(s.phone, '077-123456');
+      expect(s.taxId, '12345'); // left as it was, not sent
+      expect(s.branchNo, '1');
+
+      // Once edited, it is validated.
+      await tester.enterText(_field('เลขประจำตัวผู้เสียภาษี (13 หลัก)'), '123456');
+      await tester.tap(find.text('บันทึกการตั้งค่า'));
+      await settle(tester);
+      expect(find.text(taxIdInvalidMessage), findsOneWidget);
       await db.close();
     });
   });
@@ -291,11 +322,11 @@ void main() {
       );
       await settle(tester);
 
-      // Default month = last month. RC-A2 (manual void) is out of the money
-      // and named; RC-A3 (auto-void) stays: 3 × ฿107 = ฿321, VAT ฿21.
-      expect(find.textContaining('RC-A1–RC-A3'), findsOneWidget);
-      expect(find.textContaining('ยกเลิก (ไม่นับ): RC-A2'), findsOneWidget);
-      expect(find.textContaining('อ้างอิง RC-A3'), findsNothing); // CN is next month
+      // Default month = last month. RC01-2569-09-0002 (manual void) is out of the money
+      // and named; RC01-2569-09-0003 (auto-void) stays: 3 × ฿107 = ฿321, VAT ฿21.
+      expect(find.textContaining('RC01-2569-09-0001–RC01-2569-09-0003'), findsOneWidget);
+      expect(find.textContaining('ยกเลิก (ไม่นับ): RC01-2569-09-0002'), findsOneWidget);
+      expect(find.textContaining('อ้างอิง RC01-2569-09-0003'), findsNothing); // CN is next month
       expect(find.text('฿21.00'), findsOneWidget); // ช่อง 5
       expect(find.text('฿300.00'), findsNWidgets(2)); // ช่อง 1 + ช่อง 4
       expect(find.textContaining('0-1234-56789-01-2'), findsOneWidget);
@@ -312,11 +343,11 @@ void main() {
       );
       expect(rows!.last, ['ยอดขายรวม VAT สุทธิ', '321.00']);
 
-      // This month: only RC-A3's credit note, negative.
+      // This month: only RC01-2569-09-0003's credit note, negative.
       await tester.tap(find.byTooltip('เดือนถัดไป'));
       await settle(tester);
-      expect(find.textContaining('· อ้างอิง RC-A3'), findsOneWidget);
-      expect(find.textContaining('RC-A1'), findsNothing);
+      expect(find.textContaining('· อ้างอิง RC01-2569-09-0003'), findsOneWidget);
+      expect(find.textContaining('RC01-2569-09-0001'), findsNothing);
       expect(find.text('฿-7.00'), findsWidgets);
       expect(find.text('฿-100.00'), findsWidgets);
       // Cannot go past the current month.
@@ -357,7 +388,7 @@ void main() {
         await settle(tester);
         await tester.ensureVisible(find.text('⬇ ดาวน์โหลด CSV'));
         await settle(tester);
-        expect(find.textContaining('RC-A1–RC-A3'), findsOneWidget);
+        expect(find.textContaining('RC01-2569-09-0001–RC01-2569-09-0003'), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'last month');
 
         await tester.ensureVisible(find.byTooltip('เดือนถัดไป'));

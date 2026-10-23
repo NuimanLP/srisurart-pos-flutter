@@ -5,6 +5,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:srisurart_pos/core/utils/csv_safe.dart';
+import 'package:srisurart_pos/core/utils/money.dart';
 import 'package:srisurart_pos/core/utils/tax_identity.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/domain/reports/sales_tax_report.dart';
@@ -16,6 +17,7 @@ SaleRow sale(
   double total,
   DateTime date, {
   bool voided = false,
+  DateTime? voidedAt,
 }) => SaleRow(
   id: id,
   receiptNo: receiptNo,
@@ -26,6 +28,7 @@ SaleRow sale(
   pointsGranted: 0,
   date: date,
   voided: voided,
+  voidedAt: voidedAt,
   soldOffline: false,
 );
 
@@ -158,22 +161,77 @@ void main() {
 
   test('a manual void is left out of the amounts and named in the remark', () {
     final r = build([
-      sale('a', 'RC-1', 100, DateTime(2026, 10, 9, 9)),
-      sale('b', 'RC-2', 500, DateTime(2026, 10, 9, 10), voided: true),
-      sale('c', 'RC-3', 100, DateTime(2026, 10, 9, 11)),
-      // A day whose only bill was voided still gets a ฿0 line naming it.
-      sale('d', 'RC-4', 900, DateTime(2026, 10, 10, 9), voided: true),
+      sale('a', 'RC01-2569-10-0001', 100, DateTime(2026, 10, 9, 9)),
+      sale('b', 'RC01-2569-10-0002', 500, DateTime(2026, 10, 9, 10),
+          voided: true, voidedAt: DateTime(2026, 10, 9, 10, 5)),
+      sale('c', 'RC01-2569-10-0003', 100, DateTime(2026, 10, 9, 11)),
+      // A day whose only bill was voided still gets a ฿0 line naming it
+      // (legacy row: no voidedAt → read as voided inside the month).
+      sale('d', 'RC01-2569-10-0004', 900, DateTime(2026, 10, 10, 9), voided: true),
     ]);
     final d9 = r.lines[0];
     expect(d9.totalSatang, 20000);
     expect(d9.billCount, 2);
-    expect(d9.docNo, 'RC-1–RC-3');
-    expect(d9.voidedReceiptNos, ['RC-2']);
+    expect(d9.docNo, 'RC01-2569-10-0001–RC01-2569-10-0003');
+    expect(d9.sequential, isTrue);
+    expect(d9.voidedReceiptNos, ['RC01-2569-10-0002']);
     final d10 = r.lines[1];
     expect(d10.docNo, '');
     expect(d10.totalSatang, 0);
-    expect(d10.voidedReceiptNos, ['RC-4']);
+    expect(d10.voidedReceiptNos, ['RC01-2569-10-0004']);
     expect(r.totalSatang, 20000);
+  });
+
+  test('a bill voided after the month ended still counts in that month', () {
+    // 30 Sep bill, voided by hand on 5 Oct: September reads the same whether
+    // it is run on 1 Oct or 10 Oct (as of the month's end).
+    final bill = sale('a', 'RC01-2569-09-0007', 107, DateTime(2026, 9, 30, 17),
+        voided: true, voidedAt: DateTime(2026, 10, 5, 9));
+    final sep = build([bill], month: 9);
+    expect(sep.lines.single.totalSatang, 10700);
+    expect(sep.lines.single.voidedReceiptNos, isEmpty);
+    expect(sep.vatSatang, 700);
+    // October never shows it (a negative line there is an open question for
+    // the accountant — not built).
+    expect(build([bill]).lines, isEmpty);
+    // Voided on the last instant of September: out of September.
+    final inside = sale('b', 'RC01-2569-09-0008', 107, DateTime(2026, 9, 30, 17),
+        voided: true, voidedAt: DateTime(2026, 9, 30, 23, 59, 59));
+    expect(build([inside], month: 9).lines.single.totalSatang, 0);
+  });
+
+  test('sequential RC numbers: range by number, one line per machine', () {
+    final r = build([
+      // Machine 01, out of time order; machine 02 the same day.
+      sale('a', 'RC01-2569-10-0010', 100, DateTime(2026, 10, 4, 9)),
+      sale('b', 'RC01-2569-10-0009', 100, DateTime(2026, 10, 4, 12)),
+      sale('c', 'RC01-2569-10-0011', 100, DateTime(2026, 10, 4, 15)),
+      sale('d', 'RC02-2569-10-0001', 214, DateTime(2026, 10, 4, 10)),
+    ]);
+    expect(r.lines.map((l) => (l.docNo, l.totalSatang, l.sequential)), [
+      ('RC01-2569-10-0009–RC01-2569-10-0011', 30000, true),
+      ('RC02-2569-10-0001', 21400, true),
+    ]);
+    expect(r.totalSatang, 51400);
+  });
+
+  test('Drift-build numbers (epoch digits + hex) claim no range', () {
+    // docNo('RC') = 'RC' + last 8 digits of epoch-ms + 4 hex. The 8 digits
+    // wrap every ~27.8 h, so a later bill can sort lower as a string.
+    final r = build([
+      sale('a', 'RC99990000A1B2', 100, DateTime(2026, 10, 6, 9)),
+      sale('b', 'RC00001234FFFF', 100, DateTime(2026, 10, 6, 12)), // after wrap
+      sale('c', 'RC00005678C3D4', 100, DateTime(2026, 10, 6, 15)),
+      sale('d', 'RC12345678ABCD', 100, DateTime(2026, 10, 7, 9)),
+    ]);
+    final d6 = r.lines[0];
+    expect(d6.docNo, 'RC99990000A1B2 / RC00005678C3D4'); // first / last by time
+    expect(d6.sequential, isFalse);
+    expect(d6.billCount, 3);
+    expect(d6.totalSatang, 30000);
+    final d7 = r.lines[1];
+    expect(d7.docNo, 'RC12345678ABCD');
+    expect(d7.sequential, isTrue); // one bill: nothing to mislead
   });
 
   test('a full return\'s auto-void keeps the bill and shows its CN line', () {
@@ -238,7 +296,9 @@ void main() {
       expect(rows[2], ['ชื่อผู้ประกอบการ', 'ร้านทดสอบ']);
       expect(rows[3], ['เลขประจำตัวผู้เสียภาษี', '0-1234-56789-01-2']);
       expect(rows[4], ['สถานประกอบการ', 'สำนักงานใหญ่']);
-      expect(rows[6], ['หมายเหตุ', salesTaxDisclaimer]);
+      expect(rows[5], ['อัตราภาษี', '7%']);
+      expect(rows[6], ['อัตราภาษีที่ใช้คำนวณ', salesTaxRateNote(7)]);
+      expect(rows[7], ['หมายเหตุ', salesTaxDisclaimer]);
       final header = rows.indexWhere((row) => row.isNotEmpty && row.first == 'ลำดับ');
       expect(rows[header + 1], [
         1, '07/10/2569', 'RC-1', '', '', '', '', '200.00', '14.00', '214.00',
