@@ -303,7 +303,7 @@ never inline in `build`.
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
 | `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
 | `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
-| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup (+ `พิมพ์รายการ โอน/QR` → `QrTickListPage`, `widgets/qr_bill_ticklist.dart`: A4 tick list of a day's โอน/QR bills, per-account totals = the closing report's split), open/close shift, cash in/out |
+| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup (+ `พิมพ์รายการ โอน/QR` → `QrTickListPage`, `widgets/qr_bill_ticklist.dart`: A4 tick list of a day's โอน/QR bills, per-account totals = the closing report's split), open/close shift, cash in/out (+ cash-out category chips), `เงินสดออกไปไหน` monthly popup (`DrawerExpenseSummaryView`, `widgets/drawer_expense_summary.dart`; rules in `domain/reports/drawer_expense.dart`) |
 
 `lib/presentation/widgets/app_shell.dart` (`AppShell`) is the persistent nav
 frame (NavigationRail on wide, Drawer on narrow). Contract-owned; a screen agent
@@ -360,7 +360,7 @@ those are NOT input fields.
 - `String baht2(num v)` — `'฿' + #,##0.00` (fixed 2-decimal, for cost/margin views)
 - `String csvSafe(Object? v)` — prefixes `'` when value starts with `= + - @ \t \r`
 - `dates.dart`: `String dateKey(DateTime)` (yyyy-MM-dd), `String todayKey()`,
-  `String monthKey()` (yyyy-MM), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
+  `String monthKey([DateTime? d])` (yyyy-MM, default now), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
   in LOCAL time; never re-slice `toIso8601String()` inline
 
 **Use these — never inline equivalents.** All CSV exporters MUST pass values

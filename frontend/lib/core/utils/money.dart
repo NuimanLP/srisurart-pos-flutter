@@ -19,6 +19,9 @@ String baht2(num v) => '฿${_baht2Format.format(v)}';
 /// Returned as a double.
 double round2(num v) => (v * 100).round() / 100;
 
+/// Money in integer satang, e.g. `450.25` → `45025` — add satang, not doubles.
+int toSatang(num amount) => (amount * 100).round();
+
 /// Loyalty points granted for a sale total: `Math.floor(total / 10)`.
 int pointsFor(num total) => (total / 10).floor();
 
