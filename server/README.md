@@ -1782,7 +1782,7 @@ ever made private the package follows and the VM would need a pull token (07 §7
 security updates, so nothing bumps it on a schedule. A CVE published *after* the pin turns this
 gate red on the next push to `main` — usually a push that has nothing to do with the image, so
 whoever meets the red build did not cause it. The fix is to bump the digest
-(`docker buildx imagetools inspect node:22-alpine`, paste the index digest into both `FROM`
+(`docker buildx imagetools inspect node:24-alpine`, paste the index digest into both `FROM`
 lines in `Dockerfile`), never a suppression file.
 
 ## Deploying a new image without a full outage

@@ -116,6 +116,11 @@ SHARD=$i/3 k6 run -o experimental-prometheus-rw \
   test/k6/01-read-products.js
 ```
 
+No k6 on a laptop? `test/k6/run-shard-test.sh` falls back to Docker with the pinned
+`grafana/k6:2.3.0@sha256:9c2dee7f…` image (the `K6_IMAGE` line in that script) — never
+`grafana/k6:latest`, so all shards run the same k6. Check `k6 version` matches it on laptops that
+use a local binary.
+
 Repeat for `test/k6/02-write-sales-contention.js`, `03-idempotent-replay.js`, then
 `04-mixed-workload.js` (add `-e DURATION=10m` on all three laptops together for the full
 rubric-length mixed run — keep it short, e.g. the 30s default, for a dry run first).
