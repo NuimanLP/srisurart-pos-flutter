@@ -44,6 +44,8 @@ class SaleLite {
 /// no cost column of its own, unlike the server's `return_items.cost_at_sale`
 /// (#22), which is copied from that same bill line.
 class ReturnLite {
+  /// The credit note's id — names its [QrMoneyLine].
+  final String id;
   final String saleId;
   final double refundTotal;
   final String refundMethod;
@@ -53,6 +55,7 @@ class ReturnLite {
   /// bill is known — a transfer refund is taken off that account's row.
   final String? saleAccountId;
   const ReturnLite({
+    this.id = '',
     required this.saleId,
     required this.refundTotal,
     required this.refundMethod,
@@ -230,6 +233,10 @@ class NetSales {
   /// bill seen.
   final Map<String?, PaymentGroup> qrByAccount;
 
+  /// The movements [qrByAccount] is summed from ([qrMoneyLines]) — what the
+  /// โอน/QR tick list prints, line by line.
+  final List<QrMoneyLine> qrLines;
+
   /// Every part with a positive net quantity, highest net revenue first.
   final List<TopItem> topItems;
 
@@ -247,6 +254,7 @@ class NetSales {
     this.qr,
     this.credit,
     this.qrByAccount,
+    this.qrLines,
     this.topItems,
     this.netItems,
     this._returns,
@@ -312,14 +320,14 @@ class NetSales {
       ..sort((a, b) => b.revenue.compareTo(a.revenue));
 
     final qrCounted = qrSales(counted);
+    final qrLines = qrMoneyLines(counted, returns);
     final byAccount = <String?, (int, double)>{};
-    for (final s in qrCounted) {
-      final cur = byAccount[s.paymentAccountId] ?? (0, 0.0);
-      byAccount[s.paymentAccountId] = (cur.$1 + 1, cur.$2 + s.total);
-    }
-    for (final r in returns.where((r) => _isQrRefund(r.refundMethod))) {
-      final cur = byAccount[r.saleAccountId] ?? (0, 0.0);
-      byAccount[r.saleAccountId] = (cur.$1, cur.$2 - r.refundTotal);
+    for (final l in qrLines) {
+      final cur = byAccount[l.accountId] ?? (0, 0.0);
+      byAccount[l.accountId] = (
+        cur.$1 + (l.isRefund ? 0 : 1),
+        cur.$2 + l.amount,
+      );
     }
 
     return NetSales._(
@@ -329,6 +337,7 @@ class NetSales {
       group(qrCounted, _isQrRefund),
       group(creditSales(counted), _isCreditRefund),
       {for (final e in byAccount.entries) e.key: PaymentGroup(e.value.$1, e.value.$2)},
+      qrLines,
       topItems,
       netItems,
       returns,
@@ -352,11 +361,20 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
 /// [sales] and [originalSales] (bills outside the period that the period's
 /// credit notes refer to). `currentCost` is today's product cost, the
 /// fallback only.
+///
+/// [asOf] reads a PAST period as it stood at its end ([asOf] = the end,
+/// exclusive): a bill voided at or after it — by hand or by a later return's
+/// auto-void — had not been voided yet, so it is passed on as not voided and
+/// still counts. Rows with no `voidedAt` (legacy) use [laterReturnedSaleIds],
+/// the bills with a credit note dated at or after [asOf]. Without [asOf] (the
+/// closing report / reports screen, whose periods end now) nothing changes.
 ({List<SaleLite> sales, List<ReturnLite> returns}) toReportLites({
   required List<SaleWithItems> sales,
   required List<ReturnWithItems> returns,
   required List<ProductRow> products,
   List<SaleWithItems> originalSales = const [],
+  DateTime? asOf,
+  Set<String> laterReturnedSaleIds = const {},
 }) {
   final costByPart = {for (final p in products) p.partNo: p.cost};
   final productById = {for (final p in products) p.id: p};
@@ -394,7 +412,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
           discount: s.sale.discount,
           total: s.sale.total,
           paymentMethod: s.sale.paymentMethod,
-          voided: s.sale.voided,
+          voided: s.sale.voided && !_voidedAtOrAfter(s.sale, asOf, laterReturnedSaleIds),
           paymentAccountId: s.sale.paymentAccountId,
           items: [
             for (final i in s.items)
@@ -412,6 +430,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
     returns: [
       for (final r in returns)
         ReturnLite(
+          id: r.ret.id,
           saleId: r.ret.saleId,
           refundTotal: r.ret.refundTotal,
           refundMethod: r.ret.refundMethod,
@@ -420,6 +439,13 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
         ),
     ],
   );
+}
+
+/// Whether [s]'s void happened at or after [asOf] ([toReportLites]).
+bool _voidedAtOrAfter(SaleRow s, DateTime? asOf, Set<String> laterReturned) {
+  if (asOf == null) return false;
+  final at = s.voidedAt;
+  return at != null ? !at.isBefore(asOf) : laterReturned.contains(s.id);
 }
 
 /// Sales paid in cash — one of the three groups a `SaleLite` list is split
@@ -438,6 +464,35 @@ List<SaleLite> qrSales(List<SaleLite> sales) =>
 
 bool _isTransfer(String m) =>
     m == 'โอน/QR' || m == 'PromptPay' || m == 'โอนเงิน' || m == 'โอน';
+
+/// One movement of โอน/QR money: a counted bill paid by โอน/QR, or a credit
+/// note refunded by `โอน` (taken off its original bill's account).
+class QrMoneyLine {
+  /// [SaleLite.id] of the bill, or [ReturnLite.id] of the credit note.
+  final String id;
+
+  /// The QR account the money went into / came out of; null = none recorded.
+  final String? accountId;
+
+  /// The bill's total, or minus the refund.
+  final double amount;
+  final bool isRefund;
+  const QrMoneyLine(this.id, this.accountId, this.amount, {this.isRefund = false});
+}
+
+/// The โอน/QR movements of a period: [counted] bills ([countedSales]) paid
+/// by โอน/QR, then the credit notes refunded by `โอน`. [NetSales.qrByAccount]
+/// is the sum of these lines per [QrMoneyLine.accountId].
+List<QrMoneyLine> qrMoneyLines(
+  List<SaleLite> counted,
+  List<ReturnLite> returns,
+) => [
+  for (final s in qrSales(counted))
+    QrMoneyLine(s.id, s.paymentAccountId, s.total),
+  for (final r in returns)
+    if (_isQrRefund(r.refundMethod))
+      QrMoneyLine(r.id, r.saleAccountId, -r.refundTotal, isRefund: true),
+];
 
 /// Sales paid via `เครดิตช่าง` (mechanic credit) — settled later through
 /// `CreditPayments`, never touching the cash drawer directly (only a cash
