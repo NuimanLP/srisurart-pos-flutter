@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Base pinned by digest, not by the floating tag, so a rebuild of an old commit is the
-# same image (#61). The tag it resolved from is node:22-alpine. Bump it by re-running
-# `docker buildx imagetools inspect node:22-alpine` — never by suppressing a scan finding.
+# same image (#61). The tag it resolved from is node:24-alpine (Node 24.22.1 on Alpine 3.24,
+# 2026-10-23; Node 22 before that). Bump it by re-running
+# `docker buildx imagetools inspect node:24-alpine` — never by suppressing a scan finding.
 #
 # libvips is built from source here, and sharp is compiled against it (2026-10-10). sharp's
 # prebuilt @img/sharp-linux*-x64 binaries need an x86-64-v2 CPU (SSE4.2/POPCNT); mob04 is a
@@ -11,7 +12,7 @@
 # against anything older than 8.18.7 (`#error` in src/common.h — 8.18.7 carries the libvips
 # CVE fixes that made every older sharp a high in `pnpm audit`). Bump VIPS_VERSION together
 # with sharp: its `config.libvips` in node_modules/sharp/package.json is the floor.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS libvips
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS libvips
 ARG VIPS_VERSION=8.18.7
 ARG VIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 RUN apk add --no-cache build-base meson pkgconf python3 \
@@ -55,8 +56,8 @@ RUN pnpm build && pnpm prune --prod \
  && rm -rf node_modules/.pnpm/@img+sharp-* node_modules/.pnpm/sharp@*/node_modules/@img/sharp-* \
  && node -e "const s=require('sharp'); console.log('sharp', s.versions.sharp, 'libvips', s.versions.vips)"
 
-# node:22-alpine — same digest as the deps stage above.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runtime
+# node:24-alpine — same digest as the deps stage above.
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 # The image gate (#61) scans this stage for fixable HIGH/CRITICAL, so the image is made

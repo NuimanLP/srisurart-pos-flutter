@@ -49,7 +49,7 @@
 | OSV-Scanner (ถ้าจะสแกนเอง) | Flutter audit | `brew install osv-scanner` |
 | k6 | performance | `brew install k6` |
 
-> ⚠️ **เช็ค Node ก่อนเสมอ:** server ต้องใช้ Node **22 ขึ้นไป** (`"engines": { "node": ">=22" }` ใน `server/package.json`)
+> ⚠️ **เช็ค Node ก่อนเสมอ:** server ต้องใช้ Node **24 ขึ้นไป** (`"engines": { "node": ">=24" }` ใน `server/package.json`)
 > รัน `node -v` ก่อน ถ้าได้ v19/v20/v21 (เช่นจาก nvm) `pnpm lint`/`pnpm test` จะพังด้วย error ที่ไม่เกี่ยวกับโค้ดเลย
 > เช่น `ERR_UNKNOWN_FILE_EXTENSION` หรือ `Cannot find native binding`
 > ให้สลับไป Node 22+ แล้วรัน `pnpm install --frozen-lockfile` ใหม่ทุกครั้งที่เปลี่ยนเวอร์ชัน (native binding ผูกกับ Node ที่ใช้ตอนติดตั้ง)
