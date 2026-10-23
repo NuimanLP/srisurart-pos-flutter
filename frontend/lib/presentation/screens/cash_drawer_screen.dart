@@ -11,7 +11,8 @@
 //   • once closed, open the next shift the same day (08 §11, #452); each
 //     shift counts only its own money — by shift, owner 2026-10-03
 //     (`ShiftsRepository.drawerCash`).
-// Plus a button to open the daily ClosingReport popup.
+// Plus a button to open the daily ClosingReport popup, category chips on a
+// cash-out note and the monthly "เงินสดออกไปไหน" popup (owner 2026-10-23).
 //
 // State is read THROUGH the repo providers (never AppDatabase). The cash-drawer
 // math mirrors db.js exactly; Thai strings are copied verbatim from the JSX.
@@ -29,9 +30,11 @@ import '../../data/db/database.dart';
 import '../../data/repositories/shifts_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/drawer_expense.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/device_role_banner.dart';
+import '../widgets/drawer_expense_summary.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/money_input_formatters.dart';
 import '../widgets/sync_status_builder.dart';
@@ -165,7 +168,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
-      await repo.addDrawerEntry(_entryType, amount, _noteCtl.text);
+      // An out note with a category prefix is saved in its standard shape
+      // (`ค่าไฟ` / `ค่าไฟ: text`); any other note goes as typed.
+      final note = _entryType == 'out'
+          ? normaliseExpenseNote(_noteCtl.text)
+          : _noteCtl.text;
+      await repo.addDrawerEntry(_entryType, amount, note);
       _amountCtl.clear();
       _noteCtl.clear();
       _refresh();
@@ -176,6 +184,18 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// A category chip: put its prefix in the note, keep any free text typed,
+  /// and leave the cursor at the end so typing continues after it.
+  void _setCategory(String category) {
+    final text = withExpenseCategory(category, _noteCtl.text);
+    setState(() {
+      _noteCtl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
   }
 
   Future<void> _handleClose() async {
@@ -284,9 +304,20 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   ),
                 ],
               ),
-              AppButton.secondary(
-                label: '📊 สรุปยอดปิดร้าน',
-                onPressed: () => showClosingReport(context),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  AppButton.secondary(
+                    label: '📊 สรุปยอดปิดร้าน',
+                    onPressed: () => showClosingReport(context),
+                  ),
+                  // Monthly cash-out by category (owner 2026-10-23).
+                  AppButton.secondary(
+                    label: '🧾 เงินสดออกไปไหน',
+                    onPressed: () => showDrawerExpenseSummary(context),
+                  ),
+                ],
               ),
             ],
           ),
@@ -660,6 +691,19 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     );
                   },
                 ),
+                // Cash-out category chips (owner 2026-10-23): a standard
+                // note prefix for the monthly "เงินสดออกไปไหน" summary.
+                if (_entryType == 'out') ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final c in expenseCategories)
+                        _quickChip(c, () => _setCategory(c)),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,

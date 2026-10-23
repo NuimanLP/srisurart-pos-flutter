@@ -8,8 +8,9 @@ String dateKey(DateTime d) => d.toIso8601String().substring(0, 10);
 /// Today's yyyy-MM-dd key.
 String todayKey() => dateKey(DateTime.now());
 
-/// Current month's yyyy-MM key, e.g. "2026-07".
-String monthKey() => DateTime.now().toIso8601String().substring(0, 7);
+/// yyyy-MM key of [d] (default: now), e.g. "2026-07".
+String monthKey([DateTime? d]) =>
+    (d ?? DateTime.now()).toIso8601String().substring(0, 7);
 
 /// Local-time bounds of [d]'s calendar day: `from` = that midnight
 /// (inclusive), `to` = the next midnight (exclusive). Selects the same rows as
