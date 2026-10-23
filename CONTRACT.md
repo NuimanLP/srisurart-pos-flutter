@@ -303,7 +303,7 @@ never inline in `build`.
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
 | `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
 | `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
-| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup, open/close shift, cash in/out |
+| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup (+ `พิมพ์รายการ โอน/QR` → `QrTickListPage`, `widgets/qr_bill_ticklist.dart`: A4 tick list of a day's โอน/QR bills, per-account totals = the closing report's split), open/close shift, cash in/out |
 
 `lib/presentation/widgets/app_shell.dart` (`AppShell`) is the persistent nav
 frame (NavigationRail on wide, Drawer on narrow). Contract-owned; a screen agent
