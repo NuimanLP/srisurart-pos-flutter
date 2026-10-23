@@ -106,6 +106,7 @@ Future<BuildContext> _pump(
   Widget child, {
   Size size = const Size(1280, 900),
   double zoom = 1.0,
+  bool useApi = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -114,7 +115,9 @@ Future<BuildContext> _pump(
   late BuildContext ctx;
   await tester.pumpWidget(
     MultiRepositoryProvider(
-      providers: repositoryProviders(db, useApiRepositories: false),
+      providers: useApi
+          ? repositoryProviders(db, useApi: true)
+          : repositoryProviders(db, useApiRepositories: false),
       child: MaterialApp(
         home: Builder(
           builder: (c) {
@@ -242,6 +245,85 @@ void main() {
       expect(g.net, closeTo(-_price, 0.001));
       expect(g.lines.single.docNo, cn.cnNo);
       expect(g.lines.single.isRefund, isTrue);
+    });
+  });
+
+  testWidgets('a past day keeps a bill voided by hand on a later day; a void '
+      'on the day itself (or a legacy one with no voidedAt) is left out', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await tester.runAsync(() async {
+      await _seedProduct(db);
+      final shop = await _account(db, 'บัญชีร้านหลัก');
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      Future<SaleRow> soldYesterday({
+        DateTime? voidedAt,
+        bool voided = true,
+      }) async {
+        final s = await _sell(db, 'โอน/QR', account: shop);
+        await (db.update(db.sales)..where((t) => t.id.equals(s.id))).write(
+          SalesCompanion(
+            date: Value(yesterday),
+            voided: Value(voided),
+            voidedAt: Value(voidedAt),
+          ),
+        );
+        return s;
+      }
+
+      final voidedToday = await soldYesterday(voidedAt: DateTime.now());
+      final voidedSameDay = await soldYesterday(voidedAt: yesterday);
+      final legacyVoid = await soldYesterday();
+
+      final ctx = await _pump(tester, db, const SizedBox());
+      final before = await loadQrTickList(ctx, yesterday);
+      final g = before.groups.single;
+      expect(g.lines.map((l) => l.docNo), [voidedToday.receiptNo]);
+      expect((g.bills, g.net), (1, _price));
+      final docs = g.lines.map((l) => l.docNo);
+      expect(docs, isNot(contains(voidedSameDay.receiptNo)));
+      expect(docs, isNot(contains(legacyVoid.receiptNo)));
+
+      // Today's list: the void moves no QR money here (the closing report
+      // reads only today's bills).
+      expect((await loadQrTickList(ctx, DateTime.now())).groups, isEmpty);
+    });
+  });
+
+  testWidgets('the API build reads the same list', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await tester.runAsync(() async {
+      await _seedProduct(db);
+      final shop = await _account(db, 'บัญชีร้านหลัก');
+      final s1 = await _sell(db, 'โอน/QR', account: shop, qty: 2);
+      final s2 = await _sell(db, 'โอน/QR');
+      final cn = await _return(db, s1.id, 1, 'โอน');
+
+      final drift = await loadQrTickList(
+        await _pump(tester, db, const SizedBox()),
+        DateTime.now(),
+      );
+      final api = await loadQrTickList(
+        await _pump(tester, db, const SizedBox(), useApi: true),
+        DateTime.now(),
+      );
+      String flat(QrTickList l) => [
+        for (final g in l.groups)
+          '${g.label}|${g.bills}|${g.net}|'
+              '${g.lines.map((x) => '${x.docNo}:${x.amount}').join(',')}',
+      ].join(';');
+      expect(flat(api), flat(drift));
+      expect(api.groups.map((g) => g.label), [
+        'บัญชีร้านหลัก',
+        qrNoAccountLabel,
+      ]);
+      expect(
+        api.groups.expand((g) => g.lines).map((l) => l.docNo),
+        unorderedEquals([s1.receiptNo, cn.cnNo, s2.receiptNo]),
+      );
     });
   });
 

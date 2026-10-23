@@ -9,9 +9,11 @@
 // device's bills only, exactly like the closing report).
 //
 // 🔴 The per-account totals are NOT a second formula: each group's header is a
-// row of `qrAccountRows(NetSales.qrByAccount)` — the closing report's own
-// split. The lines only itemise it:
-// - a manual void is left out (`countedSales`);
+// row of `qrAccountGroups(NetSales.qrByAccount)` — the closing report's own
+// split — and `qrByAccount` is the sum of `NetSales.qrLines`, the lines
+// printed under it (grouped by account id, never by position):
+// - a manual void is left out (`countedSales`) — on a past day only if it was
+//   voided that day: a bill voided later still counts on its sale day;
 // - a fully returned bill (auto-void) stays, at its full amount, and a credit
 //   note refunded by `โอน` is its own negative line on its own date, under the
 //   account of the bill it refunds (the closing report's rule — so a bill sold
@@ -93,16 +95,17 @@ class QrTickList {
 /// Builds the groups from the day's rows — pure, for tests.
 ///
 /// [sales] / [returns] are the day's bills and credit notes; [originalSales]
-/// the bills of those credit notes from earlier days (for their account);
-/// [laterReturnedSaleIds] the bills with a credit note AFTER the day.
-/// [countedSales] tells an auto-void from a manual void by the bill's credit
-/// note, and on a past day that note can be later than the day — such a bill
-/// is passed on as not voided (it still counts on its own day). For today the
-/// set is empty and this is exactly the closing report's computation.
+/// the bills of those credit notes from earlier days (for their account).
+/// [asOf] (the day's end) and [laterReturnedSaleIds] read a past day as it
+/// stood then ([toReportLites]): a bill voided later still counts on its day.
+/// For today nothing was voided after the day's end, so this is exactly the
+/// closing report's computation. Headers are [qrAccountGroups] rows; lines
+/// are [NetSales.qrLines], grouped by each row's account ids.
 ({List<QrTickGroup> groups, PaymentGroup total}) qrTickGroups({
   required List<SaleWithItems> sales,
   required List<ReturnWithItems> returns,
   List<SaleWithItems> originalSales = const [],
+  DateTime? asOf,
   Set<String> laterReturnedSaleIds = const {},
   required List<PaymentAccountRow> accounts,
 }) {
@@ -111,67 +114,32 @@ class QrTickList {
     returns: returns,
     products: const [],
     originalSales: originalSales,
+    asOf: asOf,
+    laterReturnedSaleIds: laterReturnedSaleIds,
   );
-  final saleLites = [
-    for (final s in lites.sales)
-      s.voided && laterReturnedSaleIds.contains(s.id)
-          ? SaleLite(
-              id: s.id,
-              subtotal: s.subtotal,
-              discount: s.discount,
-              total: s.total,
-              paymentMethod: s.paymentMethod,
-              paymentAccountId: s.paymentAccountId,
-              items: s.items,
-            )
-          : s,
-  ];
-  final net = NetSales.of(saleLites, lites.returns);
-  final rows = qrAccountRows(net.qrByAccount, accounts);
-
-  // Which row a line belongs to — the order qrAccountRows builds its rows in:
-  // known accounts (in `accounts` order), every deleted account merged, then
-  // no account.
-  final known = {for (final a in accounts) a.id};
-  String rowKey(String? accountId) => accountId == null
-      ? 'none'
-      : known.contains(accountId)
-      ? 'a:$accountId'
-      : 'deleted';
-  final keys = [
-    for (final a in accounts)
-      if (net.qrByAccount.containsKey(a.id)) 'a:${a.id}',
-    if (net.qrByAccount.keys.any((k) => k != null && !known.contains(k)))
-      'deleted',
-    if (net.qrByAccount.containsKey(null)) 'none',
-  ];
-  assert(keys.length == rows.length);
-
+  final net = NetSales.of(lites.sales, lites.returns);
   final saleById = {for (final s in sales) s.sale.id: s.sale};
-  final linesByKey = <String, List<QrTickLine>>{};
-  for (final s in qrSales(net.counted)) {
-    final row = saleById[s.id]!;
-    (linesByKey[rowKey(s.paymentAccountId)] ??= []).add(
-      QrTickLine(row.date, row.receiptNo, row.total),
-    );
-  }
-  for (var i = 0; i < returns.length; i++) {
-    final r = lites.returns[i];
-    if (!isQrMoney(r.refundMethod)) continue;
-    final row = returns[i].ret;
-    (linesByKey[rowKey(r.saleAccountId)] ??= []).add(
-      QrTickLine(row.date, row.cnNo, -row.refundTotal, isRefund: true),
-    );
+  final returnById = {for (final r in returns) r.ret.id: r.ret};
+  QrTickLine line(QrMoneyLine l) {
+    if (l.isRefund) {
+      final r = returnById[l.id]!;
+      return QrTickLine(r.date, r.cnNo, l.amount, isRefund: true);
+    }
+    final s = saleById[l.id]!;
+    return QrTickLine(s.date, s.receiptNo, l.amount);
   }
 
   return (
     groups: [
-      for (var i = 0; i < rows.length; i++)
+      for (final g in qrAccountGroups(net.qrByAccount, accounts))
         QrTickGroup(
-          rows[i].label,
-          rows[i].bills,
-          rows[i].net,
-          (linesByKey[keys[i]] ?? [])..sort((a, b) => a.time.compareTo(b.time)),
+          g.row.label,
+          g.row.bills,
+          g.row.net,
+          [
+            for (final l in net.qrLines)
+              if (g.accountIds.contains(l.accountId)) line(l),
+          ]..sort((a, b) => a.time.compareTo(b.time)),
         ),
     ],
     total: net.qr,
@@ -204,6 +172,7 @@ Future<QrTickList> loadQrTickList(BuildContext context, DateTime day) async {
     sales: sales,
     returns: returns,
     originalSales: originalSales,
+    asOf: bounds.to,
     laterReturnedSaleIds: {for (final r in later) r.ret.saleId},
     accounts: accounts,
   );

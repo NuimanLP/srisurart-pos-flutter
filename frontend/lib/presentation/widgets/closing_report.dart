@@ -103,33 +103,49 @@ const qrNoAccountLabel =
 List<QrAccountRow> qrAccountRows(
   Map<String?, PaymentGroup> byAccount,
   List<PaymentAccountRow> accounts,
+) => [for (final g in qrAccountGroups(byAccount, accounts)) g.row];
+
+/// One [qrAccountRows] row and the account ids it sums (null = no account;
+/// the deleted row merges every id not in the local cache).
+typedef QrAccountGroup = ({QrAccountRow row, Set<String?> accountIds});
+
+/// [qrAccountRows] with each row's account ids — the โอน/QR tick list groups
+/// its lines ([NetSales.qrLines]) by these.
+List<QrAccountGroup> qrAccountGroups(
+  Map<String?, PaymentGroup> byAccount,
+  List<PaymentAccountRow> accounts,
 ) {
   final known = {for (final a in accounts) a.id};
-  final rows = <QrAccountRow>[
+  final groups = <QrAccountGroup>[
     for (final a in accounts)
       if (byAccount[a.id] case final g?)
-        (label: a.nickname, bills: g.bills, net: g.net),
+        (
+          row: (label: a.nickname, bills: g.bills, net: g.net),
+          accountIds: {a.id},
+        ),
   ];
   var deletedBills = 0;
   var deletedNet = 0.0;
-  var anyDeleted = false;
+  final deletedIds = <String?>{};
   for (final e in byAccount.entries) {
     if (e.key == null || known.contains(e.key)) continue;
-    anyDeleted = true;
+    deletedIds.add(e.key);
     deletedBills += e.value.bills;
     deletedNet += e.value.net;
   }
-  if (anyDeleted) {
-    rows.add((
-      label: qrDeletedAccountLabel,
-      bills: deletedBills,
-      net: deletedNet,
+  if (deletedIds.isNotEmpty) {
+    groups.add((
+      row: (label: qrDeletedAccountLabel, bills: deletedBills, net: deletedNet),
+      accountIds: deletedIds,
     ));
   }
   if (byAccount[null] case final g?) {
-    rows.add((label: qrNoAccountLabel, bills: g.bills, net: g.net));
+    groups.add((
+      row: (label: qrNoAccountLabel, bills: g.bills, net: g.net),
+      accountIds: {null},
+    ));
   }
-  return rows;
+  return groups;
 }
 
 /// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
@@ -218,6 +234,8 @@ class _ClosingReportState extends State<ClosingReport> {
   bool _cashierInit = false;
   bool _printed = false;
   bool _busy = false;
+  // The tick list page is open (double-tap guard, like the PO `_printing`).
+  bool _qrListOpen = false;
   // Created in initState — never inline in build.
   late Future<_ClosingData> _dataFuture;
 
@@ -241,6 +259,16 @@ class _ClosingReportState extends State<ClosingReport> {
   double _cashExpected(_ClosingData d) => d.cash.expected;
 
   double _cashActual() => double.tryParse(_cashCtl.text) ?? 0;
+
+  Future<void> _openQrTickList() async {
+    if (_qrListOpen) return;
+    setState(() => _qrListOpen = true);
+    try {
+      await showQrTickList(context);
+    } finally {
+      if (mounted) setState(() => _qrListOpen = false);
+    }
+  }
 
   Future<void> _print(_ClosingData d) async {
     setState(() => _busy = true);
@@ -590,7 +618,7 @@ class _ClosingReportState extends State<ClosingReport> {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: () => showQrTickList(context),
+            onPressed: _qrListOpen ? null : _openQrTickList,
             icon: const Icon(Icons.print_outlined, size: 18),
             label: const Text('พิมพ์รายการ โอน/QR'),
           ),
