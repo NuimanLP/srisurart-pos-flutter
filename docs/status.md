@@ -193,10 +193,10 @@ develops against a demo tenant.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
   day (PRs #374 / #371 / #373); #365 closed 2026-09-30; #363 is still open.**
   - **#363 — off-VM copy exists since 2026-10-18 (owner decision: the PC pulls, not rclone):** the owner's Windows PC
-    runs Scheduled Task "Srisurart mob04 backup pull" (`deploy/scripts/pc-pull-backups.ps1`, daily 11:00, PR #737) — scp as `deploy`
+    runs Scheduled Task "Srisurart mob04 backup pull" (`deploy/scripts/pc-pull-backups.ps1`, daily 11:00 + 20:00 since 2026-10-23, PR #737/#767) — scp as `deploy`
     into `D:\Beestation\Sri_POS\ops\backups\mob04\YYYY-MM\` (owner-only ACL), sha256-verified, 30 days local; the BeeStation client syncs that
     folder to the shop NAS. It never writes to `mob04` (no `.uploaded` markers, so `backup-db.sh` prune stays age-based). Works only
-    while the PC is on and reaches `172.30.58.20`. **AC3 (restore from the off-VM copy) still unproven.** 🔴 **All PC ops live under one root `D:\Beestation\Sri_POS\ops\`** (owner 2026-10-18, PR #739; synced to the NAS,
+    while the PC is on and reaches `172.30.58.20`. **AC3 rehearsed 2026-10-23** (fresh Docker Engine in WSL Ubuntu 26.04 on the owner PC, inputs only git `4b45093` + the PC-pulled set `20261023_030001Z` + the `ops\secrets` `.env`/`certs-ca` copies): stack healthy, `/health/ready` 200 in 113 s after image pull, counts = live `mob04`, same CA served — `docs/handoff_log/session-2026-10-23-owner-items-dr.md`. Not yet done: a restore on a *different* machine pulling from the NAS itself. 🔴 **All PC ops live under one root `D:\Beestation\Sri_POS\ops\`** (owner 2026-10-18, PR #739; synced to the NAS,
     secrets included — owner accepted): `bin\` (scripts the tasks run, pinned `attrib +P`), `secrets\` (webhook, `.env` copies),
     `logs\`, `state\`, `backups\mob04\YYYY-MM\`, `README.txt`; all but `logs\` owner-only ACL. Anyone who can write the NAS share can
     change `bin\` — keep NAS write access owner-only. Never `%LOCALAPPDATA%` (MSIX AppData virtualization hides it from Task
@@ -236,8 +236,8 @@ develops against a demo tenant.
     `docs/handoff_log/research-363-sftp-nas-offsite.md`. AC1 (destination **and**
     credentials) stays unticked until a protocol is picked and creds exist.
     ~~Parked until after the `mob04` demo (owner, 2026-09-22)~~ — superseded 2026-10-18 by the PC pull above: a copy now
-    leaves the VM daily while the owner PC is on. #363/#288 stay open — AC3 (restore from the off-VM copy onto a fresh
-    host) is unproven, so never write "backups are ready".
+    leaves the VM daily while the owner PC is on. AC3 rehearsed 2026-10-23 (above); #363/#288 stay open until the owner closes them —
+    the copy still depends on the owner PC being on.
     **`mob04` backup folder, tidied 2026-10-07:** 20 empty/irrelevant dumps + sidecars (20-byte failed
     dumps 2026-09-29/30, 0-tenant dumps 09-30/10-01, test-tenant-only 10-02..10-05, a duplicate 10-06
     03:00) were **moved, not deleted**, to `/opt/pos/backups-removed-20261007/`. Kept in
