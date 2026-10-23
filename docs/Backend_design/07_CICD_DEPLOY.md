@@ -366,6 +366,12 @@ node-exporter 64m · Gatus 64m (§10.5, 2026-10-13) → **≈ 4.3 GB จาก 6
   web build ใช้ trust ของเบราว์เซอร์ตามเดิม (เบราว์เซอร์ยังเตือนใบจนกว่าจะติดตั้ง `ca.crt` ในเครื่องนั้นเอง)
 * 🔴 **ห้าม `down -v` / ลบ `certs-ca`** — CA หาย = `certgen` สร้าง CA ใหม่ → ทุก APK ที่ออกไปแล้วต่อ VM ไม่ได้จนกว่าจะ
   commit `ca.crt` ใหม่แล้ว build APK ใหม่ (ทำตาม runbook ข้างล่างอีกรอบ)
+* **สำเนา `certs-ca` นอก VM (2026-10-23, เจ้าของสั่ง):** `ops\secrets\mob04-certs-ca-<ts>.tar.gz` (+ `.sha256`) บน PC ของเจ้าของ
+  (ซิงก์ขึ้น BeeStation) — มี `ca.key` จึงเป็นความลับระดับเดียวกับ `.env` · fingerprint ของ `ca.crt` ในไฟล์ตรงกับ
+  `frontend/assets/certs/pos-ca.crt` (`87:7B:B8:F7:…:54:CF:83:65`) · CA อายุ 10 ปีและไม่เปลี่ยนเอง จึงทำครั้งเดียว ไม่ใส่ใน backup รายวัน ·
+  ทำซ้ำเฉพาะเมื่อ CA เปลี่ยน: `ssh mob04 'sudo docker run --rm -v srisurart-pos_certs-ca:/ca:ro --entrypoint tar <image alpine/openssl ของ certgen> czf - -C /ca .' > mob04-certs-ca-<ts>.tar.gz` ·
+  **กู้บน host ใหม่ (ก่อน deploy แรก):** `docker volume create srisurart-pos_certs-ca` แล้ว
+  `docker run --rm -i -v srisurart-pos_certs-ca:/ca --entrypoint tar <image เดิม> xzf - -C /ca < mob04-certs-ca-<ts>.tar.gz` — `certgen` จะเห็น CA เดิมและออกแค่ leaf ใหม่ APK เดิมใช้ต่อได้
 * **rollback ไป SHA ก่อนหน้า fix นี้ปลอดภัย** (compose/platform-ui `nginx.conf` เก่า): `certgen` เก่าเห็นว่ามี `server.crt` แล้วไม่ทำอะไร ·
   `server.crt` เขียนเป็น full chain (leaf + CA) platform-ui เก่าที่ trust `server.crt` ตรง ๆ จึงยัง verify ผ่าน CA ในไฟล์นั้น
   (`certgen.test.sh`: `openssl verify -CAfile server.crt server.crt`) · nginx/แอปใช้ได้ตามเดิม
@@ -420,7 +426,7 @@ RAM < 7168 MiB = เตือน · **profile `vm` (`mob04`) = รายงา�
 · **แก้ 2026-09-23 (ตรงกับ `deploy/ansible/provision.yml` จริง):** public key ของ `deploy` มาจาก env `DEMO_SSH_KEY_PUB`
 (ไม่ตั้ง = `~/.ssh/id_rsa.pub` ของเครื่องที่รัน) ไม่ใช่ "key ของ CI" — workflow ไม่ใช้ SSH เลยตั้งแต่ addendum 2026-09-15 ·
 `.env` มาจาก env `DEMO_ENV_FILE` ของเครื่องคนที่รัน · playbook ยังติดตั้ง ops scripts ลง `/opt/pos/scripts/`, สร้าง
-`/opt/pos/backups` (0700) และตั้ง **cron backup รายวัน 03:00** ของ user `deploy` (`provision.yml:133–193`, §7a) ·
+`/opt/pos/backups` (0700) และตั้ง **cron backup วันละสองรอบ 03:00 + 12:00 UTC** (10:00 + 19:00 เวลาไทย — รอบเย็นเพิ่ม 2026-10-23) ของ user `deploy` (`provision.yml:133–193`, §7a) ·
 🔴 **เพิ่ม 2026-09-30:** `provision.yml` เป็นตัวติดตั้ง `/opt/pos/scripts` **ทางเดียว** — CD (`deploy.yml`) ไม่อัปเดต `backup-db.sh` บน VM · แก้สคริปต์ใน `main` (เช่น PR #519) แล้วต้องรัน `provision.yml` หรือ `sudo install -o deploy -g deploy -m 0755` ลงเอง แล้วเทียบ sha256 ·
 🔴 **2026-10-10 (รูปสินค้า):** `backup-db.sh` เก็บ volume `product-images` เพิ่มเป็น `pos_images_<ts>.tar.gz` (+ `.sha256`, อ่านผ่าน mount `:ro` ของ container `nginx`) — กฎ `.partial`/prune/offsite เดียวกับ dump · ไม่มี volume = `::warning::` แล้ว exit 0, เก็บพลาด = `::error::` + exit 1 · **ต้อง install สคริปต์ใหม่บน `mob04` เอง** ตามบรรทัดข้างบน · 🔴 สำเนาก่อนนำเข้าแบบ replace (`/app/exports/<tenant>/pre-import/<jobId>.zip`, volume `exports`) **มีรูปสินค้าทั้งร้านอยู่ในไฟล์ด้วย** และ**ไม่มีวันถูก prune** — ทั้ง `pruneExportFiles` และ `backup-db.sh` ไม่แตะ (PDPA: ระยะเก็บเป็นการตัดสินของเจ้าของร้าน) จึงกินดิสก์ VM เพิ่มทุกครั้งที่ replace ·
 🔴 **2026-10-12 (รูปหลักฐานตอนขาย):** `backup-db.sh` เก็บ volume `sale-photos` เพิ่มเป็น `pos_sale_photos_<ts>.tar.gz` (+ `.sha256`, อ่านผ่าน container `worker` — Nginx ไม่ mount volume นี้) กฎเดียวกับรูปสินค้า · **ต้อง install สคริปต์ใหม่บน `mob04` เองอีกครั้ง** (§9 "รูปหลักฐานตอนขาย") ·
@@ -818,7 +824,7 @@ installer ใส่ root จริงลง argument ของ task) · installe
 
 | ส่วน | รายละเอียด |
 |---|---|
-| สคริปต์ | `deploy/scripts/pc-pull-backups.ps1` + ตัวติดตั้ง `install-pc-pull-backups.ps1` (Scheduled Task `Srisurart mob04 backup pull`, ทุกวัน 11:00 เวลาไทย หลัง dump 03:00 UTC, รันชดเชยถ้าพลาด; `-Uninstall` ถอดได้) |
+| สคริปต์ | `deploy/scripts/pc-pull-backups.ps1` + ตัวติดตั้ง `install-pc-pull-backups.ps1` (Scheduled Task `Srisurart mob04 backup pull`, ทุกวัน 11:00 + 20:00 เวลาไทย หลัง dump 03:00 / 12:00 UTC, รันชดเชยถ้าพลาด; `-Uninstall` ถอดได้) |
 | การเชื่อมต่อ | ssh/scp ผู้ใช้ `deploy` ด้วย key ใน `~/.ssh` และตรวจ host key กับ `known_hosts` (`StrictHostKeyChecking=yes` ไม่ปิดเด็ดขาด) |
 | การคัดลอก | อ่าน `*.sha256` ใน `/opt/pos/backups` → ชุดที่ยังไม่มีในเครื่องคัดลอกเป็น `.partial` → ตรวจ SHA-256 (`Get-FileHash`) ตรงกับ sidecar จึงเปลี่ยนชื่อ · ข้าม `.partial` บน VM |
 | เก็บในเครื่อง | 30 วัน — ลบชุดเก่าต่อเมื่อมีชุดใหม่กว่าที่ verify แล้วอย่างน้อย 1 ชุด · การข้ามชุดที่ดึงแล้วและการลบตามอายุดูทุกโฟลเดอร์ `YYYY-MM` (โฟลเดอร์เดือนที่ว่างถูกลบ) |
