@@ -72,6 +72,10 @@ const _allowlist = <String, String>{
   'lib/presentation/screens/products_screen.dart|repo.deleteMany':
       'deleteMany never throws: every failure is a per-id Thai reason in '
           'BulkDeleteResult.failed, which both callers show.',
+  'lib/presentation/widgets/stocktake_view.dart|repo.adjustStock':
+      'applyStocktake catches every error and returns it as '
+          'StocktakeApplyResult.failed/error, which StocktakePage shows in its '
+          'failure box with the applied rows (stocktake_test.dart).',
   'lib/presentation/screens/mechanics_screen.dart|repo.discardRejectedCreditPayment':
       'runs through _run(), whose catch shows the error as a SnackBar.',
   'lib/presentation/widgets/login_form.dart|cubit.login':

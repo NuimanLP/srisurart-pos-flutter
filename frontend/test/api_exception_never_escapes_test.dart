@@ -398,6 +398,8 @@ final Map<String, _Call> _cases = {
   'ApiProductsRepository.syncFromServer': (w) =>
       ApiProductsRepository(w.db, w.api).syncFromServer(),
   'ApiProductsRepository.getAll': (w) => ApiProductsRepository(w.db, w.api).getAll(),
+  'ApiProductsRepository.getAllFresh': (w) =>
+      ApiProductsRepository(w.db, w.api).getAllFresh(),
   'ApiProductsRepository.getCategories': (w) =>
       ApiProductsRepository(w.db, w.api).getCategories(),
   'ApiProductsRepository.add': (w) => ApiProductsRepository(w.db, w.api)

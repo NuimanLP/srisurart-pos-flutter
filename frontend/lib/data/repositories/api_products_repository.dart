@@ -87,7 +87,11 @@ class ApiProductsRepository extends ProductsRepository {
   /// Write-through sync: pulls updates from server and patches Drift.
   /// Uses server `meta.nextCursor` stored in `sync_cursors` with 30s rewind window
   /// and protects local stock of products with pending outbox operations (#212, 08 §15).
-  Future<void> syncFromServer({bool forceFull = false}) async {
+  /// A failure is ignored (the cache is used) unless [throwOnFailure].
+  Future<void> syncFromServer({
+    bool forceFull = false,
+    bool throwOnFailure = false,
+  }) async {
     // A reset (tenant switch) while this pull is in flight voids its replies.
     final gen = db.cacheGeneration;
     try {
@@ -214,12 +218,34 @@ class ApiProductsRepository extends ProductsRepository {
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache
+      if (throwOnFailure) rethrow;
     }
   }
 
   @override
   Future<List<ProductRow>> getAll() async {
     await syncFromServer();
+    return _localAll();
+  }
+
+  /// [getAll], but a failed pull is an error, never a silent stale cache —
+  /// stocktake deltas are taken against this (stocktake_view.dart).
+  @override
+  Future<List<ProductRow>> getAllFresh() async {
+    try {
+      await syncFromServer(throwOnFailure: true);
+    } on ApiException catch (e) {
+      throw posExceptionFromApi(e);
+    } catch (e) {
+      if (isTransportFailure(e)) {
+        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
+      }
+      rethrow;
+    }
+    return _localAll();
+  }
+
+  Future<List<ProductRow>> _localAll() async {
     final rows = await (db.select(db.products)
           ..where((t) =>
               t.deletedAt.isNull() &

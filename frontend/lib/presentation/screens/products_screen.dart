@@ -4,7 +4,8 @@
 // Reports) + the LabelPrinter sub-view. Data flows ONLY through repository
 // injection; money is formatted with baht(); category colors come from
 // AppColors.catColor (db.js getCatColor parity). Stock can only change via the
-// "± ปรับ" adjust action (adjustStock clamps at 0 + writes a movement); the edit
+// "± ปรับ" adjust action (adjustStock clamps at 0 + writes a movement) or the
+// ตรวจนับสต็อก page (widgets/stocktake_view.dart, the same adjustStock); the edit
 // form strips stock + partNo exactly like the JSX.
 
 import 'dart:math' as math;
@@ -37,6 +38,7 @@ import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/loading_view.dart';
 import '../widgets/product_image_editor.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/stocktake_view.dart' show StocktakePage;
 import '../widgets/supplier_groups.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
@@ -384,6 +386,25 @@ class _StockTabState extends State<_StockTab> {
       builder: (_) => _AdjustStockDialog(product: p),
     );
     if (done == true) await _load();
+  }
+
+  Future<void> _openStocktake() async {
+    // Root navigator: the page covers the shell nav, so leaving goes through
+    // its own confirm (counts are in memory only).
+    final n = await Navigator.of(context, rootNavigator: true).push<int>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const StocktakePage(),
+      ),
+    );
+    if (!mounted) return;
+    await _load();
+    if (n != null && n > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        // agent ร่าง
+        SnackBar(content: Text('ปรับสต็อกตามที่นับแล้ว $n รายการ')),
+      );
+    }
   }
 
   Future<void> _delete(ProductRow p) async {
@@ -749,6 +770,27 @@ class _StockTabState extends State<_StockTab> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
+                      ),
+                      // Counting needs no connection; applying it is
+                      // refused while Degraded, like ± ปรับ.
+                      OutlinedButton.icon(
+                        key: const Key('stocktake-open'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.navyMid,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _busy ? null : _openStocktake,
+                        icon: const Icon(Icons.fact_check, size: 20),
+                        label: const Text(
+                          'ตรวจนับสต็อก', // agent ร่าง
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
                       OutlinedButton.icon(
                         key: const Key('bulk-delete-toggle'),

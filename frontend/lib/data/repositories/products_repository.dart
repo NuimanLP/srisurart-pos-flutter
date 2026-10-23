@@ -126,6 +126,11 @@ class ProductsRepository {
     return rows.map(_migrate).toList();
   }
 
+  /// [getAll] for a caller that must not work from a stale cache (stocktake
+  /// deltas). The Drift build is its own truth, so it is the same read; the
+  /// API build throws when the product pull fails instead of ignoring it.
+  Future<List<ProductRow>> getAllFresh() => getAll();
+
   Stream<List<ProductRow>> watchAll() {
     return db
         .select(db.products)
