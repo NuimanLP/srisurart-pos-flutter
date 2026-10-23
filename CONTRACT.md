@@ -298,7 +298,7 @@ never inline in `build`.
 | `purchase_orders_screen.dart` | `PurchaseOrdersScreen` | `/purchase-orders` (`purchaseOrders`) | PO create + receive, PO A4 print (`PurchaseOrderA4View`, `widgets/purchase_order_a4.dart`; no prices on paper) |
 | `vehicle_search_screen.dart` | `VehicleSearchScreen` | `/vehicle-search` (`vehicleSearch`) | — |
 | `customers_screen.dart` | `CustomersScreen` | `/customers` (`customers`) | — |
-| `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake |
+| `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake, credit statement A4 print (`MechanicStatementA4View`, `widgets/mechanic_statement_a4.dart`; total = `creditBalance`, allocation in `domain/reports/credit_statement.dart`) |
 | `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view, `SalePhotoStrip` in the refund detail (`widgets/sale_photo_strip.dart`) |
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
 | `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
