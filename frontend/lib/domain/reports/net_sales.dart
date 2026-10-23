@@ -439,6 +439,11 @@ List<SaleLite> qrSales(List<SaleLite> sales) =>
 bool _isTransfer(String m) =>
     m == 'โอน/QR' || m == 'PromptPay' || m == 'โอนเงิน' || m == 'โอน';
 
+/// Whether a sale's payment method or a credit note's refund method is
+/// โอน/QR money — the test behind [NetSales.qr] / [NetSales.qrByAccount],
+/// exposed for the โอน/QR tick list (`qr_bill_ticklist.dart`).
+bool isQrMoney(String method) => _isTransfer(method);
+
 /// Sales paid via `เครดิตช่าง` (mechanic credit) — settled later through
 /// `CreditPayments`, never touching the cash drawer directly (only a cash
 /// *settlement* of that credit does, tracked separately as

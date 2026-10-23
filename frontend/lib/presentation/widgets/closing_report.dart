@@ -30,6 +30,7 @@ import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
 import '../../domain/reports/net_sales.dart';
 import 'app_button.dart';
+import 'qr_bill_ticklist.dart';
 
 /// Opens the daily Closing Report as a modal dialog.
 Future<void> showClosingReport(BuildContext context) {
@@ -584,6 +585,16 @@ class _ClosingReportState extends State<ClosingReport> {
         _payRow('💵 เงินสด', cash.bills, cash.net, AppColors.orange),
         _payRow('📱 โอน/QR', qr.bills, qr.net, AppColors.steelBlue),
         for (final a in d.qrAccounts) _qrAccountRow(a),
+        // Pain point 1a: the bills behind these rows, to tick against the bank
+        // app (any day — so shown even with no โอน/QR today). `agent ร่าง`.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => showQrTickList(context),
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: const Text('พิมพ์รายการ โอน/QR'),
+          ),
+        ),
         _payRow('🔧 เครดิตช่าง', credit.bills, credit.net, AppColors.warning),
         Container(
           decoration: BoxDecoration(
