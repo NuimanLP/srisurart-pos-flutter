@@ -46,8 +46,17 @@ if [[ -z "$SHARD_INDEX" ]]; then
   exit 1
 fi
 
-if ! command -v k6 >/dev/null 2>&1; then
-  echo "Error: k6 is not installed on this machine. Install k6 first (https://k6.io/docs/get-started/installation/)." >&2
+# k6 runs from the local binary when there is one. Without it, the pinned grafana/k6 image is
+# used instead — pinned by version AND index digest (amd64+arm64), never `:latest`, so every
+# laptop in one distributed run executes the same k6 (2026-09-15 used `grafana/k6:latest`).
+# Bump it by `docker buildx imagetools inspect grafana/k6:<version>` and pasting the index digest.
+K6_IMAGE="grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34"
+if command -v k6 >/dev/null 2>&1; then
+  K6_MODE=local
+elif command -v docker >/dev/null 2>&1; then
+  K6_MODE=docker
+else
+  echo "Error: neither k6 nor docker is installed on this machine. Install k6 (https://k6.io/docs/get-started/installation/) or Docker." >&2
   exit 1
 fi
 
@@ -69,6 +78,7 @@ echo " Starting Distributed k6 Load Runner"
 echo " Shard:        $SHARD_INDEX / $TOTAL_SHARDS"
 echo " Machine:      $MACHINE_NAME"
 echo " Scenario:     $TARGET_SCENARIO"
+echo " k6:           $([[ "$K6_MODE" == "local" ]] && k6 version 2>/dev/null | head -1 || echo "$K6_IMAGE")"
 echo " Test ID:      $TESTID"
 echo " Scenario 4:   Duration = $MIXED_DURATION"
 echo " Prometheus:   ${K6_PROMETHEUS_RW_SERVER_URL:-<local terminal output only>}"
@@ -76,6 +86,25 @@ echo " Interactive:  $([[ "${NON_INTERACTIVE:-false}" == "true" ]] && echo "No (
 echo "================================================================="
 
 cd "$SERVER_DIR"
+
+# `k6 …` either way. In docker mode server/ is mounted at /work (the scripts open
+# ./k6-env.json relative to themselves) and only the env vars the scripts and the
+# remote-write output read are passed through; `-e NAME` with no value forwards the
+# caller's value, and nothing when it is unset. MSYS_NO_PATHCONV + `pwd -W` keep Git Bash on
+# Windows from rewriting /work into a Windows path.
+k6_cmd() {
+  if [[ "$K6_MODE" == "local" ]]; then
+    k6 "$@"
+    return
+  fi
+  local host_dir
+  host_dir="$(pwd -W 2>/dev/null || pwd)"
+  MSYS_NO_PATHCONV=1 docker run --rm -i \
+    -v "$host_dir:/work:ro" -w /work \
+    -e SHARD -e DURATION -e RATE_PER_SHARD -e TOTAL_CONTENDERS -e TOTAL_REPLAY_VUS \
+    -e K6_PROMETHEUS_RW_SERVER_URL -e K6_PROMETHEUS_RW_TREND_STATS \
+    "$K6_IMAGE" "$@"
+}
 
 sync_barrier() {
   local sc_num="$1"
@@ -108,7 +137,7 @@ run_scenario() {
     k6_output_flags=(-o experimental-prometheus-rw)
   fi
 
-  SHARD="${SHARD_INDEX}/${TOTAL_SHARDS}" k6 run \
+  SHARD="${SHARD_INDEX}/${TOTAL_SHARDS}" k6_cmd run \
     ${k6_output_flags[@]+"${k6_output_flags[@]}"} \
     --insecure-skip-tls-verify \
     --tag testid="$TESTID" \
