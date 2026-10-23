@@ -10,14 +10,23 @@
 //
 // Rules:
 //  • A product with no number typed is NOT counted — never treated as 0.
-//  • The delta is taken at APPLY time: counted − the stock read right before
-//    that product's adjustStock (on the API build after one product pull), so
-//    a sale between counting and applying does not skew the result.
-//  • The note ("ตรวจนับ <date>" + optional text) is frozen at the first press of
-//    ยืนยัน, so a retry of a parked API adjustment sends the same body.
+//  • The deltas are fixed at the FIRST press of ยืนยัน: the page pulls the
+//    current stock (getAllFresh — on the API build a failed pull refuses, so
+//    no delta comes from a stale cache) and recomputes counted − stock. If any
+//    row differs from the review on screen, the new numbers are shown and the
+//    user confirms again; otherwise the rows (product + delta) and the note are
+//    frozen, and every retry sends exactly those. So a parked API adjustment
+//    (fate unknown) is resent under the same Idempotency-Key + body and the
+//    server replays it — never applied twice. Stock that moves after the first
+//    ยืนยัน (a sale, a PO) is not re-counted; what was reviewed is what is
+//    written.
+//  • The note carries a per-page tag ("ตรวจนับ <date> #<tag>"), so a second
+//    stocktake the same day with the same product + delta never matches a key
+//    the first one left parked.
 //  • Applying stops at the first failure; what was applied and what is left
 //    are both shown, and the left rows stay for ลองอีกครั้ง.
 //  • Counts live in memory only (no Drift table): leaving the page asks first.
+//    The page is pushed on the root navigator, so it covers the shell nav.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +34,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/ids.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/products_repository.dart';
 import 'barcode_scan_button.dart';
@@ -56,14 +66,32 @@ List<StocktakeLine> stocktakeChanges(
       StocktakeLine(p, counts[p.id]!),
 ];
 
-/// The note every stocktake adjustment carries.
-String stocktakeNote(DateTime date, String extra) {
+/// A short random tag for one stocktake page (the random tail of a UUIDv7 —
+/// its head is the clock and repeats for hours).
+String newStocktakeTag() {
+  final u = newUuid();
+  return u.substring(u.length - 6);
+}
+
+/// The note every adjustment of one stocktake carries.
+String stocktakeNote(DateTime date, String tag, String extra) {
   final e = extra.trim();
-  return 'ตรวจนับ ${thaiDate(date)}${e.isEmpty ? '' : ' · $e'}';
+  return 'ตรวจนับ ${thaiDate(date)} #$tag${e.isEmpty ? '' : ' · $e'}';
+}
+
+/// Whether [a] and [b] would write the same thing (same products, same deltas).
+bool sameStocktakeRows(List<StocktakeLine> a, List<StocktakeLine> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].product.id != b[i].product.id || a[i].diff != b[i].diff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 class StocktakeApplyResult {
-  /// Lines applied (or already at the counted value), in order.
+  /// Lines applied, in order.
   final List<StocktakeLine> applied;
 
   /// The line that failed — null when every line was applied.
@@ -72,12 +100,10 @@ class StocktakeApplyResult {
   const StocktakeApplyResult(this.applied, {this.failed, this.error});
 }
 
-/// Applies [lines] one by one through [repo]'s adjustStock and stops at the
-/// first failure. Each delta is counted − the stock read just before that
-/// product's write, so the product ends at the counted value even if its stock
-/// moved after counting. One device sells (owner 2026-10-23), so nothing else
-/// writes between the read and the write on the Drift build; on the API build
-/// the stock is the server's as of the pull below.
+/// Applies the FROZEN [lines] one by one through [repo]'s adjustStock — each
+/// with its own [StocktakeLine.diff], never recomputed — and stops at the first
+/// failure. Called again with the same lines and [note] after a failure, it
+/// sends the same bytes, so a parked API adjustment is replayed, not repeated.
 Future<StocktakeApplyResult> applyStocktake(
   ProductsRepository repo,
   List<StocktakeLine> lines,
@@ -85,30 +111,22 @@ Future<StocktakeApplyResult> applyStocktake(
   void Function(int done)? onProgress,
 }) async {
   final applied = <StocktakeLine>[];
-  StocktakeLine? current = lines.isEmpty ? null : lines.first;
-  try {
-    // API build: getAll pulls the server's products first (a failed pull is
-    // ignored and the cache is used). Drift build: a plain read.
-    await repo.getAll();
-    for (final line in lines) {
-      current = line;
+  for (final line in lines) {
+    try {
       final p = await repo.getById(line.product.id);
       // agent ร่าง
       if (p == null) throw Exception('ไม่พบสินค้านี้แล้ว');
-      final delta = line.counted - p.stock;
-      if (delta != 0) {
-        await repo.adjustStock(
-          p.id,
-          delta,
-          delta > 0 ? 'adjustment-in' : 'adjustment-out',
-          note,
-        );
-      }
-      applied.add(line);
-      onProgress?.call(applied.length);
+      await repo.adjustStock(
+        p.id,
+        line.diff,
+        line.diff > 0 ? 'adjustment-in' : 'adjustment-out',
+        note,
+      );
+    } catch (e) {
+      return StocktakeApplyResult(applied, failed: line, error: e);
     }
-  } catch (e) {
-    return StocktakeApplyResult(applied, failed: current, error: e);
+    applied.add(line);
+    onProgress?.call(applied.length);
   }
   return StocktakeApplyResult(applied);
 }
@@ -140,7 +158,14 @@ class _StocktakePageState extends State<StocktakePage> {
   bool _applying = false;
   int _progress = 0;
 
-  /// Set at the first ยืนยัน and kept: a retry must send the same note.
+  String? _loadError;
+
+  /// This page's tag in the note (see the header).
+  final String _tag = newStocktakeTag();
+
+  /// Set at the first ยืนยัน and kept: a retry must send the same rows
+  /// (product + delta) and the same note. [_plan] holds what is still left.
+  List<StocktakeLine>? _plan;
   String? _frozenNote;
   final List<StocktakeLine> _applied = [];
   StocktakeLine? _failed;
@@ -164,14 +189,23 @@ class _StocktakePageState extends State<StocktakePage> {
 
   Future<void> _load() async {
     final repo = context.read<ProductsRepository>();
-    final products = await repo.getAll();
-    final cats = await repo.getCategories();
-    if (!mounted) return;
-    setState(() {
-      _products = products;
-      _categories = cats;
-      _loading = false;
-    });
+    try {
+      final products = await repo.getAll();
+      final cats = await repo.getCategories();
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _categories = cats;
+        _loading = false;
+        _loadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = ServerErrorResolver.resolveCounterError(e);
+      });
+    }
   }
 
   List<ProductRow> get _visible {
@@ -219,50 +253,80 @@ class _StocktakePageState extends State<StocktakePage> {
       _showDegradedWarning();
       return;
     }
-    final lines = stocktakeChanges(_products, _counts);
-    if (lines.isEmpty) return;
-    final note = _frozenNote ??= stocktakeNote(DateTime.now(), _noteCtrl.text);
+    final shown = _plan ?? stocktakeChanges(_products, _counts);
+    if (shown.isEmpty) return;
+    final repo = context.read<ProductsRepository>();
     setState(() {
       _applying = true;
       _progress = 0;
       _failed = null;
       _error = null;
     });
-    final repo = context.read<ProductsRepository>();
+    var plan = _plan;
+    if (plan == null) {
+      // First ยืนยัน: fix the deltas against the current stock (header).
+      final List<ProductRow> fresh;
+      try {
+        fresh = await repo.getAllFresh();
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _applying = false);
+        _snack(
+          // agent ร่าง
+          'ดึงยอดสต็อกล่าสุดไม่สำเร็จ ยังไม่ได้ปรับสต็อก — '
+          '${ServerErrorResolver.resolveCounterError(e)}',
+        );
+        return;
+      }
+      if (!mounted) return;
+      final current = stocktakeChanges(fresh, _counts);
+      if (!sameStocktakeRows(shown, current)) {
+        setState(() {
+          _products = fresh;
+          _applying = false;
+        });
+        // agent ร่าง
+        _snack(
+          'ยอดในระบบเปลี่ยนไประหว่างนับ — ตรวจทานตัวเลขใหม่แล้วกดยืนยันอีกครั้ง',
+        );
+        return;
+      }
+      plan = current;
+      _plan = plan;
+      _frozenNote = stocktakeNote(DateTime.now(), _tag, _noteCtrl.text);
+    }
     final result = await applyStocktake(
       repo,
-      lines,
-      note,
+      plan,
+      _frozenNote!,
       onProgress: (n) {
         if (mounted) setState(() => _progress = n);
       },
     );
     if (!mounted) return;
+    _applied.addAll(result.applied);
     if (result.failed == null) {
-      Navigator.of(context).pop(_applied.length + result.applied.length);
+      Navigator.of(context).pop(_applied.length);
       return;
     }
-    // Reload so the applied rows show their new stock (and drop out of the
-    // list), and what is left is compared with the current stock.
-    var products = _products;
-    try {
-      products = await repo.getAll();
-    } catch (_) {
-      // Keep the old list: the failure box below is what matters here.
-    }
-    if (!mounted) return;
     setState(() {
-      _applied.addAll(result.applied);
+      _plan = plan!.sublist(result.applied.length);
       _failed = result.failed;
       _error = ServerErrorResolver.resolveCounterError(result.error!);
-      _products = products;
       _applying = false;
     });
   }
 
+  void _snack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _onBack() async {
     if (_applying) return;
-    if (_reviewing) {
+    // Once frozen, the counts cannot be edited (a new delta = a new key).
+    if (_reviewing && _plan == null) {
       setState(() => _reviewing = false);
       return;
     }
@@ -294,6 +358,29 @@ class _StocktakePageState extends State<StocktakePage> {
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
+            : _loadError != null
+            ? Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_loadError!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            _loading = true;
+                            _loadError = null;
+                          });
+                          _load();
+                        },
+                        child: const Text('ลองใหม่อีกครั้ง'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
             : SyncStatusBuilder(
                 builder: (context, _, isDegraded) => _reviewing
                     ? _review(Theme.of(context), isDegraded)
@@ -471,7 +558,8 @@ class _StocktakePageState extends State<StocktakePage> {
 
   // ── Step 3–4: review and apply ─────────────────────────────────────────────
   Widget _review(ThemeData theme, bool isDegraded) {
-    final changes = stocktakeChanges(_products, _counts);
+    // Once frozen, exactly the rows still to write.
+    final changes = _plan ?? stocktakeChanges(_products, _counts);
     final unitsIn = changes
         .where((l) => l.diff > 0)
         .fold<int>(0, (s, l) => s + l.diff);
@@ -522,7 +610,7 @@ class _StocktakePageState extends State<StocktakePage> {
               TextField(
                 controller: _noteCtrl,
                 // A retry must send the same note (PendingWrites body).
-                enabled: _frozenNote == null,
+                enabled: _plan == null,
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   labelText: 'หมายเหตุเพิ่มเติม (ไม่บังคับ)', // agent ร่าง
@@ -532,7 +620,7 @@ class _StocktakePageState extends State<StocktakePage> {
               const SizedBox(height: 4),
               Text(
                 // agent ร่าง
-                'บันทึกการปรับว่า "${_frozenNote ?? stocktakeNote(DateTime.now(), _noteCtrl.text)}"',
+                'บันทึกการปรับว่า "${_frozenNote ?? stocktakeNote(DateTime.now(), _tag, _noteCtrl.text)}"',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -557,7 +645,8 @@ class _StocktakePageState extends State<StocktakePage> {
             alignment: WrapAlignment.end,
             children: [
               OutlinedButton(
-                onPressed: _applying
+                // Frozen rows cannot be edited (a new delta = a new key).
+                onPressed: _applying || _plan != null
                     ? null
                     : () => setState(() => _reviewing = false),
                 child: const Text('กลับไปแก้'), // agent ร่าง

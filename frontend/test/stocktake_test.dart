@@ -20,6 +20,7 @@ import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:srisurart_pos/core/errors/pos_exception.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
@@ -54,6 +55,74 @@ class _FailingRepo extends ProductsRepository {
   }
 }
 
+/// The real Drift repository whose fresh pull fails (as the API build's does
+/// when the server cannot be reached).
+class _PullFailsRepo extends ProductsRepository {
+  _PullFailsRepo(super.db);
+
+  @override
+  Future<List<ProductRow>> getAllFresh() async =>
+      throw const PosException('NETWORK_ERROR', 'เชื่อมต่อไม่ได้');
+}
+
+http.Response _json(int status, Object body) => http.Response(
+  jsonEncode(body),
+  status,
+  headers: {'content-type': 'application/json'},
+);
+
+/// Plays the server for adjust-stock: applies a new key once, replays a key it
+/// has seen (as the real idempotency layer does), and can lose one reply after
+/// committing it. GET /products answers an empty page (or 500).
+class _FakeServer {
+  _FakeServer(this.stock);
+  final Map<String, int> stock;
+  bool loseNextReply = false;
+  bool failPull = false;
+  int applied = 0;
+  final adjustKeys = <String?>[];
+  final bodies = <String>[];
+  final requests = <({String? key, String body})>[];
+  final _replays = <String, Map<String, dynamic>>{};
+
+  ApiClient client() => ApiClient(
+    tokenStorage: InMemoryTokenStorage(),
+    httpClient: MockClient(_handle),
+  );
+
+  Future<http.Response> _handle(http.Request req) async {
+    if (req.method == 'GET') {
+      return failPull
+          ? _json(500, {
+              'status': 'error',
+              'error': {'code': 'INTERNAL_ERROR', 'message': 'x'},
+            })
+          : _json(200, {'status': 'success', 'data': []});
+    }
+    final key = req.headers['Idempotency-Key']!;
+    adjustKeys.add(key);
+    bodies.add(req.body);
+    requests.add((key: key, body: req.body));
+    var data = _replays[key];
+    if (data == null) {
+      final segs = req.url.pathSegments;
+      final id = segs[segs.length - 2];
+      final delta = (jsonDecode(req.body) as Map)['delta'] as int;
+      stock[id] = stock[id]! + delta;
+      applied++;
+      data = _replays[key] = {'id': id, 'stockAfter': stock[id]};
+    }
+    if (loseNextReply) {
+      loseNextReply = false;
+      return _json(504, {
+        'status': 'error',
+        'error': {'code': 'GATEWAY_TIMEOUT', 'message': 'x'},
+      });
+    }
+    return _json(201, {'status': 'success', 'data': data});
+  }
+}
+
 Future<int> _stock(AppDatabase db, String id) async =>
     (await ProductsRepository(db).getById(id))!.stock;
 
@@ -82,10 +151,17 @@ void main() {
       await db.close();
     });
 
-    test('note carries the date and the optional text', () {
+    test('note carries the date, the page tag and the optional text', () {
       final d = DateTime(2026, 10, 23);
-      expect(stocktakeNote(d, ''), startsWith('ตรวจนับ '));
-      expect(stocktakeNote(d, '  ชั้น A '), endsWith(' · ชั้น A'));
+      expect(stocktakeNote(d, 'ab12cd', ''), startsWith('ตรวจนับ '));
+      expect(stocktakeNote(d, 'ab12cd', ''), endsWith(' #ab12cd'));
+      expect(
+        stocktakeNote(d, 'ab12cd', '  ชั้น A '),
+        endsWith(' #ab12cd · ชั้น A'),
+      );
+      final tags = {for (var i = 0; i < 50; i++) newStocktakeTag()};
+      expect(tags, hasLength(50));
+      expect(tags.every((t) => t.length == 6), isTrue);
     });
   });
 
@@ -114,21 +190,6 @@ void main() {
       final mvs = await MovementsRepository(db).getMovements();
       expect(mvs.length - before, 3);
       expect(mvs.take(3).every((m) => m.note == 'ตรวจนับ x'), isTrue);
-      await db.close();
-    });
-
-    test('delta is taken at apply time: stock that moved after counting '
-        'still ends at the count', () async {
-      final db = AppDatabase(NativeDatabase.memory());
-      final repo = ProductsRepository(db);
-      final all = await repo.getAll();
-      final p = all[0];
-      final lines = stocktakeChanges(all, {p.id: p.stock + 2});
-      // A sale-like change between counting and applying.
-      await repo.adjustStock(p.id, -1, 'sale', null);
-
-      await applyStocktake(repo, lines, 'ตรวจนับ x');
-      expect(await _stock(db, p.id), p.stock + 2);
       await db.close();
     });
 
@@ -205,6 +266,72 @@ void main() {
       expect(bodies.toSet(), hasLength(1));
       expect(jsonDecode(bodies.first)['delta'], 5);
       expect(await _stock(db, p.id), p.stock + 5);
+      await db.close();
+    });
+
+    test('applied, reply lost, stock changed before the retry: the retry '
+        'resends the same key + body and the server applies it once', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      final p = (await ProductsRepository(db).getAll()).first;
+      final server = _FakeServer({p.id: p.stock});
+      final repo = ApiProductsRepository(db, server.client());
+      final lines = stocktakeChanges([p], {p.id: p.stock + 3});
+      final note = stocktakeNote(DateTime.now(), newStocktakeTag(), '');
+
+      server.loseNextReply = true;
+      final first = await applyStocktake(repo, lines, note);
+      expect(first.failed, isNotNull);
+      expect(server.stock[p.id], p.stock + 3); // committed, reply lost
+      // Stock moves before the retry (+1 through the server and the cache).
+      await repo.adjustStock(p.id, 1, 'po', null);
+      server.requests.clear();
+
+      final retry = await applyStocktake(repo, lines, note);
+      expect(retry.failed, isNull);
+      // The retry is the frozen +3, under the first key: a replay.
+      expect(server.adjustKeys.toSet(), hasLength(2)); // stocktake + the PO
+      expect(server.requests.single.key, server.adjustKeys.first);
+      expect(server.requests.single.body, server.bodies.first);
+      expect(server.applied, 2); // the +3 once, the +1 once
+      expect(server.stock[p.id], p.stock + 3 + 1);
+      await db.close();
+    });
+
+    test('a failed pull on the first ยืนยัน refuses (getAll still ignores '
+        'it)', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      final server = _FakeServer({})..failPull = true;
+      final repo = ApiProductsRepository(db, server.client());
+      expect(await repo.getAll(), isNotEmpty);
+      await expectLater(repo.getAllFresh(), throwsA(isA<PosException>()));
+      await db.close();
+    });
+
+    test('two stocktakes the same day, same product, same delta: both apply '
+        '(different keys)', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      final p = (await ProductsRepository(db).getAll()).first;
+      final server = _FakeServer({p.id: p.stock});
+      final repo = ApiProductsRepository(db, server.client());
+      final today = DateTime.now();
+
+      // The first one's reply is lost: its key stays parked.
+      server.loseNextReply = true;
+      final first = await applyStocktake(
+        repo,
+        stocktakeChanges([p], {p.id: p.stock + 2}),
+        stocktakeNote(today, newStocktakeTag(), ''),
+      );
+      expect(first.failed, isNotNull);
+      // A second stocktake the same day sees the same local stock → +2 again.
+      final second = await applyStocktake(
+        repo,
+        stocktakeChanges([p], {p.id: p.stock + 2}),
+        stocktakeNote(today, newStocktakeTag(), ''),
+      );
+      expect(second.failed, isNull);
+      expect(server.adjustKeys.toSet(), hasLength(2));
+      expect(server.applied, 2);
       await db.close();
     });
   });
@@ -349,8 +476,92 @@ void main() {
         expect(find.byKey(ValueKey('stocktake-line-${b.id}')), findsOneWidget);
         expect(find.byKey(ValueKey('stocktake-line-${c.id}')), findsOneWidget);
         expect(find.text('ลองอีกครั้ง'), findsOneWidget);
+        // Frozen: the counts can no longer be edited.
+        expect(
+          tester
+              .widget<ButtonStyleButton>(
+                find.ancestor(
+                  of: find.text('กลับไปแก้'),
+                  matching: find.bySubtype<ButtonStyleButton>(),
+                ),
+              )
+              .onPressed,
+          isNull,
+        );
         expect(await _stock(db, a.id), a.stock + 1);
         expect(await _stock(db, c.id), c.stock);
+        await db.close();
+      });
+    });
+
+    Future<void> countAndReview(
+      WidgetTester tester,
+      ProductsRepository repo,
+      Map<String, int> counts,
+    ) async {
+      await tester.pumpWidget(
+        RepositoryProvider<ProductsRepository>.value(
+          value: repo,
+          child: const MaterialApp(home: StocktakePage()),
+        ),
+      );
+      await settle(tester);
+      for (final e in counts.entries) {
+        await tester.enterText(countField(e.key), '${e.value}');
+      }
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('stocktake-review')));
+      await settle(tester);
+    }
+
+    testWidgets('stock moved between review and the first ยืนยัน: nothing is '
+        'written, the new numbers are shown; the next ยืนยัน writes them', (
+      tester,
+    ) async {
+      setSize(tester, const Size(1280, 900));
+      final db = AppDatabase(NativeDatabase.memory());
+      await tester.runAsync(() async {
+        final repo = ProductsRepository(db);
+        final p = (await repo.getAll()).first;
+        await countAndReview(tester, repo, {p.id: p.stock + 2});
+        expect(find.text('+2'), findsOneWidget);
+
+        await repo.adjustStock(p.id, -1, 'sale', null); // a sale meanwhile
+        await tester.tap(find.byKey(const Key('stocktake-apply')));
+        await settle(tester);
+        expect(find.byType(StocktakePage), findsOneWidget);
+        expect(find.textContaining('ยอดในระบบเปลี่ยนไป'), findsOneWidget);
+        expect(find.text('+3'), findsOneWidget);
+        expect(await _stock(db, p.id), p.stock - 1);
+
+        tester
+            .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+            .removeCurrentSnackBar();
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('stocktake-apply')));
+        await settle(tester);
+        expect(await _stock(db, p.id), p.stock + 2);
+        await db.close();
+      });
+    });
+
+    testWidgets('a failed pull on the first ยืนยัน refuses: nothing written', (
+      tester,
+    ) async {
+      setSize(tester, const Size(1280, 900));
+      final db = AppDatabase(NativeDatabase.memory());
+      await tester.runAsync(() async {
+        final p = (await ProductsRepository(db).getAll()).first;
+        await countAndReview(tester, _PullFailsRepo(db), {p.id: p.stock + 2});
+        await tester.tap(find.byKey(const Key('stocktake-apply')));
+        await settle(tester);
+        expect(find.byType(StocktakePage), findsOneWidget);
+        expect(
+          find.textContaining('ดึงยอดสต็อกล่าสุดไม่สำเร็จ ยังไม่ได้ปรับสต็อก'),
+          findsOneWidget,
+        );
+        expect(await _stock(db, p.id), p.stock);
+        expect(find.text('ยืนยันปรับสต็อก'), findsOneWidget); // not frozen
         await db.close();
       });
     });

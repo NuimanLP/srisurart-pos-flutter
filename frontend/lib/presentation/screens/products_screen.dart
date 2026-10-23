@@ -389,7 +389,9 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _openStocktake() async {
-    final n = await Navigator.of(context).push<int>(
+    // Root navigator: the page covers the shell nav, so leaving goes through
+    // its own confirm (counts are in memory only).
+    final n = await Navigator.of(context, rootNavigator: true).push<int>(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => const StocktakePage(),
