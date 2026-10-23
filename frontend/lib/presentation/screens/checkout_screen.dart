@@ -2200,6 +2200,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               subtitle:
                   '${_selectedCustomer!.phone ?? ''} · ${_selectedCustomer!.points} แต้ม',
               onClear: () => setState(() => _selectedCustomer = null),
+              clearKey: const Key('customer-chip-clear'),
             )
           else
             Column(
@@ -2368,6 +2369,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   _selectedMechanic!.shopName ?? _selectedMechanic!.phone ?? '',
               highlight: true,
               onClear: () => setState(() => _selectedMechanic = null),
+              clearKey: const Key('mechanic-chip-clear'),
             )
           else
             Column(
@@ -2528,6 +2530,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     required String subtitle,
     required VoidCallback onClear,
     bool highlight = false,
+    Key? clearKey,
   }) {
     final accentColor = highlight ? _orange : AppColors.steelBlue;
     return Container(
@@ -2573,6 +2576,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           // 36 px circle drawn inside a 48x48 hit area (UX review R10).
           IconButton(
+            key: clearKey,
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.standard,
             constraints: const BoxConstraints.tightFor(width: 48, height: 48),
@@ -2742,6 +2746,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ),
           TapTarget(
+            key: const Key('price-warning-close'),
             minSize: 48,
             onTap: _clearWarn,
             child: Icon(Icons.close, size: 18, color: fg),
@@ -2941,23 +2946,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       children: [
         priceButton,
         const SizedBox(height: 2),
-        Row(
+        // Wrap, not Row: the reset keeps its 48 px hit area (UX review R10)
+        // and drops under the annotation when the name column is narrower
+        // than both (a 320 px phone) instead of overflowing.
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Flexible(
-              child: Text(
-                'ปกติ ${baht(item.originalPrice)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  decoration: TextDecoration.lineThrough,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
+            Text(
+              'ปกติ ${baht(item.originalPrice)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                decoration: TextDecoration.lineThrough,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.5),
               ),
             ),
             TapTarget(
+              key: Key('cart-price-reset-${item.productId}'),
+              minSize: 48,
               onTap: () => _cart.resetPrice(item.productId),
               child: const Icon(Icons.refresh, size: 18),
             ),

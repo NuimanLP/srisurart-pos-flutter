@@ -46,17 +46,21 @@ class BarcodeScanButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Newer Flutter exposes a tooltip to screen readers only as a hint, not
-    // the button's name, so the icon carries the label too (UX review R10;
-    // same string — no new Thai copy). A >=48x48 hit area on every platform
-    // (UX review R10): desktop/web default to compact density + shrinkWrap,
-    // which shrank it to ~32 px.
+    // One accessible name: the icon's semanticLabel (newer Flutter exposes an
+    // IconButton tooltip only as a hint, not the button's name). The hover
+    // tooltip stays for mouse users but is kept out of semantics so the name
+    // is not read twice (UX review R10; same string — no new Thai copy).
+    // A >=48x48 hit area on every platform: desktop/web default to compact
+    // density + shrinkWrap, which shrank it to ~32 px.
     return IconButton(
-      tooltip: scanTooltip,
-      icon: const Icon(
-        Icons.photo_camera_outlined,
-        size: 22,
-        semanticLabel: scanTooltip,
+      icon: Tooltip(
+        message: scanTooltip,
+        excludeFromSemantics: true,
+        child: const Icon(
+          Icons.photo_camera_outlined,
+          size: 22,
+          semanticLabel: scanTooltip,
+        ),
       ),
       color: AppColors.orange,
       visualDensity: VisualDensity.standard,
@@ -187,8 +191,7 @@ class _ScannerDialogState extends State<_ScannerDialog> {
                 children: [
                   const Expanded(
                     child: Text(
-                      // agent ร่าง
-                      'สแกนบาร์โค้ดด้วยกล้อง',
+                      BarcodeScanButton.scanTooltip,
                       style: TextStyle(
                         color: AppColors.white,
                         fontWeight: FontWeight.w700,
