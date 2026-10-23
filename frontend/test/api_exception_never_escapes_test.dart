@@ -346,9 +346,11 @@ const _noApiCall = <String, String>{
   'OfflinePinRepository.clearPin': 'Drift only',
   'ApiSalesRepository.getSales': 'Drift read',
   'ApiSalesRepository.getSalesByIds': 'Drift read',
+  'ApiSalesRepository.getMechanicCreditSales': 'Drift read',
   'ApiSalesRepository.getRefundedQty': 'Drift read',
   'ApiSalesRepository.voidSaleOffline': 'queues an outbox op; push is unawaited',
   'ApiReturnsRepository.getReturns': 'Drift read',
+  'ApiReturnsRepository.getReturnsForSales': 'Drift read',
   'ApiShiftsRepository.getCashDrawer': 'Drift read',
   'ApiShiftsRepository.getShiftHistory': 'Drift read',
   'ApiShiftsRepository.drawerCash': 'Drift read',
@@ -396,6 +398,8 @@ final Map<String, _Call> _cases = {
   'ApiProductsRepository.syncFromServer': (w) =>
       ApiProductsRepository(w.db, w.api).syncFromServer(),
   'ApiProductsRepository.getAll': (w) => ApiProductsRepository(w.db, w.api).getAll(),
+  'ApiProductsRepository.getAllFresh': (w) =>
+      ApiProductsRepository(w.db, w.api).getAllFresh(),
   'ApiProductsRepository.getCategories': (w) =>
       ApiProductsRepository(w.db, w.api).getCategories(),
   'ApiProductsRepository.add': (w) => ApiProductsRepository(w.db, w.api)

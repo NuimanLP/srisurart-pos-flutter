@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 
 final NumberFormat _intFmt = NumberFormat('#,##0');
 final DateFormat _dMonthFmt = DateFormat('d MMM', 'th');
+final DateFormat _monthFmt = DateFormat('MMMM', 'th');
 final DateFormat _timeFmt = DateFormat('HH:mm');
 
 /// Thousands-grouped integer, e.g. 12345 → "12,345".
@@ -18,6 +19,9 @@ String thaiDate(DateTime d) {
   final be = d.year + 543;
   return '${_dMonthFmt.format(d)} $be';
 }
+
+/// Thai month name with Buddhist year, e.g. "ตุลาคม 2569".
+String thaiMonthYear(DateTime d) => '${_monthFmt.format(d)} ${d.year + 543}';
 
 /// Date + time, e.g. "23 มิ.ย. 2569 14:35".
 String thaiDateTime(DateTime d) => '${thaiDate(d)} ${_timeFmt.format(d)}';

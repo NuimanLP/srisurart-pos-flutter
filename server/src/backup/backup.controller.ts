@@ -80,8 +80,11 @@ export class BackupController {
    */
   @Get('jobs/:id')
   async getJobStatus(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
-    const job = await this.ownJob(req, id);
+    let job = await this.ownJob(req, id);
     const state = await job.getState();
+    // `job` is a snapshot taken before getState(): a job that finished in between reads
+    // `completed` with no returnvalue yet. Re-read it once so `completed` always carries its result.
+    if (state === 'completed' && job.returnvalue == null) job = await this.ownJob(req, id);
     const descriptor = exportDescriptor(job.returnvalue);
     const resultData = descriptor
       ? { ...descriptor, downloadPath: `/api/v1/backup/jobs/${job.id}/download` }

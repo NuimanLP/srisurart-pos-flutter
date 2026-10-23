@@ -783,14 +783,14 @@ class SyncAlertBanner extends StatelessWidget {
                     color: degradedBg,
                     child: Row(
                       children: [
-                        Icon(Icons.wifi_off, size: 16, color: degradedFg),
+                        Icon(Icons.wifi_off, size: 18, color: degradedFg),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'ออฟไลน์ (ขายสำรอง) — ระบบจะบันทึกรายการขายในเครื่อง และส่งข้อมูลไปยังเซิร์ฟเวอร์โดยอัตโนมัติเมื่อเชื่อมต่ออินเทอร์เน็ต',
                             style: TextStyle(
                               color: degradedFg,
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -806,20 +806,20 @@ class SyncAlertBanner extends StatelessWidget {
                       child: Container(
                         width: double.infinity,
                         // The whole strip is the tap target: keep it finger-high.
-                        constraints: const BoxConstraints(minHeight: 44),
+                        constraints: const BoxConstraints(minHeight: 48),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 6),
                         child: Row(
                           children: [
                             Icon(Icons.report_problem_outlined,
-                                size: 16, color: ownerFg),
+                                size: 18, color: ownerFg),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 'มีรายการรอเจ้าของร้านตรวจสอบ ($needsOwnerCount รายการ) — กดที่นี่เพื่อเข้าหน้าตรวจรายการ',
                                 style: TextStyle(
                                   color: ownerFg,
-                                  fontSize: 12,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -828,7 +828,7 @@ class SyncAlertBanner extends StatelessWidget {
                               'ดูรายการ ›',
                               style: TextStyle(
                                 color: ownerFg,
-                                fontSize: 12,
+                                fontSize: 14,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),

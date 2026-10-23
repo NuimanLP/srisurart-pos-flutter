@@ -2200,6 +2200,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               subtitle:
                   '${_selectedCustomer!.phone ?? ''} · ${_selectedCustomer!.points} แต้ม',
               onClear: () => setState(() => _selectedCustomer = null),
+              clearKey: const Key('customer-chip-clear'),
             )
           else
             Column(
@@ -2368,6 +2369,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   _selectedMechanic!.shopName ?? _selectedMechanic!.phone ?? '',
               highlight: true,
               onClear: () => setState(() => _selectedMechanic = null),
+              clearKey: const Key('mechanic-chip-clear'),
             )
           else
             Column(
@@ -2528,6 +2530,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     required String subtitle,
     required VoidCallback onClear,
     bool highlight = false,
+    Key? clearKey,
   }) {
     final accentColor = highlight ? _orange : AppColors.steelBlue;
     return Container(
@@ -2571,20 +2574,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ],
             ),
           ),
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(18),
+          // 36 px circle drawn inside a 48x48 hit area (UX review R10).
+          IconButton(
+            key: clearKey,
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.standard,
+            constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+            icon: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.close, size: 18),
             ),
-            child: IconButton(
-              padding: EdgeInsets.zero,
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: onClear,
-            ),
+            onPressed: onClear,
           ),
         ],
       ),
@@ -2642,10 +2650,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     onPressed: (_submitting || _parkedBusy)
                         ? null
                         : _confirmClearCart,
-                    visualDensity: VisualDensity.compact,
+                    // 48x48 hit area (UX review R10); the icon stays 20 px.
+                    visualDensity: VisualDensity.standard,
                     constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 30,
+                      width: 48,
+                      height: 48,
                     ),
                     padding: EdgeInsets.zero,
                     color: Theme.of(context).colorScheme.error,
@@ -2737,7 +2746,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ),
           TapTarget(
-            minSize: 36,
+            key: const Key('price-warning-close'),
+            minSize: 48,
             onTap: _clearWarn,
             child: Icon(Icons.close, size: 18, color: fg),
           ),
@@ -2898,12 +2908,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     final mechSel = _selectedMechanic != null;
     final priceButton = OutlinedButton(
+      key: Key('cart-price-${item.productId}'),
       onPressed: mechSel
           ? () => setState(() => _editingPriceId = item.productId)
           : null,
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         minimumSize: const Size(0, 28),
+        // The outline stays 28 px tall; `padded` + standard density give it
+        // a 48x48 hit area on every platform (UX review R10) — desktop/web
+        // otherwise default to compact + shrinkWrap.
+        visualDensity: VisualDensity.standard,
+        tapTargetSize: MaterialTapTargetSize.padded,
         side: BorderSide(
           color: item.overridden ? _orange : Theme.of(context).dividerColor,
         ),
@@ -2930,23 +2946,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       children: [
         priceButton,
         const SizedBox(height: 2),
-        Row(
+        // Wrap, not Row: the reset keeps its 48 px hit area (UX review R10)
+        // and drops under the annotation when the name column is narrower
+        // than both (a 320 px phone) instead of overflowing.
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Flexible(
-              child: Text(
-                'ปกติ ${baht(item.originalPrice)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  decoration: TextDecoration.lineThrough,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
+            Text(
+              'ปกติ ${baht(item.originalPrice)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                decoration: TextDecoration.lineThrough,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.5),
               ),
             ),
             TapTarget(
+              key: Key('cart-price-reset-${item.productId}'),
+              minSize: 48,
               onTap: () => _cart.resetPrice(item.productId),
               child: const Icon(Icons.refresh, size: 18),
             ),
@@ -2963,10 +2983,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (err != null) _warn(err);
   }
 
-  // 30dp visual chip kept, but TapTarget gives it a ≥44dp hit area — these are
+  // 30dp visual chip kept, but TapTarget gives it a ≥48dp hit area — these are
   // the most-tapped controls on a touch POS.
   Widget _qtyBtn(IconData icon, VoidCallback onTap, {Color? color}) =>
       TapTarget(
+        minSize: 48,
         onTap: onTap,
         child: Container(
           width: 30,
@@ -3026,9 +3047,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     SegmentedButton<bool>(
                       key: const Key('discountModeToggle'),
                       showSelectedIcon: false,
+                      // 48 px tall hit area (UX review R10); stays
+                      // horizontally compact so it fits a 320 px phone.
                       style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity(horizontal: -2),
+                        tapTargetSize: MaterialTapTargetSize.padded,
                       ),
                       segments: const [
                         ButtonSegment(

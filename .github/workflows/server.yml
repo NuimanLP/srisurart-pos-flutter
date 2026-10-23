@@ -349,7 +349,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -369,7 +369,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       # Fails on high/critical advisories. Fix by bumping, or by a `pnpm.overrides`
@@ -415,7 +415,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       # vitest + v8 coverage, then scripts/check-coverage.mjs: fails when src/ line coverage
@@ -617,7 +617,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
 

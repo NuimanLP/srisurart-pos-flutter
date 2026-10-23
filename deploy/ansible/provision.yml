@@ -264,7 +264,9 @@
         name: "Srisurart POS Daily Database Backup"
         user: "{{ deploy_user }}"
         minute: "0"
-        hour: "3"
+        # 03:00 UTC (10:00 ICT) + 12:00 UTC (19:00 ICT, after the shop's day — owner 2026-10-23), so one
+        # bad run loses at most half a day of sales. One entry: same `name:` keeps the existing line.
+        hour: "3,12"
         job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >>{{ app_dir }}/backups/backup-cron.log 2>&1"
         state: present
 

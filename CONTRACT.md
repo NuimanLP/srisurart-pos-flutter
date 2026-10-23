@@ -294,16 +294,16 @@ never inline in `build`.
 | File (`lib/presentation/screens/`) | Class | Route path (AppRoutes) | Sub-views OWNED by this screen agent |
 |---|---|---|---|
 | `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal (+ `ถ่ายรูปหลักฐานสินค้า` button → `SalePhotoSheet`, `widgets/sale_photo_sheet.dart`), LowStockAlert, park strip, save-quote, mechanic override |
-| `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor |
+| `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor, stocktake `ตรวจนับสต็อก` (`StocktakePage`, `widgets/stocktake_view.dart`; full-screen page, no route; applies through `adjustStock` only) |
 | `purchase_orders_screen.dart` | `PurchaseOrdersScreen` | `/purchase-orders` (`purchaseOrders`) | PO create + receive, PO A4 print (`PurchaseOrderA4View`, `widgets/purchase_order_a4.dart`; no prices on paper) |
 | `vehicle_search_screen.dart` | `VehicleSearchScreen` | `/vehicle-search` (`vehicleSearch`) | — |
 | `customers_screen.dart` | `CustomersScreen` | `/customers` (`customers`) | — |
-| `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake |
+| `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake, credit statement A4 print (`MechanicStatementA4View`, `widgets/mechanic_statement_a4.dart`; total = `creditBalance`, allocation in `domain/reports/credit_statement.dart`) |
 | `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view, `SalePhotoStrip` in the refund detail (`widgets/sale_photo_strip.dart`) |
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
 | `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
-| `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
-| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup, open/close shift, cash in/out |
+| `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV, tax id + branch fields (ทั่วไป), sales-tax report for ภ.พ.30 in the export tab (`SalesTaxReportSection`, `widgets/sales_tax_report_section.dart`; figures in `domain/reports/sales_tax_report.dart`; never prints "ใบกำกับภาษีอย่างย่อ") |
+| `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup (+ `พิมพ์รายการ โอน/QR` → `QrTickListPage`, `widgets/qr_bill_ticklist.dart`: A4 tick list of a day's โอน/QR bills, per-account totals = the closing report's split), open/close shift, cash in/out (+ cash-out category chips), `เงินสดออกไปไหน` monthly popup (`DrawerExpenseSummaryView`, `widgets/drawer_expense_summary.dart`; rules in `domain/reports/drawer_expense.dart`) |
 
 `lib/presentation/widgets/app_shell.dart` (`AppShell`) is the persistent nav
 frame (NavigationRail on wide, Drawer on narrow). Contract-owned; a screen agent
@@ -360,8 +360,13 @@ those are NOT input fields.
 - `String baht2(num v)` — `'฿' + #,##0.00` (fixed 2-decimal, for cost/margin views)
 - `String csvSafe(Object? v)` — prefixes `'` when value starts with `= + - @ \t \r`
 - `dates.dart`: `String dateKey(DateTime)` (yyyy-MM-dd), `String todayKey()`,
-  `String monthKey()` (yyyy-MM), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
+  `String monthKey([DateTime? d])` (yyyy-MM, default now), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
   in LOCAL time; never re-slice `toIso8601String()` inline
+- `money.dart`: `int toSatang(num)`, `String csvMoney(int satang)` (`1234.50`, negatives `(107.00)` —
+  a leading `-` would be escaped by `csvSafe`)
+- `tax_identity.dart`: `parseTaxId(raw)` (13 digits; spaces/dashes are separators; empty = clear) /
+  `parseBranchNo(raw)` (5 digits) → `({String? value, String? error})` — validate before saving;
+  `formatTaxId` (`X-XXXX-XXXXX-XX-X`), `branchLabel` (`00000` → `สำนักงานใหญ่`)
 
 **Use these — never inline equivalents.** All CSV exporters MUST pass values
 through `csvSafe` before quote-escaping. ID/doc numbers come ONLY from `ids.dart`.

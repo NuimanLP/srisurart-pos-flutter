@@ -212,6 +212,17 @@ class SalesRepository {
     );
   }
 
+  /// [mechanicId]'s `เครดิตช่าง` bills, headers only (no items, no order) —
+  /// the input of the mechanic credit statement
+  /// (`domain/reports/credit_statement.dart`), so one press does not load
+  /// every bill of every mechanic.
+  Future<List<SaleRow>> getMechanicCreditSales(String mechanicId) {
+    final query = db.select(db.sales)
+      ..where((t) => t.mechanicId.equals(mechanicId))
+      ..where((t) => t.paymentMethod.equals('เครดิตช่าง'));
+    return query.get();
+  }
+
   Stream<List<SaleWithItems>> watchSales() {
     final query = db.select(db.sales)
       ..orderBy([(t) => OrderingTerm.desc(t.date)]);

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
@@ -19,9 +20,12 @@ import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 
 void main() {
-  setUpAll(() {
+  setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
+    // The export tab's sales-tax report names its month in Thai (intl `th`
+    // data — the app loads it through its th localization delegates).
+    await initializeDateFormatting('th', null);
   });
 
   testWidgets('every settings tab is on screen and lays out at 390 px', (

@@ -396,7 +396,7 @@ X-Content-Type-Options: nosniff
 | `PRODUCT_IMAGE_TOO_LARGE` | 413 | ใช้ซ้ำ | เดิม `รูปใหญ่เกิน 3 MB` |
 | `SALE_NOT_FOUND` | 404 | ใช้ซ้ำ | client แสดง `ไม่พบบิลนี้บนเซิร์ฟเวอร์` บน route นี้ (`agent ร่าง`) |
 | `CLIENT_ID_REUSED` | 409 | ใช้ซ้ำ | ข้อความเดิม |
-| `IMAGE_BUSY` | 503 | 🆕 *(review 2026-10-21)* | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` (`agent ร่าง` — ลอกตรงตัวจาก `RATE_LIMITED` ที่รับรองแล้ว) · มี `Retry-After` · retryable (ไม่ใช่คำตัดสิน) · ใช้ร่วมกับ `PUT /products/:id/image` (02 §8) |
+| `IMAGE_BUSY` | 503 | 🆕 *(review 2026-10-21)* | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` (รับรองโดยเจ้าของโปรเจกต์ 2026-10-23 — ข้อความเดียวกับ `RATE_LIMITED`) · มี `Retry-After` · retryable (ไม่ใช่คำตัดสิน) · ใช้ร่วมกับ `PUT /products/:id/image` (02 §8) |
 | `IDEMPOTENCY_KEY_REUSED` / `IDEMPOTENCY_KEY_IN_FLIGHT` / `IDEMPOTENCY_KEY_INVALID` | 409 / 503 / 400 | ใช้ซ้ำ | ข้อความเดิม |
 | `DEVICE_ROLE_FORBIDDEN` / `INVALID_ID` / `BAD_REQUEST` / `NOT_FOUND` / `UNAUTHORIZED` | 403 / 400 / 400 / 404 / 401 | ใช้ซ้ำ | ข้อความเดิม |
 
