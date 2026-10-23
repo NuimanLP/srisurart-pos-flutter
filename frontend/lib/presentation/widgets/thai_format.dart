@@ -19,6 +19,27 @@ String thaiDate(DateTime d) {
   return '${_dMonthFmt.format(d)} $be';
 }
 
+/// Full Thai month name with Buddhist year, e.g. "ตุลาคม 2569". A fixed
+/// list, not intl's `th` data, so it also works where no Thai locale was
+/// loaded (CSV rows are built outside the widget tree).
+String thaiMonthYear(DateTime d) =>
+    '${_thaiMonths[d.month - 1]} ${d.year + 543}';
+
+const _thaiMonths = [
+  'มกราคม',
+  'กุมภาพันธ์',
+  'มีนาคม',
+  'เมษายน',
+  'พฤษภาคม',
+  'มิถุนายน',
+  'กรกฎาคม',
+  'สิงหาคม',
+  'กันยายน',
+  'ตุลาคม',
+  'พฤศจิกายน',
+  'ธันวาคม',
+];
+
 /// Date + time, e.g. "23 มิ.ย. 2569 14:35".
 String thaiDateTime(DateTime d) => '${thaiDate(d)} ${_timeFmt.format(d)}';
 

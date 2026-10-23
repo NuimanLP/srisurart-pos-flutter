@@ -302,7 +302,7 @@ never inline in `build`.
 | `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view, `SalePhotoStrip` in the refund detail (`widgets/sale_photo_strip.dart`) |
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
 | `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
-| `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
+| `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV, tax id + branch fields (ทั่วไป), sales-tax report for ภ.พ.30 in the export tab (`SalesTaxReportSection`, `widgets/sales_tax_report_section.dart`; figures in `domain/reports/sales_tax_report.dart`; never prints "ใบกำกับภาษีอย่างย่อ") |
 | `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup, open/close shift, cash in/out |
 
 `lib/presentation/widgets/app_shell.dart` (`AppShell`) is the persistent nav
@@ -362,6 +362,9 @@ those are NOT input fields.
 - `dates.dart`: `String dateKey(DateTime)` (yyyy-MM-dd), `String todayKey()`,
   `String monthKey()` (yyyy-MM), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
   in LOCAL time; never re-slice `toIso8601String()` inline
+- `tax_identity.dart`: `parseTaxId(raw)` (13 digits; spaces/dashes are separators; empty = clear) /
+  `parseBranchNo(raw)` (5 digits) → `({String? value, String? error})` — validate before saving;
+  `formatTaxId` (`X-XXXX-XXXXX-XX-X`), `branchLabel` (`00000` → `สำนักงานใหญ่`)
 
 **Use these — never inline equivalents.** All CSV exporters MUST pass values
 through `csvSafe` before quote-escaping. ID/doc numbers come ONLY from `ids.dart`.

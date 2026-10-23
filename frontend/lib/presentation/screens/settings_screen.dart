@@ -37,6 +37,7 @@ import '../../core/utils/csv_safe.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/tax_identity.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
@@ -56,6 +57,7 @@ import '../widgets/font_scale_controller.dart';
 import '../widgets/login_dialog.dart';
 import '../widgets/offline_pin_setup_dialog.dart';
 import '../widgets/payment_accounts_settings.dart';
+import '../widgets/sales_tax_report_section.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
@@ -940,9 +942,13 @@ class _GeneralTabState extends State<_GeneralTab> {
   final _address = TextEditingController();
   final _taxRate = TextEditingController();
   final _quoteValidDays = TextEditingController();
+  final _taxId = TextEditingController();
+  final _branchNo = TextEditingController();
 
   bool _loaded = false;
   bool _saved = false;
+  String? _taxIdError;
+  String? _branchNoError;
 
   @override
   void initState() {
@@ -960,6 +966,8 @@ class _GeneralTabState extends State<_GeneralTab> {
     _address.text = s.address ?? '';
     _taxRate.text = _trimNum(s.taxRate);
     _quoteValidDays.text = s.quoteValidDays.toString();
+    _taxId.text = s.taxId ?? '';
+    _branchNo.text = s.branchNo ?? '';
     setState(() => _loaded = true);
   }
 
@@ -975,6 +983,8 @@ class _GeneralTabState extends State<_GeneralTab> {
     _address.dispose();
     _taxRate.dispose();
     _quoteValidDays.dispose();
+    _taxId.dispose();
+    _branchNo.dispose();
     super.dispose();
   }
 
@@ -985,6 +995,15 @@ class _GeneralTabState extends State<_GeneralTab> {
       ).showSnackBar(const SnackBar(content: Text(settingsOfflineRefusal)));
       return;
     }
+    // Validate first: a malformed tax id / branch is refused, never trimmed
+    // into shape, and nothing is saved while either is wrong.
+    final taxId = parseTaxId(_taxId.text);
+    final branchNo = parseBranchNo(_branchNo.text);
+    setState(() {
+      _taxIdError = taxId.error;
+      _branchNoError = branchNo.error;
+    });
+    if (taxId.error != null || branchNo.error != null) return;
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
     try {
@@ -999,6 +1018,8 @@ class _GeneralTabState extends State<_GeneralTab> {
           address: Value(_address.text.isEmpty ? null : _address.text),
           taxRate: Value(taxRate),
           quoteValidDays: Value(validDays),
+          taxId: Value(taxId.value),
+          branchNo: Value(branchNo.value),
         ),
       );
     } catch (e) {
@@ -1091,6 +1112,25 @@ class _GeneralTabState extends State<_GeneralTab> {
                             child: AppTextField.numeric(
                               label: 'ใบเสนอราคา · มีอายุ (วัน)',
                               controller: _quoteValidDays,
+                            ),
+                          ),
+                          // VAT identity (owner 2026-10-23) — agent ร่าง.
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'เลขประจำตัวผู้เสียภาษี (13 หลัก)',
+                              controller: _taxId,
+                              keyboardType: TextInputType.number,
+                              errorText: _taxIdError,
+                            ),
+                          ),
+                          SizedBox(
+                            width: fieldW,
+                            child: AppTextField(
+                              label: 'สาขา (00000 = สำนักงานใหญ่)',
+                              controller: _branchNo,
+                              keyboardType: TextInputType.number,
+                              errorText: _branchNoError,
                             ),
                           ),
                         ],
@@ -2839,6 +2879,15 @@ class _ExportTabState extends State<_ExportTab> {
                 ),
               ],
             ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Owner-approved 2026-10-23: the monthly sales-tax report for ภ.พ.30,
+        // next to the other accounting exports and through the same CSV path.
+        AppCard(
+          child: SalesTaxReportSection(
+            onDownloadCsv: (rows, filename) =>
+                _download(rows, filename, 'salesTax'),
           ),
         ),
       ],
