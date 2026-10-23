@@ -58,8 +58,9 @@ stack; monitoring stack not brought up.
 - #768 CLAUDE.md → 239 lines + `docs/rules/*.md` + `docs/status.md` (verbatim move, line check 1144/1145; the one
   missing line is the `## Phase 2` heading) — merged to `develop`; its files were committed CRLF and are normalised to LF
   by the handoff PR
-- #769 Node 22 → 24 + `grafana/k6` pinned
-- #770 UX: ≥48 px counter tap targets, 14 px degraded banner, scan button label
+- #769 Node 22 → 24 (`node:24-alpine` 24.22.1, digest-pinned; CI built both arches + qemu64 sharp check) + `grafana/k6:2.3.0` pinned in `run-shard-test.sh` — merged. Trivy scans the new base only on the `main` push.
+- #771 `GET /backup/jobs/:id` re-reads a job that completed between snapshot and `getState()` (was `completed` + `data: null`; flaky e2e seen on #769) — merged
+- #770 UX: ≥48 px counter tap targets (incl. price-reset, chip ✕), 14 px degraded banner, scan button named once; tested at 1280/390/320 px on Android + Windows densities. Cart lines ~20 px taller on desktop (owner-visible cost). Scan-button search fields 40 → 48 px on desktop/web
 
 ## Still open
 
