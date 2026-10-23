@@ -582,4 +582,8 @@ class ApiReturnsRepository implements ReturnsRepository {
   @override
   Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to}) =>
       drift.getReturns(from: from, to: to);
+
+  @override
+  Future<List<ReturnRow>> getReturnsForSales(Iterable<String> saleIds) =>
+      drift.getReturnsForSales(saleIds);
 }
