@@ -251,8 +251,12 @@ void main() {
           .focusNode;
       expect(focusOf().hasFocus, isTrue);
 
-      // Elsewhere, then F2.
-      await tester.tap(find.widgetWithText(TextField, 'รับเงิน ฿…'));
+      // Elsewhere, then F2. (The 48 px cart targets, UX review R10, made the
+      // cart pane taller, so scroll the cash field into view first.)
+      final cashField = find.widgetWithText(TextField, 'รับเงิน ฿…');
+      await tester.ensureVisible(cashField);
+      await settle(tester);
+      await tester.tap(cashField);
       await settle(tester);
       expect(focusOf().hasFocus, isFalse);
       await tester.sendKeyEvent(LogicalKeyboardKey.f2);
