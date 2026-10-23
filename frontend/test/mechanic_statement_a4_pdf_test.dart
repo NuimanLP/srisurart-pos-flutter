@@ -21,11 +21,12 @@ const _settings = SettingsRowData(
 );
 
 MechanicRow _mechanic({
+  String code = 'M001',
   String name = 'Lung Manop',
   String? nameTH = 'ลุงมานพ',
 }) => MechanicRow(
   id: 'm1',
-  code: 'M001',
+  code: code,
   name: name,
   nameTH: nameTH,
   shopName: 'อู่ลุงมานพ',
@@ -173,18 +174,31 @@ void main() {
     expect(text, isNot(contains(_j(statementResidualLabel))));
   });
 
-  test('file name: statement-<code>-<name>-YYYY-MM-DD.pdf, sanitized', () {
+  test('a negative balance prints no debt, only the overpayment', () async {
+    final text = await _joined(_view(-50));
+    expect(text, contains(_j('ไม่มียอดค้างชำระ')));
+    expect(text, contains(_j('ยอดค้างชำระรวม ฿0.00')));
+    expect(text, contains(_j('ชำระเกิน ฿50.00')));
+    expect(text, isNot(contains('RC01-2569')));
+    expect(text, isNot(contains('฿-')));
+    expect(text, isNot(contains('-฿')));
+    expect(text, isNot(contains(_j(statementResidualLabel))));
+  });
+
+  test('file name: statement-<code>-YYYY-MM-DD.pdf — no name (PDPA)', () {
     expect(
       statementFileName(_mechanic(), _asOf),
-      'statement-M001-ลุงมานพ-2026-10-23.pdf',
+      'statement-M001-2026-10-23.pdf',
     );
+    // The name never reaches the file name, whatever it holds.
     expect(
-      statementFileName(_mechanic(nameTH: ' อู่ / ช่าง:"ดำ" ? '), _asOf),
-      'statement-M001-อู่-ช่าง-ดำ-2026-10-23.pdf',
+      statementFileName(_mechanic(nameTH: 'ช่างดำ', name: 'Dang'), _asOf),
+      'statement-M001-2026-10-23.pdf',
     );
+    // A code with characters a file system refuses is sanitized.
     expect(
-      statementFileName(_mechanic(name: 'Dang <A|B>', nameTH: null), _asOf),
-      'statement-M001-Dang-A-B-2026-10-23.pdf',
+      statementFileName(_mechanic(code: ' M/0:0"1 '), _asOf),
+      'statement-M-0-0-1-2026-10-23.pdf',
     );
   });
 

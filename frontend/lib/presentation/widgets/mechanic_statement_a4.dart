@@ -44,23 +44,17 @@ const PdfColor _itemBorder = PdfColor.fromInt(0xFFEDE5D8);
 /// The residual line's label (`agent ร่าง`).
 const String statementResidualLabel = 'ยอดยกมา/ไม่มีบิลอ้างอิง';
 
-const Map<AgingBucket, String> _bucketLabels = {
-  AgingBucket.d0to30: '0–30 วัน',
-  AgingBucket.d31to60: '31–60 วัน',
-  AgingBucket.d61to90: '61–90 วัน',
-  AgingBucket.over90: 'เกิน 90 วัน',
-};
-
 /// The mechanic as the statement names them: Thai name, else name.
 String statementMechanicName(MechanicRow m) {
   final th = (m.nameTH ?? '').trim();
   return th.isNotEmpty ? th : m.name.trim();
 }
 
-/// `statement-<code>-<name>-YYYY-MM-DD.pdf`, with every character a file
-/// system refuses (and whitespace) turned into `-`.
+/// `statement-<code>-YYYY-MM-DD.pdf` — the mechanic code only, no name (PDPA:
+/// a shared file name should not carry personal data; the PO precedent is the
+/// doc number only). Characters a file system refuses become `-`.
 String statementFileName(MechanicRow m, DateTime asOf) {
-  final who = '${m.code}-${statementMechanicName(m)}'
+  final who = m.code
       .replaceAll(RegExp(r'[\\/:*?"<>|\s\x00-\x1F]+'), '-')
       .replaceAll(RegExp(r'-{2,}'), '-')
       .replaceAll(RegExp(r'^-+|-+$'), '');
@@ -298,7 +292,7 @@ class MechanicStatementA4View extends StatelessWidget {
     );
 
     final lines = statement.lines;
-    if (lines.isEmpty && !statement.hasResidual) {
+    if (statement.noDebt || (lines.isEmpty && !statement.hasResidual)) {
       return pw.Container(
         width: double.infinity,
         padding: const pw.EdgeInsets.all(16),
@@ -395,7 +389,7 @@ class MechanicStatementA4View extends StatelessWidget {
         pw.Row(
           children: [
             for (final b in AgingBucket.values)
-              cell(_bucketLabels[b]!, statement.buckets[b] ?? 0),
+              cell(b.label, statement.buckets[b] ?? 0),
             if (statement.hasResidual)
               cell(statementResidualLabel, statement.residual),
           ],
@@ -409,9 +403,20 @@ class MechanicStatementA4View extends StatelessWidget {
     child: pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: const pw.BoxDecoration(color: _cream),
-      child: pw.Text(
-        'ยอดค้างชำระรวม ${baht2(statement.total)}',
-        style: pw.TextStyle(font: cond, fontSize: 16, color: _orange),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.end,
+        children: [
+          // Never a negative debt: a balance <= 0 owes nothing.
+          pw.Text(
+            'ยอดค้างชำระรวม ${baht2(statement.noDebt ? 0 : statement.total)}',
+            style: pw.TextStyle(font: cond, fontSize: 16, color: _orange),
+          ),
+          if (statement.overpaid > 0)
+            pw.Text(
+              'ชำระเกิน ${baht2(statement.overpaid)}',
+              style: pw.TextStyle(font: cond, fontSize: 11, color: _navy),
+            ),
+        ],
       ),
     ),
   );

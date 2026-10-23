@@ -102,8 +102,11 @@ void main() {
     Future<CreditStatement> statement() async => allocateCreditStatement(
       mechanicId: mid,
       creditBalance: await balance(),
-      sales: [for (final s in await sales.getSales()) s.sale],
-      returns: [for (final r in await returns.getReturns()) r.ret],
+      // The same narrow reads the screen uses.
+      sales: await sales.getMechanicCreditSales(mid),
+      returns: await returns.getReturnsForSales(
+        (await sales.getMechanicCreditSales(mid)).map((s) => s.id),
+      ),
       asOf: asOf,
     );
 
@@ -379,6 +382,38 @@ void main() {
         );
         expect(st.lines.single.saleId, 'old');
         expect(st.residual, 0);
+      },
+    );
+
+    test('a negative balance: no lines, no residual, shown as overpaid', () {
+      final st = allocateCreditStatement(
+        mechanicId: 'm1',
+        creditBalance: -50,
+        sales: [bill('a', 100, DateTime(2026, 10, 1))],
+        returns: const [],
+        asOf: asOf,
+      );
+      expect(st.lines, isEmpty);
+      expect(st.residual, 0);
+      expect(st.hasResidual, isFalse);
+      expect(st.noDebt, isTrue);
+      expect(st.overpaid, 50);
+      expect(st.total, -50);
+      expect(st.buckets.values, everyElement(0));
+    });
+
+    test(
+      'a bill dated after the statement date (fast clock) is 0 days old',
+      () {
+        final st = allocateCreditStatement(
+          mechanicId: 'm1',
+          creditBalance: 100,
+          sales: [bill('future', 100, DateTime(2026, 10, 26))],
+          returns: const [],
+          asOf: asOf,
+        );
+        expect(st.lines.single.ageDays, 0);
+        expect(st.buckets[AgingBucket.d0to30], 100);
       },
     );
 

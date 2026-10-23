@@ -30,8 +30,12 @@
 // An auto-voided bill (voided, with credit notes) stays counted, net of its
 // `หักจากเครดิต` notes — fully returned that way it nets to 0 and drops out.
 //
-// Money is done in integer satang, so the total equals `creditBalance` to the
-// satang: total = Σ lines + residual, with residual = balance − Σ lines.
+// Money is done in integer satang, so for a balance > 0 the statement equals
+// `creditBalance` to the satang: Σ lines + residual, residual = balance − Σ
+// lines. A balance ≤ 0 has no lines and no residual (nothing owed); a negative
+// one is shown as an overpayment (`overpaid`), never as negative debt.
+
+import 'dart:math' as math;
 
 import '../../data/db/database.dart';
 
@@ -42,14 +46,23 @@ const String deductFromCredit = 'หักจากเครดิต';
 const String mechanicCreditMethod = 'เครดิตช่าง';
 
 /// Aging buckets, by days since the bill date: 0–30, 31–60, 61–90, >90.
-enum AgingBucket { d0to30, d31to60, d61to90, over90 }
+/// [label] is the printed heading (`agent ร่าง`).
+enum AgingBucket {
+  d0to30(30, '0–30 วัน'),
+  d31to60(60, '31–60 วัน'),
+  d61to90(90, '61–90 วัน'),
+  over90(null, 'เกิน 90 วัน');
 
-AgingBucket agingBucketOf(int ageDays) {
-  if (ageDays <= 30) return AgingBucket.d0to30;
-  if (ageDays <= 60) return AgingBucket.d31to60;
-  if (ageDays <= 90) return AgingBucket.d61to90;
-  return AgingBucket.over90;
+  const AgingBucket(this.maxDays, this.label);
+
+  /// Last day in the bucket; null = no upper limit.
+  final int? maxDays;
+  final String label;
 }
+
+AgingBucket agingBucketOf(int ageDays) => AgingBucket.values.firstWhere(
+  (b) => b.maxDays == null || ageDays <= b.maxDays!,
+);
 
 /// Whole calendar days from [from] to [to] (local dates, time ignored).
 int calendarDaysBetween(DateTime from, DateTime to) {
@@ -89,18 +102,25 @@ class CreditStatement {
   /// Bills that explain the balance, newest first.
   final List<StatementLine> lines;
 
-  /// The part of the balance no local bill explains — printed as
+  /// The part of a positive balance no local bill explains — printed as
   /// `ยอดยกมา/ไม่มีบิลอ้างอิง` exactly when it is not 0. It has no age, so it
-  /// is in no bucket.
+  /// is in no bucket. Never negative: a balance ≤ 0 has no residual.
   final double residual;
 
-  /// Always the mechanic's `creditBalance`.
+  /// Always the mechanic's `creditBalance` — negative too (a legacy import
+  /// writes it directly; an outbox discard / sync reversal does not clamp).
   final double total;
 
   /// Outstanding per bucket over [lines] (every bucket present, 0 when empty).
   final Map<AgingBucket, double> buckets;
 
   bool get hasResidual => residual != 0;
+
+  /// Nothing is owed: the statement prints `ไม่มียอดค้างชำระ`, no lines.
+  bool get noDebt => total <= 0;
+
+  /// A negative balance, as a positive amount the shop owes back (`ชำระเกิน`).
+  double get overpaid => total < 0 ? -total : 0;
 }
 
 int _satang(double v) => (v * 100).round();
@@ -133,7 +153,8 @@ CreditStatement allocateCreditStatement({
         return true;
       }).toList()..sort((a, b) {
         // Newest first. Drift keeps whole seconds, so a same-second tie falls
-        // back to the id (UUIDv7 = creation order, #616), then the receipt no.
+        // back to the id (creation order only for UUIDv7 ids, #616 — legacy
+        // ids are arbitrary, but any fixed order will do), then receipt no.
         final byDate = b.date.compareTo(a.date);
         if (byDate != 0) return byDate;
         final byId = b.id.compareTo(a.id);
@@ -153,7 +174,9 @@ CreditStatement allocateCreditStatement({
     if (net <= 0) continue;
     final take = net < remaining ? net : remaining;
     remaining -= take;
-    final age = calendarDaysBetween(s.date, asOf);
+    // A bill dated after [asOf] (an offline till with a fast clock) is 0 days
+    // old, never negative.
+    final age = math.max(0, calendarDaysBetween(s.date, asOf));
     final line = StatementLine(
       saleId: s.id,
       receiptNo: s.receiptNo,
@@ -167,7 +190,7 @@ CreditStatement allocateCreditStatement({
 
   return CreditStatement(
     lines: lines,
-    residual: _baht(remaining),
+    residual: remaining > 0 ? _baht(remaining) : 0,
     total: _baht(totalSatang),
     buckets: {for (final e in bucketSatang.entries) e.key: _baht(e.value)},
   );

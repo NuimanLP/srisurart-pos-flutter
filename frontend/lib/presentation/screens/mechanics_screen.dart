@@ -1404,8 +1404,10 @@ class _StatementButtonState extends State<_StatementButton> {
       final salesRepo = context.read<SalesRepository>();
       final returnsRepo = context.read<ReturnsRepository>();
       final settingsRepo = context.read<SettingsRepository>();
-      final sales = await salesRepo.getSales();
-      final returns = await returnsRepo.getReturns();
+      final sales = await salesRepo.getMechanicCreditSales(m.id);
+      final returns = await returnsRepo.getReturnsForSales(
+        sales.map((s) => s.id),
+      );
       final shop = await settingsRepo.getSettings();
       final asOf = DateTime.now();
       // On the API build both lists are the local Drift copy: a credit bill
@@ -1414,8 +1416,8 @@ class _StatementButtonState extends State<_StatementButton> {
       final statement = allocateCreditStatement(
         mechanicId: m.id,
         creditBalance: m.creditBalance,
-        sales: [for (final s in sales) s.sale],
-        returns: [for (final r in returns) r.ret],
+        sales: sales,
+        returns: returns,
         asOf: asOf,
       );
       if (!mounted) return;
