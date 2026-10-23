@@ -35,6 +35,9 @@ class BarcodeScanButton extends StatelessWidget {
 
   const BarcodeScanButton({super.key, required this.onScanned});
 
+  /// Tooltip + accessibility label. agent ร่าง (existing string, unchanged).
+  static const scanTooltip = 'สแกนบาร์โค้ดด้วยกล้อง';
+
   Future<void> _scan(BuildContext context) async {
     final value = await barcodeScanner(context);
     final v = value?.trim();
@@ -43,11 +46,26 @@ class BarcodeScanButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // One accessible name: the icon's semanticLabel (newer Flutter exposes an
+    // IconButton tooltip only as a hint, not the button's name). The hover
+    // tooltip stays for mouse users but is kept out of semantics so the name
+    // is not read twice (UX review R10; same string — no new Thai copy).
+    // A >=48x48 hit area on every platform: desktop/web default to compact
+    // density + shrinkWrap, which shrank it to ~32 px.
     return IconButton(
-      // agent ร่าง
-      tooltip: 'สแกนบาร์โค้ดด้วยกล้อง',
-      icon: const Icon(Icons.photo_camera_outlined, size: 22),
+      icon: Tooltip(
+        message: scanTooltip,
+        excludeFromSemantics: true,
+        child: const Icon(
+          Icons.photo_camera_outlined,
+          size: 22,
+          semanticLabel: scanTooltip,
+        ),
+      ),
       color: AppColors.orange,
+      visualDensity: VisualDensity.standard,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      style: const ButtonStyle(tapTargetSize: MaterialTapTargetSize.padded),
       onPressed: () => _scan(context),
     );
   }
@@ -173,8 +191,7 @@ class _ScannerDialogState extends State<_ScannerDialog> {
                 children: [
                   const Expanded(
                     child: Text(
-                      // agent ร่าง
-                      'สแกนบาร์โค้ดด้วยกล้อง',
+                      BarcodeScanButton.scanTooltip,
                       style: TextStyle(
                         color: AppColors.white,
                         fontWeight: FontWeight.w700,
