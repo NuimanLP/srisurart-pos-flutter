@@ -6,7 +6,8 @@
 // Reads the LOCAL drawer entries through ShiftsRepository (getCashDrawer +
 // getShiftHistory — both Drift on the Drift and the API build): the API build
 // keeps the entries this device recorded, not other devices' (there is no
-// shift/drawer pull), hence the "this device" footnote.
+// shift/drawer pull), hence the "this device" footnote. Months are the local
+// calendar month of each entry, not its shift (drawer_expense.dart header).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -68,7 +69,7 @@ class _DrawerExpenseSummaryViewState extends State<DrawerExpenseSummaryView> {
     return byId.values.toList();
   }
 
-  void _shift(int months) => setState(() {
+  void _stepMonth(int months) => setState(() {
     _month = DateTime(_month.year, _month.month + months);
   });
 
@@ -105,7 +106,7 @@ class _DrawerExpenseSummaryViewState extends State<DrawerExpenseSummaryView> {
             IconButton(
               tooltip: 'เดือนก่อน',
               icon: const Icon(Icons.chevron_left),
-              onPressed: () => _shift(-1),
+              onPressed: () => _stepMonth(-1),
             ),
             Flexible(
               child: Text(
@@ -119,7 +120,9 @@ class _DrawerExpenseSummaryViewState extends State<DrawerExpenseSummaryView> {
             IconButton(
               tooltip: 'เดือนถัดไป',
               icon: const Icon(Icons.chevron_right),
-              onPressed: _month.isBefore(_thisMonth) ? () => _shift(1) : null,
+              onPressed: _month.isBefore(_thisMonth)
+                  ? () => _stepMonth(1)
+                  : null,
             ),
           ],
         ),

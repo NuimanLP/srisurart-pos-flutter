@@ -6,9 +6,20 @@
 // standard prefix — `ค่าไฟ` or `ค่าไฟ: <free text>` — written by the chips on
 // the cash-drawer screen. Only that exact shape is recognised (no keyword
 // guessing): `ค่าน้ำมัน` is NOT `ค่าน้ำ`. Pure functions only.
+//
+// 🔴 The summary groups entries by the LOCAL CALENDAR MONTH of `createdAt`,
+// NOT by shift — on purpose: it answers "what did the shop pay out in
+// October". An entry at 00:30 on 1 Nov in a shift opened 31 Oct counts in
+// November here, while that shift's drawer count
+// (`ShiftsRepository.drawerCash`, by shift) still includes it. Do not "fix"
+// this toward the shift rule.
 
 import '../../core/utils/dates.dart';
+import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+
+/// The catch-all chip.
+const String otherCategory = 'อื่นๆ';
 
 /// The chip categories, in chip order.
 const List<String> expenseCategories = [
@@ -16,7 +27,7 @@ const List<String> expenseCategories = [
   'ค่าไฟ',
   'ค่าแรง',
   'จ่ายซัพ',
-  'อื่นๆ',
+  otherCategory,
 ];
 
 /// Report group: the `อื่นๆ` chip plus any note without a standard prefix.
@@ -25,12 +36,11 @@ const String otherOrUnknownGroup = 'อื่นๆ/ไม่ระบุ';
 /// Report group: an out entry with a blank note (kept apart from อื่นๆ).
 const String blankNoteGroup = 'ไม่มีหมายเหตุ';
 
-/// Report groups, in display order.
-const List<String> expenseGroups = [
-  'ค่าน้ำ',
-  'ค่าไฟ',
-  'ค่าแรง',
-  'จ่ายซัพ',
+/// Report groups, in display order: each named category, then the two
+/// catch-alls.
+final List<String> expenseGroups = [
+  for (final c in expenseCategories)
+    if (c != otherCategory) c,
   otherOrUnknownGroup,
   blankNoteGroup,
 ];
@@ -59,7 +69,11 @@ String withExpenseCategory(String category, String note) {
   return rest.isEmpty ? '$category: ' : '$category: $rest';
 }
 
-/// The note to save for an out entry: a recognised prefix in its standard
+/// [note] without its category prefix (the free text only); a note with no
+/// prefix is returned unchanged.
+String withoutExpenseCategory(String note) => _split(note)?.rest ?? note;
+
+/// The note to save for an out entry whose chip was tapped: a recognised prefix in its standard
 /// shape (`ค่าไฟ` / `ค่าไฟ: text`); any other note is returned unchanged.
 String normaliseExpenseNote(String note) {
   final s = _split(note);
@@ -71,11 +85,8 @@ String normaliseExpenseNote(String note) {
 String expenseGroupOf(String? note) {
   if ((note ?? '').trim().isEmpty) return blankNoteGroup;
   final c = expenseCategoryOf(note);
-  return (c == null || c == 'อื่นๆ') ? otherOrUnknownGroup : c;
+  return (c == null || c == otherCategory) ? otherOrUnknownGroup : c;
 }
-
-/// Money in integer satang — the summary adds satang, never doubles.
-int toSatang(double amount) => (amount * 100).round();
 
 class ExpenseGroupTotal {
   final String group;
@@ -94,7 +105,8 @@ class DrawerExpenseSummary {
   const DrawerExpenseSummary(this.groups, this.totalSatang, this.count);
 }
 
-/// The out entries of [month] (a `yyyy-MM` key, local time) grouped by
+/// The out entries of [month] (a `yyyy-MM` key of the LOCAL month of
+/// `createdAt` — not the shift, see the header) grouped by
 /// [expenseGroupOf]. Every out entry lands in exactly one group, so the
 /// groups add up to [DrawerExpenseSummary.totalSatang]. `in` entries are
 /// ignored.

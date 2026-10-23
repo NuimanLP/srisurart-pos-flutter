@@ -108,6 +108,11 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), 'เติมทอน ');
       await tester.enterText(find.byType(TextField).at(0), '20');
       await add(tester);
+      // No chip, but typed with a prefix: still byte for byte (the chip used
+      // for the earlier entry does not carry over).
+      await tester.enterText(find.byType(TextField).at(1), 'ค่าไฟ:abc ');
+      await tester.enterText(find.byType(TextField).at(0), '30');
+      await add(tester);
 
       final rows = await saved(db);
       expect(
@@ -116,6 +121,7 @@ void main() {
           ('out', 450.0, 'ค่าไฟ'),
           ('out', 3000.0, 'ค่าแรง: นาย ก'),
           ('out', 20.0, 'เติมทอน '),
+          ('out', 30.0, 'ค่าไฟ:abc '),
         ],
       );
       expect(rows.every((r) => r.shiftId == 'sh-today'), isTrue);
@@ -128,11 +134,27 @@ void main() {
     await tester.runAsync(() async {
       await openShift(db, 'sh-today', DateTime.now());
       await pump(tester, db);
+      await tester.tap(find.text('ค่าไฟ'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).at(1), 'ค่าไฟ: บิล ต.ค.');
       await tester.tap(find.text('💰 เงินเข้า'));
       await tester.pump();
       for (final c in expenseCategories) {
         expect(find.text(c), findsNothing, reason: 'chip $c');
       }
+      // Leaving เงินออก drops the chip's prefix, keeps the free text.
+      expect(field(tester, 1).controller!.text, 'บิล ต.ค.');
+
+      // A cash-in typed with a prefix is saved as typed.
+      await tester.enterText(find.byType(TextField).at(1), 'ค่าไฟ: ');
+      await tester.enterText(find.byType(TextField).at(0), '100');
+      await add(tester);
+      final rows = await saved(db);
+      expect([for (final r in rows) (r.type, r.note)], [('in', 'ค่าไฟ: ')]);
+
+      await tester.tap(find.text('💸 เงินออก'));
+      await tester.pump();
+      expect(find.text('ค่าน้ำ'), findsOneWidget);
     });
   });
 
@@ -173,6 +195,7 @@ void main() {
     ('desktop', Size(1400, 1000), 1.0),
     ('phone 390', Size(390, 844), 1.0),
     ('zoom 3x full HD', Size(1920, 1080), 3.0),
+    ('zoom 2x laptop', Size(1366, 768), 2.0),
   ]) {
     testWidgets('เงินสดออกไปไหน: totals per category and month, $label', (
       tester,

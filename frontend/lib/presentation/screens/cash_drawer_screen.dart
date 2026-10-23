@@ -73,6 +73,9 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
   final _noteCtl = TextEditingController();
   final _physCtl = TextEditingController();
   String _entryType = 'out'; // 'out' | 'in'
+  // A category chip was tapped for the entry being typed — only then is the
+  // note normalised on save (no chip = the note goes exactly as typed).
+  bool _chipUsed = false;
   int _tab = 0; // 0 = รายการเงิน, 1 = ปิดลิ้นชัก
   bool _busy = false;
   // Created in initState/_refresh — never inline in build.
@@ -168,14 +171,15 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
-      // An out note with a category prefix is saved in its standard shape
-      // (`ค่าไฟ` / `ค่าไฟ: text`); any other note goes as typed.
-      final note = _entryType == 'out'
+      // After a chip, an out note is saved in its standard shape
+      // (`ค่าไฟ` / `ค่าไฟ: text`); without one it goes exactly as typed.
+      final note = _entryType == 'out' && _chipUsed
           ? normaliseExpenseNote(_noteCtl.text)
           : _noteCtl.text;
       await repo.addDrawerEntry(_entryType, amount, note);
       _amountCtl.clear();
       _noteCtl.clear();
+      _chipUsed = false;
       _refresh();
     } catch (e) {
       _toast(_clean(e));
@@ -191,12 +195,25 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
   void _setCategory(String category) {
     final text = withExpenseCategory(category, _noteCtl.text);
     setState(() {
-      _noteCtl.value = TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: text.length),
-      );
+      _chipUsed = true;
+      _setNote(text);
     });
   }
+
+  void _setNote(String text) => _noteCtl.value = TextEditingValue(
+    text: text,
+    selection: TextSelection.collapsed(offset: text.length),
+  );
+
+  /// The out/in toggle. Leaving เงินออก after a chip drops its prefix (a
+  /// cash-in has no category) and forgets the chip.
+  void _setEntryType(String value) => setState(() {
+    if (value != _entryType && _chipUsed) {
+      _setNote(withoutExpenseCategory(_noteCtl.text));
+      _chipUsed = false;
+    }
+    _entryType = value;
+  });
 
   Future<void> _handleClose() async {
     if (context.isDegraded) {
@@ -1169,7 +1186,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
             ? (dark ? _outOnDark : AppColors.error)
             : (dark ? _inOnDark : AppColors.successLight);
         return InkWell(
-          onTap: () => setState(() => _entryType = value),
+          onTap: () => _setEntryType(value),
           borderRadius: BorderRadius.circular(8),
           child: Container(
             constraints: const BoxConstraints(minHeight: 44),
