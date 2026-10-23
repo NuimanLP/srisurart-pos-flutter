@@ -294,7 +294,7 @@ never inline in `build`.
 | File (`lib/presentation/screens/`) | Class | Route path (AppRoutes) | Sub-views OWNED by this screen agent |
 |---|---|---|---|
 | `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal (+ `ถ่ายรูปหลักฐานสินค้า` button → `SalePhotoSheet`, `widgets/sale_photo_sheet.dart`), LowStockAlert, park strip, save-quote, mechanic override |
-| `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor |
+| `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor, stocktake `ตรวจนับสต็อก` (`StocktakePage`, `widgets/stocktake_view.dart`; full-screen page, no route; applies through `adjustStock` only) |
 | `purchase_orders_screen.dart` | `PurchaseOrdersScreen` | `/purchase-orders` (`purchaseOrders`) | PO create + receive, PO A4 print (`PurchaseOrderA4View`, `widgets/purchase_order_a4.dart`; no prices on paper) |
 | `vehicle_search_screen.dart` | `VehicleSearchScreen` | `/vehicle-search` (`vehicleSearch`) | — |
 | `customers_screen.dart` | `CustomersScreen` | `/customers` (`customers`) | — |
