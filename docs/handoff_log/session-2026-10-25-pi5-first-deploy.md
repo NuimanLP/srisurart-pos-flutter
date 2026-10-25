@@ -36,10 +36,19 @@ Run from WSL Ubuntu on the owner PC (`DEMO_SSH_HOST=100.70.181.98 DEMO_SSH_USER=
 - `backup-db.sh` run by hand once: complete, **local only** (no `BACKUP_RCLONE_REMOTE`)
 - PC copies: `ops\secrets\pi5-pos-env-20261024T193209Z.env`, `pi5-certs-ca-20261024T193209Z.tar.gz` (+ `.sha256`, holds `ca.key`)
 
+## Follow-up release — nginx gzip (#778 → `main` `8713c9f`, PR #779)
+
+Owner reported the first load over Tailscale was slow: the Pi's uplink measured ~240 KB/s and nginx sent the ~15 MB
+web build uncompressed (canvaskit.wasm 5.8 MB in 51 s). #778 gzips the static web build only (API stays
+uncompressed) and lifts three new high advisories. Deploy run `40151601600` to `mob04` success (`.current_sha`
+`8713c9f…`, gzip headers checked); Pi by hand `failed=0 rescued=0`, `.current_sha` `8713c9f…`; canvaskit now 2.2 MB
+in 2.0 s over Tailscale (the uplink was also faster at that moment).
+
+The tailnet grant `autogroup:member → autogroup:self` now allows `tcp:22, tcp:80, tcp:443` (owner edited it);
+HTTPS to `100.70.181.98` from the PC = 200.
+
 ## Still open
 
-- **Tailnet grant allows only `tcp:22` to the Pi** — HTTPS via `100.70.181.98` times out from the PC. Add
-  `tcp:443` (and `tcp:80`) to the `autogroup:member → autogroup:self` grant in the Tailscale admin console.
 - Power: River 3 USB-C gives 3 A (`max_current` 3000) with a bus-powered HDD; test the Ugreen 240 W cable, else use
   the official 27 W PSU on River 3's AC socket.
 - Backups leave the Pi nowhere yet (PC pull task / watchdog are hard-wired to `mob04`); dumps sit on the SD card.
