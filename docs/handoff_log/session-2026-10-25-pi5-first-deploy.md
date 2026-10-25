@@ -47,10 +47,25 @@ in 2.0 s over Tailscale (the uplink was also faster at that moment).
 The tailnet grant `autogroup:member → autogroup:self` now allows `tcp:22, tcp:80, tcp:443` (owner edited it);
 HTTPS to `100.70.181.98` from the PC = 200.
 
+## Offsite backup — Google Drive (owner 2026-10-25, PR #783 → `main` `5ab7266`, PR #784)
+
+- `backup-db.sh` now reads `BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG` from `/opt/pos/.env` (environment wins, explicit
+  empty included — pre-migrate dumps never upload). Pi `.env` + the WSL provision source (re-synced from the Pi first: it
+  had lacked `ALERT_DISCORD_WEBHOOK`) carry `gdrive-dr:Srisurart-POS-DR/pi5-pos` and `/opt/pos/rclone/rclone.conf`.
+- rclone 1.60 (apt) on the Pi, credential `drive.file` scope made by the owner's browser login via
+  `ops\setup-pi5-gdrive-backup.ps1` (copy `ops\secrets\pi5-rclone.conf`). `provision.yml` re-run from `5ab7266`:
+  `failed=0`, `/opt/pos/scripts/backup-db.sh` = `main`'s.
+- Evidence: a bare-environment run of the cron line ended `=== Backup Complete (local + offsite) ===`; Drive holds
+  `pos_backup_*`, `pos_images_*`, `pos_sale_photos_*` + `.sha256`; the dump's sha256 in Drive = local.
+- HDD (WD My Passport 1 TB, 10,372 power-on h): SMART PASSED, 0 reallocated/pending/CRC, short self-test passed, no USB
+  resets or under-voltage since boot.
+
 ## Still open
 
 - Power: River 3 USB-C gives 3 A (`max_current` 3000) with a bus-powered HDD; test the Ugreen 240 W cable, else use
   the official 27 W PSU on River 3's AC socket.
-- Backups leave the Pi nowhere yet (PC pull task / watchdog are hard-wired to `mob04`); dumps sit on the SD card.
+- Google Drive client: rclone's shared client_id is being retired during 2026 — the owner should create their own
+  OAuth client (rclone.org/drive/#making-your-own-client-id) and re-run `ops\setup-pi5-gdrive-backup.ps1`. Drive is
+  never pruned by the script; watch its free 15 GB. No restore from the Drive copy rehearsed yet.
 - Moving to the shop changes the LAN IP: edit `CERT_SAN_IPS`/`CORS_ORIGINS`/`GATUS_POS_URL`, re-run provision + deploy.
 - APK `API_BASE_URL` still points at `mob04`; first tenant not created yet (platform-ui via SSH tunnel to `127.0.0.1:3200`).
