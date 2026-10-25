@@ -355,4 +355,46 @@ seed_pre_migrate
 APP_DIR="$A" BACKUP_PRE_MIGRATE_KEEP_DAYS=0 run_backup "$A/backups" 0
 check "BACKUP_PRE_MIGRATE_KEEP_DAYS=0 disables the pre-migrate prune" test -e "$PM/pos_backup_old.sql.gz"
 
+# 10. the offsite pair can come from $APP_DIR/.env (survives provision.yml); the environment wins,
+# including an explicit empty BACKUP_RCLONE_REMOTE (deploy.yml's pre-migrate dump), and the
+# remote's value is never printed beyond its name.
+cat > "$STUBS/rclone" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$RCLONE_CALLS"
+exit 0
+STUB
+chmod +x "$STUBS/rclone"
+A="$WORK/app10"
+mkdir -p "$A/backups"
+: > "$A/rclone.conf"
+printf 'POSTGRES_PASSWORD=x\nBACKUP_RCLONE_REMOTE="gdrive-dr:DR/pi5"\nBACKUP_RCLONE_CONFIG=%s\n' "$A/rclone.conf" > "$A/.env"
+run_env_backup() { # dir, extra env... ; like run_backup but leaves BACKUP_RCLONE_* to the caller
+  local dir="$1"
+  shift
+  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG -u BACKUP_RCLONE_REMOTE \
+    -u BACKUP_VOLUMES -u BACKUP_PRE_MIGRATE_KEEP_DAYS \
+    PATH="$STUBS:$PATH" IMAGE_TAG=test APP_DIR="$A" BACKUP_VOLUMES=0 RCLONE_CALLS="$WORK/rclone10.calls" \
+    BACKUP_TEXTFILE_DIR="$WORK/no-textfile-dir" "$@" bash "$SCRIPT" "$dir" >"$dir.log" 2>&1
+  rc=$?
+}
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/backups"
+check ".env remote: exits 0" test "$rc" -eq 0
+check ".env remote: dump copied to the .env remote (quotes stripped)" \
+  grep -q "copyto .*pos_backup_.*\.sql\.gz gdrive-dr:DR/pi5/pos_backup_" "$WORK/rclone10.calls"
+check ".env remote: rclone gets the .env config file" grep -q -- "--config $A/rclone.conf" "$WORK/rclone10.calls"
+check ".env remote: upload marker written" test "$(count "$A/backups" 'pos_backup_*.sql.gz.uploaded')" = 1
+check ".env remote: no 'offsite disabled' warning" test -z "$(grep 'Offsite upload is disabled' "$A/backups.log")"
+mkdir -p "$A/pre"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/pre" BACKUP_RCLONE_REMOTE=
+check "explicit empty BACKUP_RCLONE_REMOTE beats .env: exits 0" test "$rc" -eq 0
+check "explicit empty BACKUP_RCLONE_REMOTE beats .env: rclone never called" test ! -s "$WORK/rclone10.calls"
+check "explicit empty BACKUP_RCLONE_REMOTE beats .env: says offsite is disabled" grep -q 'Offsite upload is disabled' "$A/pre.log"
+printf 'POSTGRES_PASSWORD=x\n' > "$A/.env"
+mkdir -p "$A/none"
+run_env_backup "$A/none"
+check ".env without the keys: offsite disabled, exits 0" test "$rc" -eq 0 -a -n "$(grep 'Offsite upload is disabled' "$A/none.log")"
+rm -f "$STUBS/rclone"
+
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
