@@ -43,6 +43,7 @@
 #                         configures as this remote in rclone.conf (#363 AC1, still an owner decision).
 #   BACKUP_RCLONE_CONFIG  Path to rclone's config file holding the remote's credentials. Must live
 #                         outside this repo (default: rclone's own lookup, $HOME/.config/rclone/rclone.conf).
+#   Either may instead be a line in $APP_DIR/.env (read, never sourced); the environment wins.
 #                         Never commit this file. See docs/Backend_design/07_CICD_DEPLOY.md §7a.
 #
 # Offsite upload is OPTIONAL, but never optional-and-silent (owner decision, 2026-09-21):
@@ -72,6 +73,24 @@ BACKUP_DIR="${1:-${BACKUP_DIR:-$APP_DIR/backups}}"
 BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-7}"
 POSTGRES_DB="${POSTGRES_DB:-pos}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
+
+# The offsite pair may also come from $APP_DIR/.env (per host; provision.yml rewrites it from the
+# owner's own copy, so it survives re-provisioning — a value baked into the cron line would vanish
+# the first time provision.yml ran without it). The environment wins, *including an explicit
+# empty value*: deploy.yml's pre-migrate dump passes BACKUP_RCLONE_REMOTE="" so it never uploads.
+# Only these two keys are read (never sourced), and their values are never printed. The stack has
+# no `env_file:`, so a key here reaches no container.
+if [[ -z "${BACKUP_RCLONE_REMOTE+set}" && -f "$APP_DIR/.env" ]]; then
+  for key in BACKUP_RCLONE_REMOTE BACKUP_RCLONE_CONFIG; do
+    [[ -z "${!key+set}" ]] || continue
+    line="$(grep -m1 -E "^${key}=" "$APP_DIR/.env" || true)"
+    [[ -n "$line" ]] || continue
+    value="${line#*=}"
+    value="${value%\"}"; value="${value#\"}"
+    printf -v "$key" '%s' "$value"
+  done
+  unset key line value
+fi
 
 mkdir -p "$BACKUP_DIR"
 chmod 0700 "$BACKUP_DIR"
