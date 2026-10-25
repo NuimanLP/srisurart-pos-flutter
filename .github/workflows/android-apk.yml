@@ -2,11 +2,23 @@ name: Android APK
 
 # Manual release of the Android client. workflow_dispatch ONLY: routine pushes must never cut
 # a release, and this workflow is not a required check (flutter.yml / server.yml own those).
-# Builds ONE APK from main: the API build (USE_API_WRITES=true) against the demo VM mob04,
-# signed with the project's stable key, attached to a prerelease `apk-<shortsha>`.
+# Builds ONE APK from main: the API build (USE_API_WRITES=true), signed with the project's stable
+# key, attached to a prerelease. `target` picks the server it talks to and the private CA it trusts:
+#   mob04 (default) -> https://172.30.58.20, assets/certs/pos-ca.crt as committed, tag `apk-<shortsha>`
+#   pi5             -> https://100.70.181.98 (Tailscale IP: stable wherever the Pi moves, so the
+#                      device needs the Tailscale app on the owner's tailnet), the Pi's own CA
+#                      (assets/certs/pos-ca-pi5.crt copied over pos-ca.crt in the runner only),
+#                      tag `apk-pi5-<shortsha>`
+# Same package id + key: installing one target over the other switches that device's server.
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Server the APK talks to
+        type: choice
+        options: [mob04, pi5]
+        default: mob04
 
 permissions:
   contents: write   # gh release create
@@ -14,7 +26,8 @@ permissions:
 env:
   FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc and flutter.yml
   # Origin only: every call site already passes '/api/v1/...' (api_client.dart).
-  API_BASE_URL: https://172.30.58.20
+  API_BASE_URL: ${{ inputs.target == 'pi5' && 'https://100.70.181.98' || 'https://172.30.58.20' }}
+  TAG_PREFIX: ${{ inputs.target == 'pi5' && 'apk-pi5' || 'apk' }}
 
 defaults:
   run:
@@ -31,6 +44,7 @@ jobs:
       SHA: ${{ github.sha }}
       REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
+      TARGET: ${{ inputs.target || 'mob04' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,8 +52,8 @@ jobs:
         working-directory: .
         run: |
           short="${SHA:0:7}"
-          if gh release view "apk-$short" --repo "$REPO" >/dev/null 2>&1; then
-            echo "::error::Release apk-$short already exists; delete it first or build a newer commit."
+          if gh release view "$TAG_PREFIX-$short" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::Release $TAG_PREFIX-$short already exists; delete it first or build a newer commit."
             exit 1
           fi
 
@@ -66,6 +80,13 @@ jobs:
           channel: stable
           cache: true
 
+      # The Pi has its own private CA (not mob04's). Runner checkout only: nothing is committed.
+      - name: trust the Pi's CA (target pi5)
+        if: inputs.target == 'pi5'
+        run: |
+          cp assets/certs/pos-ca-pi5.crt assets/certs/pos-ca.crt
+          openssl x509 -in assets/certs/pos-ca.crt -noout -subject -fingerprint -sha256
+
       - run: flutter pub get
 
       - name: build APK
@@ -75,7 +96,7 @@ jobs:
           flutter build apk --release --no-tree-shake-icons \
             --dart-define=USE_API_WRITES=true \
             --dart-define=API_BASE_URL="$API_BASE_URL"
-          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-$short.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-$TAG_PREFIX-$short.apk"
 
       - name: print signer certificate
         run: |
@@ -83,21 +104,24 @@ jobs:
           # Version-named build-tools dirs only; ls | sort -V picks the newest.
           # shellcheck disable=SC2012
           apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
-          "$apksigner" verify --print-certs "../apk-out/srisurart-pos-$short.apk" | grep 'SHA-256'
+          "$apksigner" verify --print-certs "../apk-out/srisurart-pos-$TAG_PREFIX-$short.apk" | grep 'SHA-256'
 
       - name: create release
         working-directory: .
         run: |
           short="${SHA:0:7}"
+          if [ "$TARGET" = pi5 ]; then
+            reach="ต้องเปิดแอป Tailscale (tailnet ของ owner) บนเครื่องนี้ (The device must run Tailscale on the owner's tailnet.)"
+          else
+            reach="The device must be on the faculty network/VPN."
+          fi
           cat > notes.md <<NOTES
           Commit: $SHA
 
-          APK นี้เชื่อมต่อเซิร์ฟเวอร์ $API_BASE_URL (This build talks to the server at $API_BASE_URL). The device must be on the faculty network/VPN.
+          APK นี้เชื่อมต่อเซิร์ฟเวอร์ $API_BASE_URL (This build talks to the server at $API_BASE_URL). $reach
 
           เซ็นด้วยกุญแจถาวรของโปรเจกต์ ดังนั้นรุ่นถัด ๆ ไปติดตั้งทับได้ (Signed with the project's stable key, so later releases install over this one.)
-
-          Known blocker: the server certificate on mob04 must be fixed first (separate PR, in progress) before the app can connect. Until then the app cannot reach the server; there is no TLS bypass in this build.
           NOTES
-          gh release create "apk-$short" apk-out/*.apk \
+          gh release create "$TAG_PREFIX-$short" apk-out/*.apk \
             --repo "$REPO" --target "$SHA" \
-            --title "Android APK $short" --notes-file notes.md --prerelease
+            --title "Android APK $TARGET $short" --notes-file notes.md --prerelease
