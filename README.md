@@ -12,13 +12,17 @@ React + `localStorage` page; it was rewritten as an offline-first Flutter app (S
 counter PC), and is now being extended into a multi-tenant platform so more than one shop can
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
-> **Status (2026-10-21):** the course-submission freeze ended on 2026-10-10 and normal development
-> resumed. The last release is `main` `e6374df` (PR #736, 2026-10-18: follow-ups to #727 — `host-setup.sh` fix,
-> alert-test/disk-alert fixes, `restore-db.sh` check fix, PC watchdog), deployed to the demo VM `mob04` (`.current_sha`
-> checked). Before it `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate, pre-migration DB dump,
-> Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks). Discord alerting is live on `mob04` since
-> 2026-10-18 and the old Healthchecks.io heartbeat is removed. No Raspberry Pi is in service.
-> Detail: [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
+> **Status (2026-10-25):** the course-submission freeze ended on 2026-10-10 and normal development
+> resumed. The last release is `main` `8713c9f` (PR #779, 2026-10-25: nginx gzips the static web build only —
+> API/health/img stay uncompressed (BREACH) — plus server dependency overrides for 3 high advisories, #778),
+> deployed to the demo VM `mob04` (Deploy run `40151601600`, `.current_sha` checked) and, by hand, to the Pi.
+> Before it `e6374df` (PR #736, 2026-10-18) and `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate,
+> pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks). Discord alerting is
+> live on `mob04` since 2026-10-18 and the old Healthchecks.io heartbeat is removed. A Raspberry Pi 5 (`pi5-pos`) has
+> been running the stack since 2026-10-25, deployed by hand and not wired into CD; the owner decided it becomes the
+> shop's production host, but `mob04` stays production until a data migration is agreed (nothing moved yet).
+> Detail: [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
+> [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
 > [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
 
 ---
@@ -173,8 +177,13 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   [`session-2026-10-12-photo-evidence-barcode.md`](docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md).
 - **Supplier-first Suppliers tab**, built-in camera and photo reorder —
   [`session-2026-10-13-camera-suppliers.md`](docs/handoff_log/session-2026-10-13-camera-suppliers.md).
-- **Multi-arch (amd64 + arm64) images** and a `host-setup.sh` for a Raspberry Pi 5 host. This is groundwork only:
-  no Pi is in service, `mob04` stays production, and Pi deploys are not wired into CD —
+- **Multi-arch (amd64 + arm64) images** and a `host-setup.sh` for a Raspberry Pi 5 host,
+  first deployed 2026-10-25 (`pi5-pos`: Ubuntu Server 26.04 arm64, Docker data-root on a USB HDD at `/srv/pos-data`,
+  Tailscale `100.70.181.98`; release `b748387`, then `8713c9f`) by hand with `deploy.yml` from WSL, not wired into CD.
+  The owner's decision is that it becomes the shop's production host; `mob04` stays production until a data migration
+  is agreed. Open: Pi backups stay on its SD card (no off-box copy), the APK `API_BASE_URL` still points at `mob04`,
+  and the Pi's LAN IP changes when it moves to the shop —
+  [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
   [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md),
   [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
 - **Tailscale** remote access to `mob04` (2026-10-13): subnet router for `172.30.58.20/32` only, SNAT off, no faculty VPN client needed —
@@ -431,8 +440,8 @@ builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Ba
 > **Status:** the pipeline has run end to end since **2026-09-30** — first real runner deploy
 > `e50f4fa` ([handoff](docs/handoff_log/session-2026-09-30-first-runner-deploy.md)), with a
 > `workflow_dispatch` rollback and an automatic rollback after a failed readiness check both
-> proven on real runs the same day. The latest release on `mob04` is `e6374df` (PR #736,
-> 2026-10-18, deploy run `39116359714`; images are amd64 + arm64 since `5c7f210`), after the DevOps bundle `21ad935` (2026-10-17). **A green `Deploy (demo)` run is
+> proven on real runs the same day. The latest release on `mob04` is `8713c9f` (PR #779,
+> 2026-10-25, deploy run `40151601600`; images are amd64 + arm64 since `5c7f210`), after `e6374df` (2026-10-18) and the DevOps bundle `21ad935` (2026-10-17). **A green `Deploy (demo)` run is
 > not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
 > run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
 
