@@ -68,18 +68,43 @@ Ubuntu `linux-raspi` = 4K ✅
 **1. Imager** → Device: Raspberry Pi 5 → OS: *Other general-purpose OS → Ubuntu → **Ubuntu Server 26.04.1 (64-bit)***
 (สำรอง: *Ubuntu Server 24.04.5 LTS (64-bit)*) → microSD
 
+*ทางเลือก — โหลดไฟล์เก็บไว้เอง* (ทำครั้งเดียว ใช้ซ้ำได้ ไม่ต้องให้ Imager โหลด 1.5 GB ทุกครั้ง):
+`https://cdimage.ubuntu.com/releases/26.04.1/release/ubuntu-26.04.1-preinstalled-server-arm64+raspi.img.xz` แล้วตรวจกับ
+`SHA256SUMS` ในโฟลเดอร์เดียวกัน (2026-10-24: `d59ef9c6…0e13`, ~1.53 GB) → Imager → OS: **Use custom** → เลือกไฟล์ `.img.xz` ได้เลย
+ไม่ต้องแตกไฟล์ · ไฟล์นี้คือ image เดียวกับที่ Imager แสดงว่า *Ubuntu Server 26.04.1 (64-bit) — Server OS for RPi Zero 2W/3/4/400/5*
+· 🔴 เป็น `.img.xz` ไม่ใช่ ISO (ISO arm64 ทั่วไปบูต Pi ไม่ได้)
+
 **2. key ของ `cloud` — สร้างบน notebook ก่อนเปิด OS customisation:**
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/pi5-cloud -C "cloud@pi5 <ชื่อคุณ>"
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/pi5-cloud -C "cloud@pi5 <ชื่อคุณ>"
 ```
 
-แล้วตั้งค่าใน Imager (OS customisation):
+(สร้าง `pi5-deploy_ed25519` ของข้อ 4 ไปพร้อมกันเลยก็ได้ · `-N ""` = ไม่มี passphrase ให้ Ansible ใช้ได้เลย ไฟล์ที่ไม่มี `.pub` จึงต้อง
+เก็บเป็นความลับ — สำรองไว้ที่ `D:\Beestation\Sri_POS\ops\secrets\` ไม่ใช่ Downloads/chat/commit) แล้วดูบรรทัดที่จะวาง:
 
-* **username = `cloud` + รหัสผ่าน** — Imager v2.0.12 บังคับรหัสผ่านเมื่อตั้ง username และไม่มีตัวเลือก sudo แบบไม่ใช้รหัสสำหรับ Ubuntu
-  (มันเขียน `sudo: null`) → **`sudo` ถามรหัสเป็นเรื่องปกติ** · ชื่อ `cloud` = ชื่อเดียวกับ `mob04` (ชื่ออื่นใช้ได้ แต่ต้องแทนทุกที่)
-* เปิด SSH แบบ **public key เท่านั้น** → วางเนื้อหา `~/.ssh/pi5-cloud.pub` (login ด้วยรหัสผ่านทาง SSH ยังปิด — `ssh_pwauth: false`)
-* hostname เช่น `pi5-pos` · timezone `Asia/Bangkok`
+```bash
+cat ~/.ssh/pi5-cloud.pub
+```
+
+แล้วตั้งค่าใน Imager v2.0.12 → **Customisation** (เมนูซ้ายทีละหน้า):
+
+| หน้า | ตั้งค่า |
+|---|---|
+| Hostname | `pi5-pos` |
+| Localisation | time zone `Asia/Bangkok` · keyboard `us` |
+| User | username **`cloud`** + รหัสผ่าน (ตั้งเว้นไม่ได้ — ดูหมายเหตุ) · ถ้าช่องขึ้น *Saved (hidden) — leave blank to keep* = Imager จำรหัสรอบก่อนไว้ ปล่อยว่างได้ถ้ายังจำรหัสนั้นได้ |
+| Wi-Fi | **ไม่ตั้ง** (Pi เป็น server ใช้สาย LAN) — Imager เติม SSID ของ PC ให้เอง และปุ่ม NEXT เทาจนกว่าจะใส่รหัส → **ลบช่อง SSID ให้ว่าง** แล้ว NEXT · อย่าใส่รหัส Wi-Fi (Pi จะได้ IP สองตัว) |
+| Remote access | **Enable SSH** เปิด → **Use public key authentication** → วางบรรทัด `ssh-ed25519 … cloud@pi5 …` → 🔴 **กด ADD** ต้องขึ้น *1 SSH key configured* และรายการ key (ถ้ายังขึ้น *No SSH keys configured* = key ยังไม่ถูกเพิ่ม NEXT จะเทา) |
+
+หมายเหตุ:
+* **รหัสผ่านของ `cloud`** — Imager บังคับเมื่อตั้ง username และไม่มีตัวเลือก sudo แบบไม่ใช้รหัสสำหรับ Ubuntu
+  (มันเขียน `sudo: null`) → **`sudo` ถามรหัสเป็นเรื่องปกติ** และ `host-setup.sh`/`provision.yml -K` ต้องใช้รหัสนี้ · SSH ด้วยรหัสผ่านยังปิด
+  (`ssh_pwauth: false`) รหัสนี้จึงใช้แค่ `sudo` และหน้าจอ Pi โดยตรง · เก็บใน password manager · ชื่อ `cloud` = ชื่อเดียวกับ `mob04`
+  (ชื่ออื่นใช้ได้ แต่ต้องแทนทุกที่)
+* ห้ามเลือก *Use password authentication* ในหน้า Remote access
+
+จากนั้น **Writing** → ยืนยันลบ SD → รอเขียน + verify เสร็จ → ถอด SD
 
 **3. เสียบ LAN → boot → ตั้ง IP คงที่** (แนะนำ: DHCP reservation ที่ router ผูก MAC ของ Pi) · 🔴 IP นี้ถูกฝังใน SAN ของใบรับรอง (§5) —
 IP เปลี่ยน = ต้องแก้ `CERT_SAN_IPS` + `CORS_ORIGINS` แล้ว provision + deploy ใหม่
