@@ -18,11 +18,12 @@
 | ✅ | image ภายนอกที่ pin digest ไว้ (postgres, redis ×2, etcd, nginx, alpine/openssl, curl, prometheus, grafana, node-exporter) ทุกตัวเป็น index ที่มี `linux/arm64` (ตรวจด้วย `docker buildx imagetools inspect` 2026-10-13) |
 | ✅ | `host-setup.sh` ผ่าน test แบบ stub (`deploy/scripts/test/host-setup.test.sh` — ไม่แตะดิสก์จริง) + `--dry-run` อ่านอย่างเดียวบน `mob04` (Ubuntu 26.04, amd64) |
 | ✅ ตรวจจากแหล่งทางการ (ยังไม่ใช่บน Pi จริง) 2026-10-13 | kernel `linux-raspi` ของ Ubuntu (26.04: `7.0.0-1020`, 24.04: `6.8.0-1065`) = `CONFIG_ARM64_4K_PAGES=y` · `download.docker.com` มี `resolute` arm64 (`docker-ce` 29.9.0) · `pkgs.tailscale.com` มี `ubuntu/resolute` arm64 · image raspi ของ Ubuntu 26.04.1 และ 24.04.5 มี `rpi-eeprom` (28.14) มาให้ |
-| ❌ ยังไม่เคยทำ | **ยังไม่เคยมี Pi จริงสักเครื่อง** — `lsblk`/`findmnt` กับดิสก์จริง, `RequiresMountsFor` ตอนถอดดิสก์ (ออกแบบถูกตามเอกสาร systemd — ตอน boot จะรอดิสก์ได้ถึง 90 วิ ตาม device timeout), stack ทั้งชุด boot บน Pi — **ยังไม่มีข้อไหนถูกพิสูจน์บนเครื่องจริง** |
+| ✅ พิสูจน์บน Pi จริง 2026-10-24/25 | Pi 5 เครื่องแรก (Ubuntu 26.04.1, HDD USB 1 TB เป็น `/srv/pos-data`) ผ่าน `host-setup.sh` + `provision.yml` + `deploy.yml` ที่ `b748387` (`failed=0`), `/health/ready` 200, SAN/CA ของ Pi ถูก, Gatus เขียวทุก endpoint — บันทึกจริง + บทเรียน: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md` · Pi นี้ **ตั้งใจใช้จริงที่ร้าน** (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล |
+| ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · backup ออกนอกเครื่อง (§11) · ไฟสำรอง/UPS ทดสอบจริง |
 | ❌ ยังไม่ต่อ | **CD ไป Pi ยังไม่มี:** job `deploy` ใน `.github/workflows/deploy.yml` รันบน `[self-hosted, srisurart-demo-deploy]` (= `mob04`) และ `verify-ghcr-tags.sh` ใน workflow ยังไม่ส่ง platform → §8 ของคู่มือนี้จึงเป็น **ทางมือ / ซ้อม** เท่านั้น · 🔴 **กด approve `Deploy (demo)` = deploy ไป `mob04` เสมอ ไม่ใช่ Pi** |
 
-🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · คู่มือนี้ = ตั้ง Pi ขึ้นมา **ซ้อม** ด้วยข้อมูลทดสอบ
-ห้ามใช้ tenant จริง ห้ามชี้ APK ที่ร้านใช้มาที่ Pi
+🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · Pi เครื่องแรกถูกตั้งเป็นโฮสต์ของร้านแล้ว (2026-10-24) แต่ยังไม่มีข้อมูลจริง —
+สร้าง tenant แรกบน Pi ได้ แต่ **ก่อนขายจริงบน Pi ต้องมี backup นอกเครื่อง (§11)** · ห้ามชี้ APK ที่ร้านใช้มาที่ Pi จนกว่า owner ตกลงแผนย้ายข้อมูล
 
 ลำดับทั้งหมด (ห้ามสลับ):
 
@@ -436,7 +437,20 @@ ssh pi5 'sudo docker info --format "{{.DockerRootDir}} {{.Driver}}"; systemctl c
 
 สรุปจาก `docs/research/tailscale-remote-access-plan-2026-10-13.md` (ทำบน `mob04` แล้ว 2026-10-13) — **owner ทำ 👤 ก่อน:**
 
-* tailnet policy: `tagOwners` มี `tag:pos-server` และ grant ให้ผู้ใช้ถึง `<PI_IP>/32` **tcp:443 เท่านั้น** · SSH ผ่าน tailnet = owner คนเดียว
+* tailnet policy: `tagOwners` มี `tag:pos-server` และ grant ให้ผู้ใช้ถึง `<PI_IP>/32` **tcp:443 เท่านั้น** (แผนเดิมบน `mob04`) · SSH ผ่าน tailnet = owner คนเดียว
+* 🟠 **เปิด POS ผ่านชื่อ/IP tailnet ของ Pi (`<PI_TAILSCALE_IP>`) ต้องมี tcp:443 (และ 80 สำหรับ redirect) ใน grant — ไม่ใช่แค่ tcp:22** (Pi เครื่องแรก 2026-10-25: owner แก้ grant เป็น 22/80/443 แล้ว HTTPS ไป tailnet IP ได้ 200) ตัวอย่างใน policy file ของ tailnet:
+
+```json
+"grants": [
+  {"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["tcp:22", "tcp:80", "tcp:443"]}
+],
+"tests": [
+  {"src": "<OWNER_EMAIL>", "accept": ["<PI_TAILSCALE_IP>:443"], "deny": ["<PI_TAILSCALE_IP>:3000", "<PI_TAILSCALE_IP>:5432"]}
+]
+```
+
+  Grafana/Prometheus/Gatus/platform-ui **ไม่เปิดผ่าน grant** — ใช้ SSH tunnel (§10) เสมอ · ที่ผูก `127.0.0.1` อยู่แล้ว grant ก็เข้าไม่ถึง (`tests` ข้างบนกันคนเผลอเพิ่มพอร์ต)
+* 🟠 **ประสิทธิภาพ:** uplink ของ Wi-Fi ที่ Pi เครื่องแรกต่ออยู่ (วงชั่วคราว ไม่ใช่ที่ร้าน) วัดได้แค่ ~2 Mbit/s (~240 KB/s) → โหลดเว็บครั้งแรก (cold) ช้า · ตั้งแต่ release `8713c9f` (PR #778) nginx gzip เฉพาะ static web build (~15 MB → ~5 MB; API ไม่บีบ) · **เครื่องในร้านใช้ LAN IP ตรง ๆ — Tailscale ไว้เข้าจากนอกร้านเท่านั้น**
 * `autoApprovers` ของ tailnet ครอบแค่ `172.30.58.20/32` (`mob04`) → **route ของ Pi ต้อง approve ด้วยมือ**
 * แผนฟรี Personal = **ใช้ที่ไม่ใช่เชิงพาณิชย์เท่านั้น** — ร้านใช้จริงต้องให้ owner ตัดสินใหม่
 
@@ -644,6 +658,18 @@ ssh pi5-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-server:$TAG" && echo 
 ssh pi5-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-web:$TAG" && echo "gate web ok" || echo "STOP: Pi ดึง image web ไม่ได้"
 ```
 
+**2b. (Pi บน Wi-Fi / uplink ช้า — ควรทำเสมอ) pre-pull image ทีละตัวพร้อม retry ก่อน deploy แรก** — `deploy.yml` ครั้งแรกบน Pi เครื่องแรกล้มที่ task
+"Pull release images from GHCR" หลังรอ 14 นาที เพราะ layer ของ postgres จาก Docker Hub retry ไม่จบ (Grafana ต้องลอง 4 รอบ) ·
+ดึงทีละตัวบน Pi แล้วค่อยรัน `deploy.yml` (ใหม่) — compose จะใช้ image ที่อยู่ในเครื่องแล้ว · 🟠 `docker-compose.yml`/`vm.override.yml` ถูก copy ลง `/opt/pos` โดย
+`deploy.yml` เอง (ไม่ใช่ `provision.yml`) → บน Pi ใหม่ ให้รัน §8 ข้อ 6 หนึ่งรอบก่อน: ถ้าล้มที่ "Pull release images from GHCR" ไฟล์ compose ถึงเครื่องแล้ว → รันคำสั่งนี้ → รัน ข้อ 6 ซ้ำ:
+
+```bash
+ssh pi5-deploy "cd /opt/pos && for i in \$(IMAGE_TAG=$TAG docker compose -f docker-compose.yml -f vm.override.yml config --images | sort -u); do for t in 1 2 3 4 5; do docker pull \"\$i\" && break || { echo \"retry \$t: \$i\"; sleep 10; }; done; done"
+```
+
+* รันซ้ำได้ — ตัวที่ดึงแล้วจบทันที · ตัวไหนล้มครบ 5 รอบ ดูบรรทัด `retry 5:` แล้วรันซ้ำ
+* `monitoring.yml` ถูก copy ตอนท้ายของ deploy (หลัง POS ขึ้นแล้ว) → image ของ monitoring (node-exporter, prometheus, grafana, gatus) ดึงล่วงหน้าได้หลังนั้นเท่านั้น (ข้อ 7c)
+
 **3. สถานะ Pi ก่อน deploy:**
 
 ```bash
@@ -735,6 +761,23 @@ ssh pi5-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f d
 ✅ fingerprint **ไม่ตรง** กับของ `mob04` (`87:7B:B8:F7:…`) — เป็น CA ใหม่ของ Pi · หลัง ~3 นาที tunnel `13300` (§10) → `pos-api-ready` เขียว ·
 ยังแดงด้วย x509 = `GATUS_CA_DIR` ไม่ถึง `/opt/pos/.env` (§5) · แดงด้วย connection refused/timeout = `GATUS_POS_URL` ไม่ใช่ IP ของ Pi
 
+**7c. ถ้า monitoring ถูก rescue** (deploy จบ `rescued=1` + `WARNING: ... monitoring overlay failed` แต่ POS ปกติ — บน Wi-Fi มักเป็น pull ล้มแบบเดียวกับข้อ 2b)
+ทำ **หลังข้อ 7b** เพื่อให้ Gatus โหลด CA ของ Pi · รัน deploy ซ้ำ SHA เดิมไม่ได้ (หยุดที่ duplicate-release check) จึงกู้ด้วยมือ:
+
+```bash
+ssh pi5-deploy "cd /opt/pos && for i in \$(IMAGE_TAG=\$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml config --images | grep -E 'node-exporter|prometheus|grafana|gatus' | sort -u); do for t in 1 2 3 4 5; do docker pull \"\$i\" && break || { echo \"retry \$t: \$i\"; sleep 10; }; done; done"
+```
+
+```bash
+ssh pi5-deploy 'cd /opt/pos && export IMAGE_TAG=$(cat .current_sha) && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d node-exporter && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate prometheus grafana gatus'
+```
+
+```bash
+ssh pi5-deploy 'curl -s http://127.0.0.1:9090/-/healthy; curl -s -o /dev/null -w "grafana=%{http_code}\n" http://127.0.0.1:3000/api/health; curl -s -o /dev/null -w "gatus=%{http_code}\n" http://127.0.0.1:3300/api/v1/endpoints/statuses'
+```
+
+✅ Prometheus ตอบ `Healthy` (หรือ `Prometheus ... is Healthy.`), `grafana=200`, `gatus=200` · ห้ามลบ `.current_sha` (แทนการรันซ้ำ)
+
 **8. เก็บกวาด** (เมื่อเลิกซ้อม — worktree ใช้ซ้ำได้ถ้าจะ deploy SHA เดิมอีก):
 
 ```bash
@@ -787,6 +830,8 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 * `provision.yml` ตั้ง cron 03:00 ของ `deploy` → `backup-db.sh` เขียน dump + `pos_images_*.tar.gz` + `pos_sale_photos_*.tar.gz` **เต็มทุกคืน** ลง `/opt/pos/backups` (microSD)
   เก็บ 7 วัน (`BACKUP_KEEP_DAYS` ค่าเริ่ม 7) → รูปเยอะ = SD 32 GB เต็มได้ (root เต็ม = apt/journald พัง) และ SD สึก ·
   ตรวจ `ssh pi5-deploy 'df -h / /srv/pos-data'` หลัง backup สองสามคืนแรก · ใช้ microSD ≥ 64 GB หรือให้ owner ตัดสินลด `BACKUP_KEEP_DAYS`
+* 🔴 **ช่องว่างที่เปิดอยู่บน Pi เครื่องแรก (2026-10-25):** ฐานข้อมูลจริงอยู่บน HDD (Docker data-root `/srv/pos-data/docker`) แต่ `backup-db.sh` เขียน dump ลง `/opt/pos/backups` บน **microSD** —
+  และ **ไม่มีอะไรออกจากเครื่อง**: ไม่ได้ตั้ง `BACKUP_RCLONE_REMOTE`, งาน pull ของ PC / watchdog ผูกกับ `mob04` เท่านั้น · รันมือหนึ่งครั้งแล้ว (สำเร็จ, local only) · ยังไม่มีวิธีที่สร้างเสร็จ — รอ owner ตัดสิน (ห้ามอ้างว่า Pi มี offsite backup)
 * **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — สำเนานอกเครื่อง (#363) ตอนนี้มีแค่ PC ของ owner ดึงจาก `mob04` (ยังไม่ได้ตั้งให้ Pi) · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
   `--data-disk boot` = ข้อมูลกับ backup อยู่บน SD ใบเดียวกัน · ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหน · log สีเขียวไม่ได้แปลว่าออกจากเครื่อง (อ่านบรรทัด `::warning::`)
 * ครั้งแรกบน Pi ให้รัน `backup-db.sh` ด้วยมือหนึ่งครั้งหลัง deploy และอ่าน output (แผนย้าย §4.7) ·
@@ -873,5 +918,6 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`
 * ห้ามลบ drop-in `RequiresMountsFor` · ห้ามเปิด SNAT ของ Tailscale กลับ · ห้าม `--lan-ip 172.30.58.20` / `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi
 * หลัง deploy เพิ่ม Tailscale ด้วย `--profile vm` (§4.1) — ไม่รัน `--profile pi5 --data-disk ...` ซ้ำ (สคริปต์รุ่นเก่า restart Docker เสมอ)
-* ห้ามเรียก Pi ว่า production / ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน
+* Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — ห้ามชี้แอป/APK ของร้านมา Pi ก่อนตัดสิน · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
+* ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · Grafana/Prometheus/Gatus/Bull-Board ไม่เปิดผ่าน tailnet grant
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)
