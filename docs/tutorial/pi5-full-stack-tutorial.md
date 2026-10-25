@@ -19,11 +19,12 @@
 | ✅ | `host-setup.sh` ผ่าน test แบบ stub (`deploy/scripts/test/host-setup.test.sh` — ไม่แตะดิสก์จริง) + `--dry-run` อ่านอย่างเดียวบน `mob04` (Ubuntu 26.04, amd64) |
 | ✅ ตรวจจากแหล่งทางการ (ยังไม่ใช่บน Pi จริง) 2026-10-13 | kernel `linux-raspi` ของ Ubuntu (26.04: `7.0.0-1020`, 24.04: `6.8.0-1065`) = `CONFIG_ARM64_4K_PAGES=y` · `download.docker.com` มี `resolute` arm64 (`docker-ce` 29.9.0) · `pkgs.tailscale.com` มี `ubuntu/resolute` arm64 · image raspi ของ Ubuntu 26.04.1 และ 24.04.5 มี `rpi-eeprom` (28.14) มาให้ |
 | ✅ พิสูจน์บน Pi จริง 2026-10-24/25 | Pi 5 เครื่องแรก (Ubuntu 26.04.1, HDD USB 1 TB เป็น `/srv/pos-data`) ผ่าน `host-setup.sh` + `provision.yml` + `deploy.yml` ที่ `b748387` (`failed=0`), `/health/ready` 200, SAN/CA ของ Pi ถูก, Gatus เขียวทุก endpoint — บันทึกจริง + บทเรียน: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md` · Pi นี้ **ตั้งใจใช้จริงที่ร้าน** (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล |
-| ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้จากสำเนาใน Google Drive จริง (§11) · ไฟสำรอง/UPS ทดสอบจริง |
+| ✅ พิสูจน์บน Pi จริง 2026-10-25 | กู้ฐานข้อมูลจากสำเนาใน Google Drive (§11): 0 error, 33 ตาราง + 27 migration = ของจริง · ไฟ: `throttled=0x0` ตลอด 14 ชม. พร้อม HDD · APK สำหรับ Pi build ได้ (`target=pi5`, §9) · สคริปต์เปลี่ยน IP ตอนย้ายร้าน (§2 ข้อ 3) ซ้อมด้วย IP เดิมผ่าน |
+| ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้รูปสินค้า/รูปหลักฐาน (ยังไม่มีรูป) · ลอง APK ของ Pi บนเครื่องจริง · ไฟสำรอง/UPS ทดสอบจริง |
 | ❌ ยังไม่ต่อ | **CD ไป Pi ยังไม่มี:** job `deploy` ใน `.github/workflows/deploy.yml` รันบน `[self-hosted, srisurart-demo-deploy]` (= `mob04`) และ `verify-ghcr-tags.sh` ใน workflow ยังไม่ส่ง platform → §8 ของคู่มือนี้จึงเป็น **ทางมือ / ซ้อม** เท่านั้น · 🔴 **กด approve `Deploy (demo)` = deploy ไป `mob04` เสมอ ไม่ใช่ Pi** |
 
 🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · Pi เครื่องแรกถูกตั้งเป็นโฮสต์ของร้านแล้ว (2026-10-24) แต่ยังไม่มีข้อมูลจริง —
-สร้าง tenant แรกบน Pi ได้ · backup นอกเครื่อง = Google Drive (§11, ตั้งแล้ว 2026-10-25) · ห้ามชี้ APK ที่ร้านใช้มาที่ Pi จนกว่า owner ตกลงแผนย้ายข้อมูล
+tenant แรกมีแล้ว (`001`) · backup นอกเครื่อง = Google Drive (§11, ตั้งแล้ว 2026-10-25) · APK ของ Pi มีแล้ว (§9) — ติดตั้งทับ APK ของ `mob04` = เครื่องนั้นย้ายไปคุยกับ Pi (ข้อมูลใน `mob04` ไม่ตามไป)
 
 ลำดับทั้งหมด (ห้ามสลับ):
 
@@ -108,7 +109,9 @@ cat ~/.ssh/pi5-cloud.pub
 จากนั้น **Writing** → ยืนยันลบ SD → รอเขียน + verify เสร็จ → ถอด SD
 
 **3. เสียบ LAN → boot → ตั้ง IP คงที่** (แนะนำ: DHCP reservation ที่ router ผูก MAC ของ Pi) · 🔴 IP นี้ถูกฝังใน SAN ของใบรับรอง (§5) —
-IP เปลี่ยน = ต้องแก้ `CERT_SAN_IPS` + `CORS_ORIGINS` แล้ว provision + deploy ใหม่
+IP เปลี่ยน = ต้องแก้ `CERT_SAN_IPS` + `CORS_ORIGINS` แล้ว provision + deploy ใหม่ · Pi เครื่องแรก: ใช้สคริปต์บน PC (ไม่อยู่ใน repo)
+`wsl -d Ubuntu -- bash /mnt/d/Beestation/Sri_POS/ops/pi5-change-lan-ip.sh <IP-ใหม่>` — จอง DHCP ก่อน (สคริปต์ปฏิเสธถ้า Pi ยังไม่ได้ IP นั้น),
+แก้ 3 ค่า (`CERT_SAN_IPS`/`CORS_ORIGINS`/`GATUS_POS_URL`) → provision → deploy SHA เดิม (ใบรับรองใหม่ CA เดิม = APK/เบราว์เซอร์ยัง trust) → สร้าง Gatus ใหม่ → ตรวจ SAN + ready ทั้ง LAN และ Tailscale
 
 **4. หน้าต่าง terminal ของ Pi** — 🔴 เปิด **หน้าต่างใหม่แยก** ไว้ทำ Pi อย่างเดียว (ตัวแปร `DEPLOY_KEY`/`SECRETS_FILE` ของ `mob04` ต้องไม่อยู่ในหน้าต่างนี้)
 แล้วประกาศ (แทน `<PI_IP>` ด้วย IP จริงของ Pi):
@@ -769,7 +772,7 @@ ssh pi5-deploy "cd /opt/pos && for i in \$(IMAGE_TAG=\$(cat .current_sha) docker
 ```
 
 ```bash
-ssh pi5-deploy 'cd /opt/pos && export IMAGE_TAG=$(cat .current_sha) && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d node-exporter && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate prometheus grafana gatus'
+ssh pi5-deploy 'cd /opt/pos && export MONITORING_CONFIG_DIR=./deploy IMAGE_TAG=$(cat .current_sha) && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d node-exporter && docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d --force-recreate prometheus grafana gatus'
 ```
 
 ```bash
@@ -777,6 +780,9 @@ ssh pi5-deploy 'curl -s http://127.0.0.1:9090/-/healthy; curl -s -o /dev/null -w
 ```
 
 ✅ Prometheus ตอบ `Healthy` (หรือ `Prometheus ... is Healthy.`), `grafana=200`, `gatus=200` · ห้ามลบ `.current_sha` (แทนการรันซ้ำ)
+
+🔴 คำสั่ง compose ด้วยมือที่แตะ service ใน `monitoring.yml` ต้องมี `MONITORING_CONFIG_DIR=./deploy` (แบบที่ `deploy.yml` ตั้ง) และรันใน `/opt/pos` —
+ไม่มี = mount ชี้ `/opt/deploy/...` ที่ว่าง → Gatus `panic: configuration file not found` วน restart ทุกนาที + Grafana ยิง `Gatus down` (เกิดจริง 2026-10-25)
 
 **8. เก็บกวาด** (เมื่อเลิกซ้อม — worktree ใช้ซ้ำได้ถ้าจะ deploy SHA เดิมอีก):
 
@@ -791,8 +797,11 @@ git -C "$MAIN" worktree remove ../pos-pi5
 * **CA ของ Pi เป็นคนละตัวกับ `mob04`:** `certgen` สร้าง CA ใหม่ใน volume `certs-ca` ของ Pi ตอน deploy แรก (`ca.key` ไม่เคยออกจากเครื่อง)
   → APK ที่ฝัง `frontend/assets/certs/pos-ca.crt` (CA ของ `mob04`) **ไม่ trust Pi**
 * **ช่วงซ้อม (แนะนำ):** ใช้ CA ใหม่ของ Pi + เบราว์เซอร์ — ยอมรับคำเตือน หรือติดตั้ง `ca.crt` ของ Pi ในเครื่องทดสอบ (ดึงทาง SSH ตาม 07 §5 runbook ข้อ 2–3 — **ห้าม commit ทับ** `pos-ca.crt` ของ `mob04`)
-* **APK สำหรับ Pi = เรื่องที่ owner ต้องตัดสิน (นอกขอบเขตคู่มือนี้):** `android-apk.yml` ฮาร์ดโค้ด `API_BASE_URL: https://172.30.58.20`
-  → ต้องแก้ workflow + เลือกว่าจะใช้ CA เดิมของ `mob04` หรือ commit CA ใหม่แล้ว build APK ใหม่ทุกเครื่อง
+* **APK สำหรับ Pi (PR #787, owner 2026-10-25):** `gh workflow run android-apk.yml --ref main -f target=pi5` → `API_BASE_URL=https://100.70.181.98`
+  (IP Tailscale — ไม่เปลี่ยนตอนย้ายร้าน) + trust `frontend/assets/certs/pos-ca-pi5.crt` (CA สาธารณะของ Pi, คัดลอกทับ `pos-ca.crt` ใน runner เท่านั้น) →
+  release `apk-pi5-<sha>` (ตัวแรก `apk-pi5-b5dccea`) · เครื่อง Android ต้องลงแอป **Tailscale** และ login tailnet ของ owner ·
+  package id + key เดียวกับ APK ของ `mob04` → ติดตั้งทับ = เครื่องนั้นเปลี่ยนเซิร์ฟเวอร์ · ค่าเริ่ม `target=mob04` = เหมือนเดิม ·
+  Pi ใหม่ (CA ใหม่) = แทน `pos-ca-pi5.crt` ด้วย `ca.crt` สาธารณะของเครื่องนั้น
 * 🔴 **คัดลอก `certs-ca` จาก `mob04` = ย้าย CA private key (`ca.key`) ออกจาก `mob04`** — owner ตัดสินเท่านั้น · ถ้าทำ: ส่ง VM → Pi **ตรงผ่าน ssh**
   (ห้ามผ่าน notebook / แชต / USB), ตรวจว่า SHA-256 ของ `ca.crt` บน Pi = ของ `frontend/assets/certs/pos-ca.crt`, และกฎใน CLAUDE.md
   "`ca.key` lives only in `certs-ca`" ต้องแก้ตาม · สำหรับซ้อม **ใช้ CA ใหม่**
@@ -840,7 +849,9 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 * **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — Pi เครื่องแรกมีสำเนาใน Google Drive แล้ว (ข้อบน); Pi เครื่องอื่นต้องตั้งเอง · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
   `--data-disk boot` = ข้อมูลกับ backup อยู่บน SD ใบเดียวกัน · ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหน · log สีเขียวไม่ได้แปลว่าออกจากเครื่อง (อ่านบรรทัด `::warning::`)
 * ครั้งแรกบน Pi ให้รัน `backup-db.sh` ด้วยมือหนึ่งครั้งหลัง deploy และอ่าน output (แผนย้าย §4.7) ·
-  **ซ้อม `restore-db.sh` หนึ่งครั้ง** ตอนที่ Pi มีแต่ข้อมูลทดสอบ (`restore-db.sh <pos_backup_….sql.gz>` — ไม่มี argument ชื่อฐานข้อมูลแล้ว และหยุด/เปิด api/worker/bull-board ให้เอง, PR #741) — `restore-db.sh` ยังไม่กู้รูปสินค้า/รูปหลักฐาน
+  **ซ้อม `restore-db.sh` หนึ่งครั้ง** ตอนที่ Pi มีแต่ข้อมูลทดสอบ (`restore-db.sh <pos_backup_….sql.gz>` — ไม่มี argument ชื่อฐานข้อมูลแล้ว และหยุด/เปิด api/worker/bull-board ให้เอง, PR #741) — `restore-db.sh` ยังไม่กู้รูปสินค้า/รูปหลักฐาน ·
+  ✅ **ซ้อมกู้จาก Drive แล้ว 2026-10-25:** ดึง `pos_backup_*` ล่าสุดจาก `gdrive-dr:Srisurart-POS-DR/pi5-pos` → ตรวจ sha256 → กู้ลง Postgres container ชั่วคราว (ไม่แตะ DB จริง):
+  0 error, 33 ตาราง + 27 migration = ของจริง · tarball รูปยังว่าง (ยังไม่มีรูป) → การกู้รูปยังไม่พิสูจน์
 * สำเนาด้วยมือระหว่างรอ #363 = owner ตัดสิน (แผนย้าย §3 "ผลต่อ offsite backup")
 
 ---
@@ -923,6 +934,6 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * ห้ามให้ runner บน Pi ใช้ชื่อ `mob04-demo` / label `srisurart-demo-deploy`
 * ห้ามลบ drop-in `RequiresMountsFor` · ห้ามเปิด SNAT ของ Tailscale กลับ · ห้าม `--lan-ip 172.30.58.20` / `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi
 * หลัง deploy เพิ่ม Tailscale ด้วย `--profile vm` (§4.1) — ไม่รัน `--profile pi5 --data-disk ...` ซ้ำ (สคริปต์รุ่นเก่า restart Docker เสมอ)
-* Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — ห้ามชี้แอป/APK ของร้านมา Pi ก่อนตัดสิน · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
+* Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — APK ของ Pi (`apk-pi5-*`, §9) ติดตั้งทับ = เครื่องนั้นย้ายไป Pi แต่ข้อมูลใน `mob04` ไม่ตามไป · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
 * ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · Grafana/Prometheus/Gatus/Bull-Board ไม่เปิดผ่าน tailnet grant
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)

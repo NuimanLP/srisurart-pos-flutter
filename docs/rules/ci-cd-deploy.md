@@ -143,7 +143,15 @@
   holds the CA since 2026-10-03 (first certgen deploy `7ea0178`; SHA-256 `87:7B:B8:F7:…:54:CF:83:65`) — it must match
   `certs-ca/ca.crt` on the VM (`07_CICD_DEPLOY.md` §5 "TLS"). Never add `badCertificateCallback`.
   A host IP change = set `CERT_SAN_IPS` in that host's `.env` (no code edit since PR #712), plus `CORS_ORIGINS`, then
-  `provision.yml` + a redeploy; the APK's `API_BASE_URL` is hardcoded in `android-apk.yml`.
+  `provision.yml` + a redeploy; the APK's `API_BASE_URL` is set per `target` in `android-apk.yml`.
+- **APK `target` (PR #787, 2026-10-25):** `android-apk.yml` input `target` = `mob04` (default: `https://172.30.58.20`,
+  `pos-ca.crt` as committed, tag `apk-<sha>`) | `pi5` (`https://100.70.181.98` = the Pi's Tailscale IP, so the device
+  needs Tailscale; `frontend/assets/certs/pos-ca-pi5.crt` copied over `pos-ca.crt` in the runner only; tag
+  `apk-pi5-<sha>`). Same package id + key: installing one over the other switches that device's server.
+  🔴 `pos-ca-pi5.crt` is the Pi's PUBLIC CA cert only; it must match `certs-ca/ca.crt` on the Pi.
+- 🔴 **Hand-run compose on a host that touches `monitoring.yml` services needs `MONITORING_CONFIG_DIR=./deploy`**
+  (deploy.yml sets it in its play `environment`), run from `/opt/pos`. Without it the bind mounts fall back to
+  `../deploy/...` (empty) and Gatus crash-loops on `configuration file not found` (Pi, 2026-10-25).
 - **Multi-arch images + Raspberry Pi 5 host (2026-10-13, PRs #711/#712/#713, release #714 `5c7f210`;
   `docs/tutorial/pi5-full-stack-tutorial.md`):** server/web `:<sha>` and `:main` are **amd64+arm64 manifest lists**. Server: made by
   `publish-image` only after both per-arch legs (`:<sha>-amd64`/`:<sha>-arm64`, each built + smoke + sharp check — arm64 under
