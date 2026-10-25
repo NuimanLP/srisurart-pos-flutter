@@ -137,5 +137,15 @@ check "web: gzipped body decodes to the file" test "$(curl -sk --compressed "$BA
 check "api: not gzipped" test -z "$(encoding "$BASE/api/v1/products")"
 check "health: not gzipped" test -z "$(encoding "$BASE/health/ready")"
 check "product image: not gzipped" test -z "$(encoding "$T")"
+# The three checks above cannot see a `gzip on;` moved up to http{}/server{}: with no upstream
+# here, /api/ and /health/ answer nginx's ~150-byte 502 page, under gzip_min_length. So the
+# config itself must name exactly the two web-build locations as the only ones with gzip on.
+gzip_scopes() { # the enclosing `location`/`server`/`http` line of every `gzip on;`
+  awk '/^[[:space:]]*(location|server|http)[[:space:]].*\{/ { scope = $0 }
+       /^[[:space:]]*gzip[[:space:]]+on;/ { gsub(/^[[:space:]]+|[[:space:]]*\{$/, "", scope); print scope }' \
+    "$ROOT/server/docker/nginx/nginx.conf"
+}
+check "gzip on only in the two web-build locations" test "$(gzip_scopes)" = \
+  "$(printf '%s\n' 'location /' 'location ~ "^/main\.[0-9a-z]+\.dart\.js$"')"
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else docker logs "$NAME" 2>&1 | tail -20; echo "$fails failed"; exit 1; fi
