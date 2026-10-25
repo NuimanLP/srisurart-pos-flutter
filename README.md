@@ -13,14 +13,20 @@ counter PC), and is now being extended into a multi-tenant platform so more than
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
 > **Status (2026-10-25):** the course-submission freeze ended on 2026-10-10 and normal development
-> resumed. The last release is `main` `8713c9f` (PR #779, 2026-10-25: nginx gzips the static web build only —
+> resumed. The last app release is `main` `8713c9f` (PR #779, 2026-10-25: nginx gzips the static web build only —
 > API/health/img stay uncompressed (BREACH) — plus server dependency overrides for 3 high advisories, #778),
 > deployed to the demo VM `mob04` (Deploy run `40151601600`, `.current_sha` checked) and, by hand, to the Pi.
+> `main` has since moved to `b5dccea` (PR #788) through two releases that rebuilt no app image: `5ab7266` (#784,
+> the backup script reads its offsite target from `/opt/pos/.env`) and `b5dccea` (#787, the APK workflow gains a
+> `target` input). Both hosts still run `8713c9f`.
 > Before it `e6374df` (PR #736, 2026-10-18) and `21ad935` (PR #727, 2026-10-17: the DevOps bundle — Semgrep SAST gate,
 > pre-migration DB dump, Grafana alerting to Discord + Gatus, ansible-lint, SSH host-key checks). Discord alerting is
 > live on `mob04` since 2026-10-18 and the old Healthchecks.io heartbeat is removed. A Raspberry Pi 5 (`pi5-pos`) has
 > been running the stack since 2026-10-25, deployed by hand and not wired into CD; the owner decided it becomes the
 > shop's production host, but `mob04` stays production until a data migration is agreed (nothing moved yet).
+> On the Pi as of 2026-10-25: nightly backups copied to Google Drive with a restore from that copy rehearsed, a
+> Pi-specific APK (`apk-pi5-b5dccea`, reached over Tailscale), and a one-command LAN-IP change for the move to the
+> shop. See [Raspberry Pi 5 host](#raspberry-pi-5-host-the-shop) below.
 > Detail: [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
 > [`session-2026-10-13-pi5-multiarch.md`](docs/handoff_log/session-2026-10-13-pi5-multiarch.md),
 > [`session-2026-10-14-devops-develop.md`](docs/handoff_log/session-2026-10-14-devops-develop.md).
@@ -179,10 +185,12 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   [`session-2026-10-13-camera-suppliers.md`](docs/handoff_log/session-2026-10-13-camera-suppliers.md).
 - **Multi-arch (amd64 + arm64) images** and a `host-setup.sh` for a Raspberry Pi 5 host,
   first deployed 2026-10-25 (`pi5-pos`: Ubuntu Server 26.04 arm64, Docker data-root on a USB HDD at `/srv/pos-data`,
-  Tailscale `100.70.181.98`; release `b748387`, then `8713c9f`) by hand with `deploy.yml` from WSL, not wired into CD.
+  Tailscale `100.70.181.98`; release `b748387`, then `8713c9f`) by hand with `deploy.yml` from WSL, not wired into CD
+  ([Raspberry Pi 5 host](#raspberry-pi-5-host-the-shop)).
   The owner's decision is that it becomes the shop's production host; `mob04` stays production until a data migration
-  is agreed. Pi backups go to Google Drive since 2026-10-25 (#783). Open: the APK `API_BASE_URL` still points at `mob04`,
-  and the Pi's LAN IP changes when it moves to the shop —
+  is agreed. Pi backups go to Google Drive since 2026-10-25 (#783). A Pi APK is built with `android-apk.yml -f target=pi5`
+  (#787: Tailscale IP + the Pi's CA; first `apk-pi5-b5dccea`), a restore from the Drive copy was rehearsed, and the
+  LAN-IP change for the move to the shop is one host-side script (`ops\pi5-change-lan-ip.sh`) —
   [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
   [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md),
   [`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
@@ -414,6 +422,10 @@ network with no public inbound. The whole stack is Docker Compose; the memory bu
 roughly 3.3 GB for the POS stack and 4.2 GB with monitoring, against 6 GB total. That ceiling
 is a design constraint, not an accident — it is why there is no Alertmanager and no ELK stack.
 
+A second host, a Raspberry Pi 5 in the shop, runs the same images (arm64) but is deployed by hand, not by the
+pipeline below — see [Raspberry Pi 5 host](#raspberry-pi-5-host-the-shop). **Approving `Deploy (demo)` always
+deploys to `mob04`, never to the Pi.**
+
 ### Pipeline
 
 ```
@@ -444,6 +456,51 @@ builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Ba
 > 2026-10-25, deploy run `40151601600`; images are amd64 + arm64 since `5c7f210`), after `e6374df` (2026-10-18) and the DevOps bundle `21ad935` (2026-10-17). **A green `Deploy (demo)` run is
 > not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
 > run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
+
+### Raspberry Pi 5 host (the shop)
+
+First deployed 2026-10-25. The owner's decision is that it becomes the shop's production host; until a data
+migration from `mob04` is agreed it holds no real shop data (tenant `001` exists, empty).
+
+| | |
+|---|---|
+| Hardware | Pi 5 8 GB, microSD for the OS, WD My Passport 1 TB USB HDD for data (SMART PASSED, 0 reallocated/pending/CRC, 2026-10-25) |
+| OS / layout | Ubuntu Server 26.04.1 arm64; Docker data-root and the Postgres volume on the HDD (`/srv/pos-data`); local dumps in `/opt/pos/backups` on the SD |
+| Network | LAN `192.168.1.116` (temporary Wi-Fi) and Tailscale `100.70.181.98`; the tailnet grant opens 22/80/443 to the owner's own devices only |
+| TLS | Its own private CA, made by `certgen` on the first deploy — not `mob04`'s. The public cert is committed as `frontend/assets/certs/pos-ca-pi5.crt` |
+| Deploy | By hand from WSL: `provision.yml` as `cloud`, `deploy.yml` as `deploy`. On Wi-Fi, pre-pull every image with retries first (Docker Hub layers time out) |
+| Backups | Twice-daily dumps (cron hour `3,12` UTC = 10:00 and 19:00 ICT), each uploaded to Google Drive `Srisurart-POS-DR/pi5-pos` with a sha256 (#783). Restore from the Drive copy rehearsed 2026-10-25: 0 errors, 33 tables + 27 migrations match live |
+| Monitoring | Prometheus, Grafana, Gatus on loopback, reached over an SSH tunnel; alerts go to the Pi's own Discord webhook |
+| Power | `throttled=0x0` over 14 h with the HDD on EcoFlow River 3 USB-C (5 V / 3 A). Only the official 27 W PSU gives 5 A |
+| Clients | Browser at `https://100.70.181.98` (Tailscale) or the LAN IP; Android: the `pi5` APK below, with the Tailscale app on the device |
+
+**Moving to the shop changes the LAN IP**, which is baked into the certificate SAN, CORS and the Gatus target.
+Reserve the Pi's address in the shop router's DHCP first, then run the host-side script (kept outside the repo
+because it reads the host's secrets):
+
+```bash
+wsl -d Ubuntu -- bash /mnt/d/Beestation/Sri_POS/ops/pi5-change-lan-ip.sh <new-IP>
+```
+
+It refuses unless the Pi already holds that IP, rewrites the three values, re-runs `provision.yml` and `deploy.yml`
+on the current SHA (a new leaf certificate from the same CA, so existing APKs and browsers keep trusting it),
+recreates Gatus and checks the SAN plus `/health/ready` over both the LAN and Tailscale. The Tailscale address
+never changes, so the `pi5` APK keeps working through the move.
+
+🔴 Rules that bite on the Pi:
+
+- Never `docker compose down -v` and never delete the `certs-ca` volume: a new CA stops every APK that trusts the old one.
+- Never put `172.30.58.20` in the Pi's `CERT_SAN_IPS`, and never share `mob04`'s deploy key, secrets or Discord webhook with it.
+- A hand-run `docker compose` touching a `monitoring.yml` service must export `MONITORING_CONFIG_DIR=./deploy` and
+  run from `/opt/pos`. Without it Gatus mounts an empty directory and crash-loops (`configuration file not found`,
+  2026-10-25, ~1 h of blind uptime checks; the POS itself was unaffected).
+
+Still open: the owner's own Google OAuth client for rclone (the shared rclone client is being retired during 2026),
+Drive is never pruned (watch the free 15 GB), image tarballs are still empty so an image restore is unproven, the
+`pi5` APK is not yet tried on a device, and CD to the Pi does not exist.
+Detail: [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md) (Thai, step by step),
+[`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
+[`pi5-migration-plan.md`](docs/research/pi5-migration-plan.md).
 
 ### What a release does
 
@@ -476,10 +533,22 @@ the `main.<sha>.dart.js` name in DevTools → Sources (this is what happened aft
 ### Android APK
 
 `.github/workflows/android-apk.yml` is manual (`workflow_dispatch`) and runs on `main` only. It
-builds the API build only (`USE_API_WRITES=true`, pointed at `mob04`), signs it with the
-project's stable key from the `ANDROID_KEYSTORE_B64` secret so each new APK installs over the
-old one, and publishes it as a prerelease `apk-<shortsha>`. Current builds are listed on the repository Releases page.
-Losing the keystore means no APK can upgrade in place. Detail: `07_CICD_DEPLOY.md` §2b.
+builds the API build only (`USE_API_WRITES=true`), signs it with the project's stable key from the
+`ANDROID_KEYSTORE_B64` secret so each new APK installs over the old one, and publishes it as a prerelease.
+The `target` input (#787) picks the server and the CA the app trusts:
+
+| `target` | Server | Trusted CA | Release tag | Device needs |
+|---|---|---|---|---|
+| `mob04` (default) | `https://172.30.58.20` | `frontend/assets/certs/pos-ca.crt` | `apk-<shortsha>` | faculty network / VPN, or Tailscale |
+| `pi5` | `https://100.70.181.98` | `pos-ca-pi5.crt`, copied over `pos-ca.crt` in the runner only | `apk-pi5-<shortsha>` | the Tailscale app on the owner's tailnet |
+
+```bash
+gh workflow run android-apk.yml --ref main -f target=pi5
+```
+
+Both targets share one package id and key, so installing one over the other switches that device's server; the
+data on the other host does not follow. Current builds are on the repository Releases page (first Pi build:
+`apk-pi5-b5dccea`). Losing the keystore means no APK can upgrade in place. Detail: `07_CICD_DEPLOY.md` §2b.
 
 ### Operations
 
@@ -496,17 +565,23 @@ still read as roughly 92% healthy.
 
 Monitoring binds to loopback only and is reached over an SSH tunnel.
 
-Backups: `provision.yml` installs `backup-db.sh` and a nightly 03:00 `pg_dump` cron writing into
+Backups: `provision.yml` installs `backup-db.sh` and a twice-daily `pg_dump` cron (hour `3,12` host time, #767) writing into
 `/opt/pos/backups`. It has been installed on `mob04` and running nightly since 2026-10-01.
 **Off-VM copy (since 2026-10-18, #363):** the owner's Windows PC pulls the dumps daily into
 `D:\Beestation\Sri_POS\ops\backups\mob04\YYYY-MM\`, which BeeStation syncs to the shop NAS, and alerts Discord
 when the newest copy is older than 26 h. It only works while the PC is on and logged on, and a restore from that
-copy onto a fresh host is not yet proven. The `rclone` upload in `backup-db.sh` stays unconfigured, so a green
-`backup-cron.log` does not prove a backup left the machine. Note that a CD deploy
+copy onto a fresh host is not yet proven. On `mob04` the `rclone` upload in `backup-db.sh` stays unconfigured, so a
+green `backup-cron.log` there does not prove a backup left the machine. **The Pi** uploads every dump to Google Drive:
+`backup-db.sh` reads `BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG` from `/opt/pos/.env` (the environment wins,
+an explicit empty value included, so the pre-migrate dump never uploads), and the log ends
+`=== Backup Complete (local + offsite) ===` only when the upload succeeded. Note that a CD deploy
 does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
 
-Uptime: Gatus plus Grafana alerts to Discord (live on `mob04` since 2026-10-18; the old Healthchecks.io
-heartbeat was removed that day). Gatus runs on the host it watches, so "mob04 fully down" is caught only by the
+Uptime: Gatus plus Grafana alerts to Discord (live on `mob04` since 2026-10-18 and on the Pi since 2026-10-25; the
+old Healthchecks.io heartbeat was removed on 2026-10-18). Gatus (open source, self-hosted) probes nine endpoints —
+`pos-api-ready` through Nginx and TLS, platform-ui, bull-board, Postgres, both Redis, etcd, Grafana, Prometheus —
+once a minute, alerts after 3 failures in a row and resolves after 2 successes. Grafana's `Gatus down` alert
+fires when Gatus itself has not answered for 5 minutes. Gatus runs on the host it watches, so "mob04 fully down" is caught only by the
 owner-PC watchdog (every 5 min) — it pages nobody while that PC is off.
 
 ---
