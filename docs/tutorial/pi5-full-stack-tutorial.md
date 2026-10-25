@@ -19,11 +19,11 @@
 | ✅ | `host-setup.sh` ผ่าน test แบบ stub (`deploy/scripts/test/host-setup.test.sh` — ไม่แตะดิสก์จริง) + `--dry-run` อ่านอย่างเดียวบน `mob04` (Ubuntu 26.04, amd64) |
 | ✅ ตรวจจากแหล่งทางการ (ยังไม่ใช่บน Pi จริง) 2026-10-13 | kernel `linux-raspi` ของ Ubuntu (26.04: `7.0.0-1020`, 24.04: `6.8.0-1065`) = `CONFIG_ARM64_4K_PAGES=y` · `download.docker.com` มี `resolute` arm64 (`docker-ce` 29.9.0) · `pkgs.tailscale.com` มี `ubuntu/resolute` arm64 · image raspi ของ Ubuntu 26.04.1 และ 24.04.5 มี `rpi-eeprom` (28.14) มาให้ |
 | ✅ พิสูจน์บน Pi จริง 2026-10-24/25 | Pi 5 เครื่องแรก (Ubuntu 26.04.1, HDD USB 1 TB เป็น `/srv/pos-data`) ผ่าน `host-setup.sh` + `provision.yml` + `deploy.yml` ที่ `b748387` (`failed=0`), `/health/ready` 200, SAN/CA ของ Pi ถูก, Gatus เขียวทุก endpoint — บันทึกจริง + บทเรียน: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md` · Pi นี้ **ตั้งใจใช้จริงที่ร้าน** (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล |
-| ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · backup ออกนอกเครื่อง (§11) · ไฟสำรอง/UPS ทดสอบจริง |
+| ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้จากสำเนาใน Google Drive จริง (§11) · ไฟสำรอง/UPS ทดสอบจริง |
 | ❌ ยังไม่ต่อ | **CD ไป Pi ยังไม่มี:** job `deploy` ใน `.github/workflows/deploy.yml` รันบน `[self-hosted, srisurart-demo-deploy]` (= `mob04`) และ `verify-ghcr-tags.sh` ใน workflow ยังไม่ส่ง platform → §8 ของคู่มือนี้จึงเป็น **ทางมือ / ซ้อม** เท่านั้น · 🔴 **กด approve `Deploy (demo)` = deploy ไป `mob04` เสมอ ไม่ใช่ Pi** |
 
 🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · Pi เครื่องแรกถูกตั้งเป็นโฮสต์ของร้านแล้ว (2026-10-24) แต่ยังไม่มีข้อมูลจริง —
-สร้าง tenant แรกบน Pi ได้ แต่ **ก่อนขายจริงบน Pi ต้องมี backup นอกเครื่อง (§11)** · ห้ามชี้ APK ที่ร้านใช้มาที่ Pi จนกว่า owner ตกลงแผนย้ายข้อมูล
+สร้าง tenant แรกบน Pi ได้ · backup นอกเครื่อง = Google Drive (§11, ตั้งแล้ว 2026-10-25) · ห้ามชี้ APK ที่ร้านใช้มาที่ Pi จนกว่า owner ตกลงแผนย้ายข้อมูล
 
 ลำดับทั้งหมด (ห้ามสลับ):
 
@@ -830,9 +830,14 @@ swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม�
 * `provision.yml` ตั้ง cron 03:00 ของ `deploy` → `backup-db.sh` เขียน dump + `pos_images_*.tar.gz` + `pos_sale_photos_*.tar.gz` **เต็มทุกคืน** ลง `/opt/pos/backups` (microSD)
   เก็บ 7 วัน (`BACKUP_KEEP_DAYS` ค่าเริ่ม 7) → รูปเยอะ = SD 32 GB เต็มได้ (root เต็ม = apt/journald พัง) และ SD สึก ·
   ตรวจ `ssh pi5-deploy 'df -h / /srv/pos-data'` หลัง backup สองสามคืนแรก · ใช้ microSD ≥ 64 GB หรือให้ owner ตัดสินลด `BACKUP_KEEP_DAYS`
-* 🔴 **ช่องว่างที่เปิดอยู่บน Pi เครื่องแรก (2026-10-25):** ฐานข้อมูลจริงอยู่บน HDD (Docker data-root `/srv/pos-data/docker`) แต่ `backup-db.sh` เขียน dump ลง `/opt/pos/backups` บน **microSD** —
-  และ **ไม่มีอะไรออกจากเครื่อง**: ไม่ได้ตั้ง `BACKUP_RCLONE_REMOTE`, งาน pull ของ PC / watchdog ผูกกับ `mob04` เท่านั้น · รันมือหนึ่งครั้งแล้ว (สำเร็จ, local only) · ยังไม่มีวิธีที่สร้างเสร็จ — รอ owner ตัดสิน (ห้ามอ้างว่า Pi มี offsite backup)
-* **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — สำเนานอกเครื่อง (#363) ตอนนี้มีแค่ PC ของ owner ดึงจาก `mob04` (ยังไม่ได้ตั้งให้ Pi) · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
+* ✅ **Offsite = Google Drive (owner 2026-10-25, PR #783):** ฐานข้อมูลจริงอยู่บน HDD, dump ลง `/opt/pos/backups` (microSD) แล้ว upload ทุกรอบ cron
+  (10:00 + 19:00) ไปที่โฟลเดอร์ Drive **`Srisurart-POS-DR/pi5-pos`** · ตั้งค่า: `rclone` (apt) บน Pi, `/opt/pos/rclone/rclone.conf` (0600 `deploy`, scope `drive.file`),
+  สองบรรทัดใน `/opt/pos/.env`: `BACKUP_RCLONE_REMOTE=gdrive-dr:Srisurart-POS-DR/pi5-pos` + `BACKUP_RCLONE_CONFIG=/opt/pos/rclone/rclone.conf`
+  (`backup-db.sh` อ่านจาก `.env` เอง — อยู่รอด `provision.yml`) · สร้าง credential: owner รัน `ops\setup-pi5-gdrive-backup.ps1` บน PC (login Google ในเบราว์เซอร์;
+  สำเนา `ops\secrets\pi5-rclone.conf`) · ตรวจ: `backup-cron.log` จบด้วย `=== Backup Complete (local + offsite) ===`, sha256 ของไฟล์ใน Drive = ของในเครื่อง (ตรวจแล้ว 2026-10-25) ·
+  🟠 rclone ใช้ **shared client_id ของ rclone ที่จะถูกปลดในปี 2026** → owner ต้องสร้าง client_id ของตัวเอง (rclone.org/drive/#making-your-own-client-id) ก่อนมันหยุด ·
+  🟠 Drive ไม่ถูก prune (สคริปต์ลบแค่ในเครื่อง) — รูปเต็มทุกรอบ ดูพื้นที่ Drive (ฟรี 15 GB) เป็นระยะ
+* **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — Pi เครื่องแรกมีสำเนาใน Google Drive แล้ว (ข้อบน); Pi เครื่องอื่นต้องตั้งเอง · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
   `--data-disk boot` = ข้อมูลกับ backup อยู่บน SD ใบเดียวกัน · ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหน · log สีเขียวไม่ได้แปลว่าออกจากเครื่อง (อ่านบรรทัด `::warning::`)
 * ครั้งแรกบน Pi ให้รัน `backup-db.sh` ด้วยมือหนึ่งครั้งหลัง deploy และอ่าน output (แผนย้าย §4.7) ·
   **ซ้อม `restore-db.sh` หนึ่งครั้ง** ตอนที่ Pi มีแต่ข้อมูลทดสอบ (`restore-db.sh <pos_backup_….sql.gz>` — ไม่มี argument ชื่อฐานข้อมูลแล้ว และหยุด/เปิด api/worker/bull-board ให้เอง, PR #741) — `restore-db.sh` ยังไม่กู้รูปสินค้า/รูปหลักฐาน
