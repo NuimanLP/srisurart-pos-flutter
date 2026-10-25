@@ -60,12 +60,42 @@ HTTPS to `100.70.181.98` from the PC = 200.
 - HDD (WD My Passport 1 TB, 10,372 power-on h): SMART PASSED, 0 reallocated/pending/CRC, short self-test passed, no USB
   resets or under-voltage since boot.
 
+## Remaining items closed (2026-10-25 afternoon)
+
+- **Restore from Drive rehearsed.** The newest `pos_backup_*` pulled back from `gdrive-dr:Srisurart-POS-DR/pi5-pos`,
+  sha256 checked, restored into a throw-away Postgres container: 0 errors, 33 tables and 27 migrations = live. The
+  image tarballs are empty placeholders (no product/sale photos yet), so an image restore is still unproven.
+- **First tenant:** already present (`001`, user `nuiman`); none created.
+- **Power:** `throttled=0x0` across 14 h of uptime with the HDD attached. River 3's USB-C tops out at 5 V/3 A, so
+  the Ugreen 240 W cable cannot raise `max_current`; only the official 27 W PSU (on River 3's AC socket) gives 5 A.
+- **APK for the Pi** (PR #787 → `main` `b5dccea`, PR #788): `android-apk.yml` takes `target` (`mob04` default |
+  `pi5`). `pi5` builds against `https://100.70.181.98` (Tailscale IP, stable when the Pi moves) and trusts
+  `frontend/assets/certs/pos-ca-pi5.crt` (the Pi's public CA, copied over `pos-ca.crt` in the runner only).
+  Built: release `apk-pi5-b5dccea`. The device needs the Tailscale app on the owner's tailnet; same package id and
+  key as the mob04 APK, so installing one over the other switches that device's server. Not yet tried on a device.
+- **LAN IP change on the move to the shop:** `ops\pi5-change-lan-ip.sh <new-IP>` (host-side, run in WSL:
+  `wsl -d Ubuntu -- bash /mnt/d/Beestation/Sri_POS/ops/pi5-change-lan-ip.sh <new-IP>`). It refuses unless the Pi
+  already holds that IP (reserve it in the shop router's DHCP first), rewrites `CERT_SAN_IPS`/`CORS_ORIGINS`/
+  `GATUS_POS_URL`, runs `provision.yml` + `deploy.yml` with the current `.current_sha` (`.env` changed → rollout,
+  certgen issues a new leaf, same CA), recreates Gatus and checks SAN + ready on both IPs. Rehearsed with the current
+  IP (no-op values): OK.
+
+## Incident — Gatus crash-looping (2026-10-25 ~12:50–13:52 ICT)
+
+- Grafana fired `Gatus down`. Gatus logged `panic: configuration file not found` every minute.
+- Cause: the IP-script rehearsal recreated Gatus with a bare `docker compose … up -d --force-recreate gatus` from
+  `/opt/pos`. Without `MONITORING_CONFIG_DIR=./deploy` (deploy.yml sets it in its play `environment`), the
+  `/config` mount fell back to `../deploy/gatus` = `/opt/deploy/gatus`, which is empty.
+- Fix: recreated with `MONITORING_CONFIG_DIR=./deploy`; all 9 endpoints green, `up{job="gatus"}=1`. The script now
+  passes the variable. POS itself unaffected; only uptime checks were blind for ~1 h.
+- Rule: any hand-run compose command on a host that touches `monitoring.yml` services must export
+  `MONITORING_CONFIG_DIR=./deploy` (and run from `/opt/pos`).
+
 ## Still open
 
-- Power: River 3 USB-C gives 3 A (`max_current` 3000) with a bus-powered HDD; test the Ugreen 240 W cable, else use
-  the official 27 W PSU on River 3's AC socket.
 - Google Drive client: rclone's shared client_id is being retired during 2026 — the owner should create their own
   OAuth client (rclone.org/drive/#making-your-own-client-id) and re-run `ops\setup-pi5-gdrive-backup.ps1`. Drive is
-  never pruned by the script; watch its free 15 GB. No restore from the Drive copy rehearsed yet.
-- Moving to the shop changes the LAN IP: edit `CERT_SAN_IPS`/`CORS_ORIGINS`/`GATUS_POS_URL`, re-run provision + deploy.
-- APK `API_BASE_URL` still points at `mob04`; first tenant not created yet (platform-ui via SSH tunnel to `127.0.0.1:3200`).
+  never pruned by the script; watch its free 15 GB.
+- Official 27 W PSU for 5 A headroom (not urgent while `throttled` stays `0x0`).
+- Try `apk-pi5-b5dccea` on a real device; restore of image tarballs once photos exist.
+- Run `ops\pi5-change-lan-ip.sh` on move day. Whether `mob04`'s data moves to the Pi is undecided.
