@@ -181,7 +181,7 @@ Short list; the handoff logs hold the detail. All of it is on `main` and deploye
   first deployed 2026-10-25 (`pi5-pos`: Ubuntu Server 26.04 arm64, Docker data-root on a USB HDD at `/srv/pos-data`,
   Tailscale `100.70.181.98`; release `b748387`, then `8713c9f`) by hand with `deploy.yml` from WSL, not wired into CD.
   The owner's decision is that it becomes the shop's production host; `mob04` stays production until a data migration
-  is agreed. Open: Pi backups stay on its SD card (no off-box copy), the APK `API_BASE_URL` still points at `mob04`,
+  is agreed. Pi backups go to Google Drive since 2026-10-25 (#783). Open: the APK `API_BASE_URL` still points at `mob04`,
   and the Pi's LAN IP changes when it moves to the shop —
   [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
   [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md),
