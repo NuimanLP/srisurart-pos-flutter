@@ -35,6 +35,15 @@ printf 'preview-bytes' > "$WORK/images/$TENANT/${KEY}_p.webp"
 SALE_KEY="eeeeeeeeffffffff0000000011111111"
 mkdir -p "$WORK/sale-photos/$TENANT"
 printf 'sale-photo-bytes' > "$WORK/sale-photos/$TENANT/${SALE_KEY}_t.webp"
+# A stand-in web build for the gzip checks: each file is past gzip_min_length (1024).
+mkdir -p "$WORK/html/canvaskit" "$WORK/html/assets/fonts"
+filler() { head -c 4096 /dev/zero | tr '\0' 'a'; }
+{ printf '<!doctype html><title>pos</title>'; filler; } > "$WORK/html/index.html"
+filler > "$WORK/html/canvaskit/canvaskit.wasm"
+filler > "$WORK/html/main.abc123.dart.js"
+filler > "$WORK/html/flutter_bootstrap.js"
+filler > "$WORK/html/assets/fonts/MaterialIcons-Regular.otf"
+filler > "$WORK/html/icon.png"
 chmod -R a+rX "$WORK"
 
 docker run -d --name "$NAME" -p 127.0.0.1::443 \
@@ -43,6 +52,7 @@ docker run -d --name "$NAME" -p 127.0.0.1::443 \
   -v "$(host_path "$WORK/auth"):/etc/nginx/auth:ro" \
   -v "$(host_path "$WORK/images"):/srv/product-images:ro" \
   -v "$(host_path "$WORK/sale-photos"):/srv/sale-photos:ro" \
+  -v "$(host_path "$WORK/html"):/usr/share/nginx/html:ro" \
   "$IMAGE" >/dev/null || { echo "FAIL - nginx container did not start"; exit 1; }
 
 PORT=""
@@ -108,5 +118,34 @@ check "11 MB to /api/v1/products: 413" test "$(post_big /api/v1/products)" = 413
 check "11 MB to /api/v1/backup/import/<job>: 413 (exact location only)" test "$(post_big /api/v1/backup/import/$TENANT)" = 413
 # The platform import regex repeats the admin allowlist: a client from the docker bridge is refused.
 check "platform import from a non-admin IP: 403" test "$(status -X POST "$BASE/api/v1/platform/tenants/$TENANT/import")" = 403
+
+# gzip: the web build only. API and health responses stay uncompressed (BREACH), and so do the
+# already-compressed product images.
+encoding() { curl -sk --path-as-is -H 'Accept-Encoding: gzip' -D - -o /dev/null "$1" | tr -d '\r' | grep -i '^Content-Encoding:' | cut -d' ' -f2-; }
+check "web: canvaskit.wasm gzipped" test "$(encoding "$BASE/canvaskit/canvaskit.wasm")" = gzip
+check "web: flutter_bootstrap.js gzipped" test "$(encoding "$BASE/flutter_bootstrap.js")" = gzip
+check "web: index.html gzipped" test "$(encoding "$BASE/")" = gzip
+check "web: SPA fallback route gzipped" test "$(encoding "$BASE/sales/today")" = gzip
+check "web: main.<release>.dart.js gzipped" test "$(encoding "$BASE/main.abc123.dart.js")" = gzip
+check "web: main.<release>.dart.js keeps its immutable cache header" \
+  test "$(curl -sk -H 'Accept-Encoding: gzip' -D - -o /dev/null "$BASE/main.abc123.dart.js" | tr -d '\r' | grep -i '^Cache-Control:' | cut -d' ' -f2-)" = "public, max-age=31536000, immutable"
+check "web: .otf font gzipped (no ttf/otf in mime.types)" test "$(encoding "$BASE/assets/fonts/MaterialIcons-Regular.otf")" = gzip
+check "web: png not gzipped" test -z "$(encoding "$BASE/icon.png")"
+check "web: Vary Accept-Encoding" test -n "$(curl -sk -H 'Accept-Encoding: gzip' -D - -o /dev/null "$BASE/canvaskit/canvaskit.wasm" | tr -d '\r' | grep -i '^Vary: Accept-Encoding')"
+check "web: no gzip when the client does not ask" test -z "$(curl -sk -D - -o /dev/null "$BASE/canvaskit/canvaskit.wasm" | tr -d '\r' | grep -i '^Content-Encoding:')"
+check "web: gzipped body decodes to the file" test "$(curl -sk --compressed "$BASE/canvaskit/canvaskit.wasm" | wc -c | tr -d ' ')" = 4096
+check "api: not gzipped" test -z "$(encoding "$BASE/api/v1/products")"
+check "health: not gzipped" test -z "$(encoding "$BASE/health/ready")"
+check "product image: not gzipped" test -z "$(encoding "$T")"
+# The three checks above cannot see a `gzip on;` moved up to http{}/server{}: with no upstream
+# here, /api/ and /health/ answer nginx's ~150-byte 502 page, under gzip_min_length. So the
+# config itself must name exactly the two web-build locations as the only ones with gzip on.
+gzip_scopes() { # the enclosing `location`/`server`/`http` line of every `gzip on;`
+  awk '/^[[:space:]]*(location|server|http)[[:space:]].*\{/ { scope = $0 }
+       /^[[:space:]]*gzip[[:space:]]+on;/ { gsub(/^[[:space:]]+|[[:space:]]*\{$/, "", scope); print scope }' \
+    "$ROOT/server/docker/nginx/nginx.conf"
+}
+check "gzip on only in the two web-build locations" test "$(gzip_scopes)" = \
+  "$(printf '%s\n' 'location /' 'location ~ "^/main\.[0-9a-z]+\.dart\.js$"')"
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else docker logs "$NAME" 2>&1 | tail -20; echo "$fails failed"; exit 1; fi
