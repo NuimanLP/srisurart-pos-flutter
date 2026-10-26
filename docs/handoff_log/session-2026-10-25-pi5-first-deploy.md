@@ -93,10 +93,12 @@ HTTPS to `100.70.181.98` from the PC = 200.
 
 ## Still open
 
-- Google Drive client: rclone's shared client_id is being retired during 2026 — the owner creates their own OAuth
-  client (steps at the top of `ops\switch-pi5-gdrive-own-client.ps1`, incl. "Publish app" or the login expires
-  every 7 days) and runs that script: new folder `Srisurart-POS-DR-own/pi5-pos` (`drive.file` hides the old one),
-  Pi `.env` + WSL source updated together.
+- ✅ 2026-10-26: own Google OAuth client live — Cloud project `srisurart-backup` (`rising-daylight-512815-c0`),
+  Drive API on, app **In production** (homepage = this repo, privacy = `docs/privacy-backup.md`, PR #807; needed to
+  leave "Testing", whose refresh tokens expire after 7 days), Desktop client `pi5-rclone`. The owner ran
+  `ops\switch-pi5-gdrive-own-client.ps1`: backups now go to `Srisurart-POS-DR-own/pi5-pos` (`drive.file` hides the
+  old `Srisurart-POS-DR`, kept as is — the owner may delete it). A cron-shaped run: exit 0, `(remote keeps 30 days)`,
+  sha256 of the dump on Drive = local. The script's WSL-source edit did not apply; synced by hand (`.env` == source).
 - ✅ 2026-10-26: Drive retention live — PR #803 (`main` `35d5199`, release #804), Pi re-provisioned (`failed=0`,
   `.env` == source, script sha = `main`), `BACKUP_RCLONE_KEEP_DAYS=30`; a cron-shaped run ended
   `=== Backup Complete (local + offsite) === (remote keeps 30 days)`.
