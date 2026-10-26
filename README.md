@@ -471,6 +471,7 @@ migration from `mob04` is agreed it holds no real shop data (tenant `001` exists
 | Deploy | By hand from WSL: `provision.yml` as `cloud`, `deploy.yml` as `deploy`. On Wi-Fi, pre-pull every image with retries first (Docker Hub layers time out) |
 | Backups | Twice-daily dumps (cron hour `3,12` UTC = 10:00 and 19:00 ICT), each uploaded to Google Drive `Srisurart-POS-DR/pi5-pos` with a sha256 (#783). Restore from the Drive copy rehearsed 2026-10-25: 0 errors, 33 tables + 27 migrations match live |
 | Monitoring | Prometheus, Grafana, Gatus on loopback, reached over an SSH tunnel; alerts go to the Pi's own Discord webhook |
+| Load test | 2026-10-26, on the Pi at 24 r/s: reads p95 7 ms, mixed read/write p95 17 ms, stock exact, peak CPU 58% of 400% — see [Measured on the Raspberry Pi 5](#measured-on-the-raspberry-pi-5-2026-10-26-light-run) |
 | Power | `throttled=0x0` over 14 h with the HDD on EcoFlow River 3 USB-C (5 V / 3 A). Only the official 27 W PSU gives 5 A |
 | Clients | Browser at `https://100.70.181.98` (Tailscale) or the LAN IP; Android: the `pi5` APK below, with the Tailscale app on the device |
 
@@ -629,6 +630,24 @@ This runs one shop on one VM. It is honest about what that means.
 - Cross-tenant reads return zero rows across all 25 tenant-scoped tables.
 - With `redis-cache` genuinely unreachable — both refused *and* connected-but-silent — sales
   still complete and stock still decrements, while a suspended tenant is still refused.
+
+### Measured on the Raspberry Pi 5 (2026-10-26, light run)
+
+The k6 scenarios ran **on the Pi itself** through its own Nginx, TLS and per-IP limiter at one machine's
+budget (24 r/s), with the Pi sampled every 3 s. It is a single-machine run chosen by the owner, so it ticks
+nothing in #380 below; it shows how the Pi behaves under a shop-sized load.
+
+| Scenario | Load | Result |
+|---|---|---|
+| Read products | 24 r/s, 599 requests | p95 **7.3 ms**, 0% errors, cache hit 99.8% |
+| Sale contention | 100 buyers, 50 in stock, ~2.5 s | exactly 50 bills, stock 0, never negative, no 5xx; p95 933 ms on a cold first run (over the 500 ms target), **67 ms** on a warm re-run |
+| Idempotent replay | 9 VUs × 5 sends | 9 bills for 45 requests, same receipt on every replay; p95 232 ms |
+| Mixed 80/20 | 24 r/s for 5 min, 5,490 requests | p95 **16.5 ms**, 0% errors, 1,119 bills all consistent |
+
+At peak the Pi used 58% of its 400% CPU, 1.8 GB of 8 GB RAM and reached 55 °C, with no throttling. The same
+read scenario run from the owner's PC over Tailscale measured p95 34 s, because the Pi's temporary Wi-Fi
+uplink delivered about 37 KB/s; the server answered in 3–4 ms throughout. On this hardware the network is the
+limit users will feel, not the Pi. Record: [`session-2026-10-26-pi5-load-test.md`](docs/handoff_log/session-2026-10-26-pi5-load-test.md).
 
 ### Load-test targets — not yet accepted
 

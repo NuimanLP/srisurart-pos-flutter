@@ -19,6 +19,7 @@
 | ✅ | `host-setup.sh` ผ่าน test แบบ stub (`deploy/scripts/test/host-setup.test.sh` — ไม่แตะดิสก์จริง) + `--dry-run` อ่านอย่างเดียวบน `mob04` (Ubuntu 26.04, amd64) |
 | ✅ ตรวจจากแหล่งทางการ (ยังไม่ใช่บน Pi จริง) 2026-10-13 | kernel `linux-raspi` ของ Ubuntu (26.04: `7.0.0-1020`, 24.04: `6.8.0-1065`) = `CONFIG_ARM64_4K_PAGES=y` · `download.docker.com` มี `resolute` arm64 (`docker-ce` 29.9.0) · `pkgs.tailscale.com` มี `ubuntu/resolute` arm64 · image raspi ของ Ubuntu 26.04.1 และ 24.04.5 มี `rpi-eeprom` (28.14) มาให้ |
 | ✅ พิสูจน์บน Pi จริง 2026-10-24/25 | Pi 5 เครื่องแรก (Ubuntu 26.04.1, HDD USB 1 TB เป็น `/srv/pos-data`) ผ่าน `host-setup.sh` + `provision.yml` + `deploy.yml` ที่ `b748387` (`failed=0`), `/health/ready` 200, SAN/CA ของ Pi ถูก, Gatus เขียวทุก endpoint — บันทึกจริง + บทเรียน: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md` · Pi นี้ **ตั้งใจใช้จริงที่ร้าน** (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล |
+| ✅ พิสูจน์บน Pi จริง 2026-10-26 | load test k6 แบบเบา (ยิงบน Pi ผ่าน nginx + rate limit จริง 24 req/s): อ่าน p95 7.3 ms · ผสมอ่าน/เขียน 5 นาที p95 16.5 ms · แย่งซื้อ 100 คน/50 ชิ้น = 50 บิลพอดี สต็อกไม่ติดลบ (p95 933 ms รอบแรกตอนระบบเย็น, 67 ms รอบซ้ำ) · CPU สูงสุด 58% จาก 400%, RAM 1.8 GB, 55 °C, ไม่ throttle — `docs/handoff_log/session-2026-10-26-pi5-load-test.md` (ไม่นับเป็น #380) |
 | ✅ พิสูจน์บน Pi จริง 2026-10-25 | กู้ฐานข้อมูลจากสำเนาใน Google Drive (§11): 0 error, 33 ตาราง + 27 migration = ของจริง · ไฟ: `throttled=0x0` ตลอด 14 ชม. พร้อม HDD · APK สำหรับ Pi build ได้ (`target=pi5`, §9) · สคริปต์เปลี่ยน IP ตอนย้ายร้าน (§2 ข้อ 3) ซ้อมด้วย IP เดิมผ่าน |
 | ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้รูปสินค้า/รูปหลักฐาน (ยังไม่มีรูป) · ลอง APK ของ Pi บนเครื่องจริง · ไฟสำรอง/UPS ทดสอบจริง |
 | ❌ ยังไม่ต่อ | **CD ไป Pi ยังไม่มี:** job `deploy` ใน `.github/workflows/deploy.yml` รันบน `[self-hosted, srisurart-demo-deploy]` (= `mob04`) และ `verify-ghcr-tags.sh` ใน workflow ยังไม่ส่ง platform → §8 ของคู่มือนี้จึงเป็น **ทางมือ / ซ้อม** เท่านั้น · 🔴 **กด approve `Deploy (demo)` = deploy ไป `mob04` เสมอ ไม่ใช่ Pi** |
@@ -857,6 +858,11 @@ ssh pi5 'V=0.25.2; F=lazydocker_${V}_Linux_arm64.tar.gz; B=https://github.com/je
 | พื้นที่ SD + HDD | `df -h / /srv/pos-data` |
 | อุณหภูมิ / ไฟตก-ร้อนจนลดความเร็ว | `sudo vcgencmd measure_temp` · `sudo vcgencmd get_throttled` (`0x0` = ปกติ) |
 | ดิสก์ทำงานหนักแค่ไหน | `iostat -x 2` (คอลัมน์ `%util` ของ `sda` = HDD) |
+
+**load test บน Pi** (2026-10-26, บันทึก: `docs/handoff_log/session-2026-10-26-pi5-load-test.md`): ยิงจาก PC ผ่าน Tailscale = วัด Wi-Fi ไม่ใช่ Pi
+(p95 34 วิ เพราะ uplink ~37 KB/s ขณะ server ตอบ 3–4 ms) → ยิง **บน Pi** ด้วย `docker run --network host grafana/k6:2.3.0@sha256:9c2dee7f…` แทน
+(ยังผ่าน nginx + `perip` จริง, k6 กิน CPU ~5%) · seed `loadtest-tenant` บน Pi (secrets ไม่ออกจากเครื่อง) · 🔴 จบแล้ว**ลบ `loadtest-tenant` + cache key ทุกครั้ง**
+(ตรวจว่า code = `loadtest-tenant` ก่อนลบ) และลบ image k6 · ระหว่างยิง Discord อาจได้ alert จาก Grafana
 
 ห้ามลง `glances` (ดึง library ~90 ตัว: numpy, matplotlib, fastapi… ลงเครื่อง production — ลองแล้วถอดออกหมด 2026-10-26) · กราฟ**ย้อนหลัง** ดูใน Grafana (`http://localhost:13000` ผ่าน tunnel ข้างบน)
 
