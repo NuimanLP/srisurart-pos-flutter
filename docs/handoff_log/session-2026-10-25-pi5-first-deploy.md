@@ -93,9 +93,13 @@ HTTPS to `100.70.181.98` from the PC = 200.
 
 ## Still open
 
-- Google Drive client: rclone's shared client_id is being retired during 2026 — the owner should create their own
-  OAuth client (rclone.org/drive/#making-your-own-client-id) and re-run `ops\setup-pi5-gdrive-backup.ps1`. Drive is
-  never pruned by the script; watch its free 15 GB.
+- Google Drive client: rclone's shared client_id is being retired during 2026 — the owner creates their own OAuth
+  client (steps at the top of `ops\switch-pi5-gdrive-own-client.ps1`, incl. "Publish app" or the login expires
+  every 7 days) and runs that script: new folder `Srisurart-POS-DR-own/pi5-pos` (`drive.file` hides the old one),
+  Pi `.env` + WSL source updated together.
+- ✅ 2026-10-26: Drive retention live — PR #803 (`main` `35d5199`, release #804), Pi re-provisioned (`failed=0`,
+  `.env` == source, script sha = `main`), `BACKUP_RCLONE_KEEP_DAYS=30`; a cron-shaped run ended
+  `=== Backup Complete (local + offsite) === (remote keeps 30 days)`.
 - Official 27 W PSU for 5 A headroom (not urgent while `throttled` stays `0x0`).
 - Try `apk-pi5-b5dccea` on a real device; restore of image tarballs once photos exist.
 - Run `ops\pi5-change-lan-ip.sh` on move day. Whether `mob04`'s data moves to the Pi is undecided.
