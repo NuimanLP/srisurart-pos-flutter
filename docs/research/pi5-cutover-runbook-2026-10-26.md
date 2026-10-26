@@ -12,7 +12,7 @@
 > 1. จอง DHCP ให้ Pi ที่ router ร้าน → เสียบ Pi + HDD (ไฟ: adapter 27 W ทางการดีสุด) → รอ boot + Tailscale ขึ้น
 > 2. PC: `wsl -d Ubuntu -- bash /mnt/d/Beestation/Sri_POS/ops/pi5-change-lan-ip.sh <IP ร้าน>` → ต้องจบ `DONE` + ready 200 ทั้ง LAN และ Tailscale
 > 3. เครื่องในร้าน: เบราว์เซอร์ `https://<IP ร้าน>` (ติดตั้ง `frontend/assets/certs/pos-ca-pi5.crt` เป็น trusted root) หรือ APK
->    (`apk-pi5-*` ต้องมี Tailscale บนเครื่อง · APK ที่ชี้ IP ร้านตรง = PR เล็ก ยังไม่ทำ)
+>    (`apk-pi5-*` ต้องมี Tailscale บนเครื่อง · เครื่องใน LAN ร้าน: `gh workflow run android-apk.yml --ref main -f target=pi5 -f server_url=https://<IP ร้าน>` หลังขั้น 2)
 > 4. login ร้าน `001` ด้วย owner → ลงทะเบียนเครื่อง (enrolCode) → กรอกสินค้า/ลูกค้า/ช่าง → เปิดกะ → ขายบิลแรก
 > 5. คืนนั้น: `backup-cron.log` จบ `(local + offsite)` = ขึ้น Google Drive
 > 6. แอป offline: เลิกใช้ขาย แต่**ไม่ลบ** · `mob04`: เจ้าของตัดสินภายหลัง (เดโม/สำรอง/คืน VM)
