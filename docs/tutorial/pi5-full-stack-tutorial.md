@@ -827,24 +827,38 @@ ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsag
 
 swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม่ = ยังไม่ยืนยัน (แผนย้าย §4.8) — ดูจาก `free -h`
 
-**ดูสด ๆ ใน terminal** (จาก PowerShell บน PC — Windows Terminal แสดงกราฟได้ดีสุด; ตรวจบน Pi 2026-10-26: `btop` 1.4.6, `htop`, `sysstat` มีแล้ว, `glances` ยังไม่มี):
+**ดูสด ๆ ใน terminal** — ใช้ **สองตัวเท่านั้น: `btop` (เครื่อง) + `lazydocker` (container)** (owner 2026-10-26) · จาก PowerShell บน PC — Windows Terminal แสดงกราฟได้ดีสุด:
 
 ```bash
 ssh -t pi5 btop
 ```
 
-`btop` = กราฟสี CPU ทุก core, RAM, ดิสก์, เน็ต + process (คลิกได้, `q` ออก, `Esc` → Options เปลี่ยนธีม) · กินเครื่อง < 1% ไม่กระทบ POS
+`btop` = กราฟสี CPU ทุก core, RAM, ดิสก์, เน็ต + process (คลิกได้, `q` ออก, `Esc` → Options เปลี่ยนธีม) · กินเครื่อง < 1% ไม่กระทบ POS · มากับ Ubuntu (1.4.6)
+
+```bash
+ssh -t pi5 sudo lazydocker
+```
+
+`lazydocker` = ทุก container ในจอเดียว: สถานะ, CPU/RAM ต่อตัว, log สด (`↑↓` เลือก, `Tab`/`[` `]` สลับแท็บ, `q` ออก) · `sudo` เพราะ `cloud` ไม่อยู่กลุ่ม `docker`
+(ใน `pi5-deploy` ไม่ต้อง `sudo`) · 🔴 **ใช้ดูอย่างเดียว** — ห้ามกด `d` (remove), `s` (stop), `r` (restart) หรือเมนู prune บน Pi: ลบ volume `certs-ca`/`pgdata` = CA ใหม่/ข้อมูลหาย (§14) ·
+ติดตั้งแล้ว 2026-10-26: v0.25.2 binary arm64 จาก GitHub release ของ `jesseduffield/lazydocker`, ตรวจ sha256 กับ `checksums.txt` → `/usr/local/bin/lazydocker` (ไม่ใช่ apt — อัปเดตเองด้วยวิธีเดียวกัน) ·
+เครื่องใหม่:
+
+```bash
+ssh pi5 'V=0.25.2; F=lazydocker_${V}_Linux_arm64.tar.gz; B=https://github.com/jesseduffield/lazydocker/releases/download/v$V; W=$(mktemp -d) && cd "$W" && curl -fsSLO "$B/$F" && curl -fsSLO "$B/checksums.txt" && grep " $F$" checksums.txt | sha256sum -c - && tar -xzf "$F" lazydocker && sudo install -m 0755 lazydocker /usr/local/bin/ && cd / && rm -rf "$W"'
+```
 
 | ดูอะไร | คำสั่ง (หลัง `ssh pi5`) |
 |---|---|
-| ภาพรวมแบบ live | `btop` หรือ `htop` |
+| ภาพรวมแบบ live | `btop` |
+| container (สถานะ/CPU/RAM/log) | `sudo lazydocker` |
 | CPU/RAM ต่อ container | `sudo docker stats` (`cloud` ไม่อยู่กลุ่ม `docker`; ใน `pi5-deploy` ไม่ต้อง `sudo`) |
 | RAM / swap | `free -h` |
 | พื้นที่ SD + HDD | `df -h / /srv/pos-data` |
 | อุณหภูมิ / ไฟตก-ร้อนจนลดความเร็ว | `sudo vcgencmd measure_temp` · `sudo vcgencmd get_throttled` (`0x0` = ปกติ) |
 | ดิสก์ทำงานหนักแค่ไหน | `iostat -x 2` (คอลัมน์ `%util` ของ `sda` = HDD) |
 
-ทางเลือก: `sudo apt install -y glances` (ครบสุดในจอเดียว รวม container + อุณหภูมิ) · กราฟ**ย้อนหลัง** ดูใน Grafana (`http://localhost:13000` ผ่าน tunnel ข้างบน)
+ห้ามลง `glances` (ดึง library ~90 ตัว: numpy, matplotlib, fastapi… ลงเครื่อง production — ลองแล้วถอดออกหมด 2026-10-26) · กราฟ**ย้อนหลัง** ดูใน Grafana (`http://localhost:13000` ผ่าน tunnel ข้างบน)
 
 **log ของ container:** compose ไม่มี `logging:` → ใช้ค่าของ daemon = `log-driver local` ที่ `host-setup.sh` เขียน (หมุน + บีบอัด,
 ≈ 100 MB ต่อ container) · ใช้กับ container ที่**สร้างหลัง**ตั้งค่าเท่านั้น · ตรวจ: `docker info --format '{{.LoggingDriver}}'` = `local` ·
