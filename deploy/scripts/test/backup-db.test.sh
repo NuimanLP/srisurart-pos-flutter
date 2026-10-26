@@ -372,7 +372,7 @@ run_env_backup() { # dir, extra env... ; like run_backup but leaves BACKUP_RCLON
   local dir="$1"
   shift
   env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG -u BACKUP_RCLONE_REMOTE \
-    -u BACKUP_VOLUMES -u BACKUP_PRE_MIGRATE_KEEP_DAYS \
+    -u BACKUP_RCLONE_KEEP_DAYS -u BACKUP_VOLUMES -u BACKUP_PRE_MIGRATE_KEEP_DAYS \
     PATH="$STUBS:$PATH" IMAGE_TAG=test APP_DIR="$A" BACKUP_VOLUMES=0 RCLONE_CALLS="$WORK/rclone10.calls" \
     BACKUP_TEXTFILE_DIR="$WORK/no-textfile-dir" "$@" bash "$SCRIPT" "$dir" >"$dir.log" 2>&1
   rc=$?
@@ -385,6 +385,7 @@ check ".env remote: dump copied to the .env remote (quotes stripped)" \
 check ".env remote: rclone gets the .env config file" grep -q -- "--config $A/rclone.conf" "$WORK/rclone10.calls"
 check ".env remote: upload marker written" test "$(count "$A/backups" 'pos_backup_*.sql.gz.uploaded')" = 1
 check ".env remote: no 'offsite disabled' warning" test -z "$(grep 'Offsite upload is disabled' "$A/backups.log")"
+check "no BACKUP_RCLONE_KEEP_DAYS: nothing deleted at the remote" test -z "$(grep ' delete ' "$WORK/rclone10.calls")"
 mkdir -p "$A/pre"
 : > "$WORK/rclone10.calls"
 run_env_backup "$A/pre" BACKUP_RCLONE_REMOTE=
@@ -395,6 +396,49 @@ printf 'POSTGRES_PASSWORD=x\n' > "$A/.env"
 mkdir -p "$A/none"
 run_env_backup "$A/none"
 check ".env without the keys: offsite disabled, exits 0" test "$rc" -eq 0 -a -n "$(grep 'Offsite upload is disabled' "$A/none.log")"
+
+# 11. BACKUP_RCLONE_KEEP_DAYS: remote retention runs only after this run's upload succeeded, only on
+# this script's own file names at the remote's top level, refuses values < 7, and never fails a backup.
+cat > "$STUBS/rclone" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$RCLONE_CALLS"
+case " $* " in
+  *" delete "*) [ -z "$STUB_RCLONE_DELETE_FAIL" ] || exit 1 ;;
+  *" copyto "*) [ -z "$STUB_RCLONE_COPY_FAIL" ] || exit 1 ;;
+esac
+exit 0
+STUB
+chmod +x "$STUBS/rclone"
+printf 'POSTGRES_PASSWORD=x\nBACKUP_RCLONE_REMOTE="gdrive-dr:DR/pi5"\nBACKUP_RCLONE_CONFIG=%s\nBACKUP_RCLONE_KEEP_DAYS=30\n' "$A/rclone.conf" > "$A/.env"
+mkdir -p "$A/k1" "$A/k2" "$A/k3" "$A/k4" "$A/k5"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/k1"
+del="$(grep ' delete ' "$WORK/rclone10.calls" || true)"
+check "keep 30 (.env): exits 0" test "$rc" -eq 0
+check "keep 30 (.env): one delete, after the upload" \
+  test "$(grep -c ' delete ' "$WORK/rclone10.calls")" = 1 -a -n "$(tail -n1 "$WORK/rclone10.calls" | grep ' delete ')"
+check "keep 30 (.env): delete targets the remote folder with the .env config" \
+  grep -q -- "--config $A/rclone.conf delete gdrive-dr:DR/pi5 " <<<"$del"
+check "keep 30 (.env): --min-age 30d, top level only" grep -q -- "--max-depth 1 --min-age 30d" <<<"$del"
+check "keep 30 (.env): only this script's file names" \
+  grep -q -- "--include pos_backup_\* --include pos_images_\* --include pos_sale_photos_\*" <<<"$del"
+check "keep 30 (.env): says so on the completion line" grep -q 'Backup Complete (local + offsite) === (remote keeps 30 days)' "$A/k1.log"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/k2" BACKUP_RCLONE_KEEP_DAYS=3
+check "keep 3 (env beats .env) is refused: exits 0, nothing deleted, warns" \
+  test "$rc" -eq 0 -a -z "$(grep ' delete ' "$WORK/rclone10.calls")" -a -n "$(grep 'BACKUP_RCLONE_KEEP_DAYS must be a whole number' "$A/k2.log")"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/k3" BACKUP_RCLONE_KEEP_DAYS=30x
+check "keep '30x' is refused: nothing deleted" test "$rc" -eq 0 -a -z "$(grep ' delete ' "$WORK/rclone10.calls")"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/k4" STUB_RCLONE_DELETE_FAIL=1
+check "failed remote delete: backup still exits 0 with its upload marker" \
+  test "$rc" -eq 0 -a "$(count "$A/k4" 'pos_backup_*.sql.gz.uploaded')" = 1
+check "failed remote delete: loud warning" grep -q 'REMOTE RETENTION FAILED' "$A/k4.log"
+: > "$WORK/rclone10.calls"
+run_env_backup "$A/k5" STUB_RCLONE_COPY_FAIL=1
+check "failed upload: exits 1 and nothing is deleted at the remote" \
+  test "$rc" -eq 1 -a -z "$(grep ' delete ' "$WORK/rclone10.calls")"
 rm -f "$STUBS/rclone"
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

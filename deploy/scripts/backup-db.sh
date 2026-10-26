@@ -43,7 +43,12 @@
 #                         configures as this remote in rclone.conf (#363 AC1, still an owner decision).
 #   BACKUP_RCLONE_CONFIG  Path to rclone's config file holding the remote's credentials. Must live
 #                         outside this repo (default: rclone's own lookup, $HOME/.config/rclone/rclone.conf).
-#   Either may instead be a line in $APP_DIR/.env (read, never sourced); the environment wins.
+#   BACKUP_RCLONE_KEEP_DAYS  Days to keep copies AT THE REMOTE (unset/empty = never delete there).
+#                         Integer >= 7. After this run's upload succeeded, files older than that whose
+#                         names are this script's own (<db>_backup_* / _images_* / _sale_photos_*, incl.
+#                         .sha256) are deleted from the remote folder's top level -- nothing else.
+#                         A failed delete warns; it never fails a backup that already left the host.
+#   Any of these may instead be a line in $APP_DIR/.env (read, never sourced); the environment wins.
 #                         Never commit this file. See docs/Backend_design/07_CICD_DEPLOY.md §7a.
 #
 # Offsite upload is OPTIONAL, but never optional-and-silent (owner decision, 2026-09-21):
@@ -78,10 +83,10 @@ POSTGRES_USER="${POSTGRES_USER:-postgres}"
 # owner's own copy, so it survives re-provisioning — a value baked into the cron line would vanish
 # the first time provision.yml ran without it). The environment wins, *including an explicit
 # empty value*: deploy.yml's pre-migrate dump passes BACKUP_RCLONE_REMOTE="" so it never uploads.
-# Only these two keys are read (never sourced), and their values are never printed. The stack has
+# Only these three keys are read (never sourced), and their values are never printed. The stack has
 # no `env_file:`, so a key here reaches no container.
 if [[ -z "${BACKUP_RCLONE_REMOTE+set}" && -f "$APP_DIR/.env" ]]; then
-  for key in BACKUP_RCLONE_REMOTE BACKUP_RCLONE_CONFIG; do
+  for key in BACKUP_RCLONE_REMOTE BACKUP_RCLONE_CONFIG BACKUP_RCLONE_KEEP_DAYS; do
     [[ -z "${!key+set}" ]] || continue
     line="$(grep -m1 -E "^${key}=" "$APP_DIR/.env" || true)"
     [[ -n "$line" ]] || continue
@@ -402,6 +407,28 @@ else
   OFFSITE_STATE=failed
 fi
 
+# --- Remote retention (BACKUP_RCLONE_KEEP_DAYS) ------------------------------------------------
+# Only after THIS run's upload succeeded, so the remote always holds a fresh copy when anything is
+# deleted there. Validate first: a typo must not turn into "delete everything older than 0 days".
+REMOTE_PRUNE_NOTE=""
+if [[ "$OFFSITE_STATE" == ok && -n "${BACKUP_RCLONE_KEEP_DAYS:-}" ]]; then
+  if ! [[ "$BACKUP_RCLONE_KEEP_DAYS" =~ ^[0-9]+$ ]] || (( 10#$BACKUP_RCLONE_KEEP_DAYS < 7 )); then
+    echo "::warning::BACKUP_RCLONE_KEEP_DAYS must be a whole number of days >= 7 -- nothing was deleted at '$OFFSITE_LABEL'." >&2
+    REMOTE_PRUNE_NOTE=" (remote retention skipped: invalid BACKUP_RCLONE_KEEP_DAYS)"
+  else
+    keep=$((10#$BACKUP_RCLONE_KEEP_DAYS))
+    echo "Deleting copies older than $keep days at '$OFFSITE_LABEL'..."
+    if rclone "${RCLONE_ARGS[@]}" delete "${BACKUP_RCLONE_REMOTE%/}" --max-depth 1 --min-age "${keep}d" \
+      --include "${POSTGRES_DB}_backup_*" --include "${POSTGRES_DB}_images_*" --include "${POSTGRES_DB}_sale_photos_*"; then
+      REMOTE_PRUNE_NOTE=" (remote keeps $keep days)"
+    else
+      echo "::warning::REMOTE RETENTION FAILED -- old copies at '$OFFSITE_LABEL' were not deleted; the remote will keep growing until this is fixed. This backup itself was uploaded." >&2
+      REMOTE_PRUNE_NOTE=" (remote retention FAILED, see warning)"
+    fi
+    unset keep
+  fi
+fi
+
 if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
   # Branch on the state decided above, not on the raw env var again: one discriminator, so a future
   # way of disabling offsite cannot leave prune in its age-based mode while offsite is live.
@@ -487,7 +514,7 @@ write_freshness_gauge() {
 case "$OFFSITE_STATE" in
   ok)
     write_freshness_gauge
-    echo "=== Backup Complete (local + offsite) ==="
+    echo "=== Backup Complete (local + offsite) ===$REMOTE_PRUNE_NOTE"
     ;;
   disabled)
     write_freshness_gauge
