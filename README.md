@@ -469,7 +469,7 @@ migration from `mob04` is agreed it holds no real shop data (tenant `001` exists
 | Network | LAN `192.168.1.116` (temporary Wi-Fi) and Tailscale `100.70.181.98`; the tailnet grant opens 22/80/443 to the owner's own devices only |
 | TLS | Its own private CA, made by `certgen` on the first deploy — not `mob04`'s. The public cert is committed as `frontend/assets/certs/pos-ca-pi5.crt` |
 | Deploy | By hand from WSL: `provision.yml` as `cloud`, `deploy.yml` as `deploy`. On Wi-Fi, pre-pull every image with retries first (Docker Hub layers time out) |
-| Backups | Twice-daily dumps (cron hour `3,12` UTC = 10:00 and 19:00 ICT), each uploaded to Google Drive `Srisurart-POS-DR/pi5-pos` with a sha256 (#783). Restore from the Drive copy rehearsed 2026-10-25: 0 errors, 33 tables + 27 migrations match live |
+| Backups | Twice-daily dumps (cron hour `3,12` UTC = 10:00 and 19:00 ICT), each uploaded to Google Drive `Srisurart-POS-DR/pi5-pos` with a sha256 (#783); copies older than 30 days are deleted there (`BACKUP_RCLONE_KEEP_DAYS=30`). Restore from the Drive copy rehearsed 2026-10-25: 0 errors, 33 tables + 27 migrations match live |
 | Monitoring | Prometheus, Grafana, Gatus on loopback, reached over an SSH tunnel; alerts go to the Pi's own Discord webhook |
 | Load test | 2026-10-26, on the Pi at 24 r/s: reads p95 7 ms, mixed read/write p95 17 ms, stock exact, peak CPU 58% of 400% — see [Measured on the Raspberry Pi 5](#measured-on-the-raspberry-pi-5-2026-10-26-light-run) |
 | Power | `throttled=0x0` over 14 h with the HDD on EcoFlow River 3 USB-C (5 V / 3 A). Only the official 27 W PSU gives 5 A |
@@ -496,8 +496,8 @@ never changes, so the `pi5` APK keeps working through the move.
   run from `/opt/pos`. Without it Gatus mounts an empty directory and crash-loops (`configuration file not found`,
   2026-10-25, ~1 h of blind uptime checks; the POS itself was unaffected).
 
-Still open: the owner's own Google OAuth client for rclone (the shared rclone client is being retired during 2026),
-Drive is never pruned (watch the free 15 GB), image tarballs are still empty so an image restore is unproven, the
+Still open: the owner's own Google OAuth client for rclone (the shared rclone client is being retired during 2026;
+`ops\switch-pi5-gdrive-own-client.ps1` does the switch once the client exists), image tarballs are still empty so an image restore is unproven, the
 `pi5` APK is not yet tried on a device, and CD to the Pi does not exist.
 Detail: [`pi5-full-stack-tutorial.md`](docs/tutorial/pi5-full-stack-tutorial.md) (Thai, step by step),
 [`session-2026-10-25-pi5-first-deploy.md`](docs/handoff_log/session-2026-10-25-pi5-first-deploy.md),
@@ -582,7 +582,7 @@ Backups: `provision.yml` installs `backup-db.sh` and a twice-daily `pg_dump` cro
 when the newest copy is older than 26 h. It only works while the PC is on and logged on, and a restore from that
 copy onto a fresh host is not yet proven. On `mob04` the `rclone` upload in `backup-db.sh` stays unconfigured, so a
 green `backup-cron.log` there does not prove a backup left the machine. **The Pi** uploads every dump to Google Drive:
-`backup-db.sh` reads `BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG` from `/opt/pos/.env` (the environment wins,
+`backup-db.sh` reads `BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG`/`BACKUP_RCLONE_KEEP_DAYS` from `/opt/pos/.env` (the environment wins,
 an explicit empty value included, so the pre-migrate dump never uploads), and the log ends
 `=== Backup Complete (local + offsite) ===` only when the upload succeeded. Note that a CD deploy
 does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
