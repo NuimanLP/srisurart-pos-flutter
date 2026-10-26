@@ -827,6 +827,25 @@ ssh pi5-deploy 'free -h; docker stats --no-stream --format "{{.Name}} {{.MemUsag
 
 swap ของ Ubuntu Server บน Pi ตั้งไว้หรือไม่ = ยังไม่ยืนยัน (แผนย้าย §4.8) — ดูจาก `free -h`
 
+**ดูสด ๆ ใน terminal** (จาก PowerShell บน PC — Windows Terminal แสดงกราฟได้ดีสุด; ตรวจบน Pi 2026-10-26: `btop` 1.4.6, `htop`, `sysstat` มีแล้ว, `glances` ยังไม่มี):
+
+```bash
+ssh -t pi5 btop
+```
+
+`btop` = กราฟสี CPU ทุก core, RAM, ดิสก์, เน็ต + process (คลิกได้, `q` ออก, `Esc` → Options เปลี่ยนธีม) · กินเครื่อง < 1% ไม่กระทบ POS
+
+| ดูอะไร | คำสั่ง (หลัง `ssh pi5`) |
+|---|---|
+| ภาพรวมแบบ live | `btop` หรือ `htop` |
+| CPU/RAM ต่อ container | `sudo docker stats` (`cloud` ไม่อยู่กลุ่ม `docker`; ใน `pi5-deploy` ไม่ต้อง `sudo`) |
+| RAM / swap | `free -h` |
+| พื้นที่ SD + HDD | `df -h / /srv/pos-data` |
+| อุณหภูมิ / ไฟตก-ร้อนจนลดความเร็ว | `sudo vcgencmd measure_temp` · `sudo vcgencmd get_throttled` (`0x0` = ปกติ) |
+| ดิสก์ทำงานหนักแค่ไหน | `iostat -x 2` (คอลัมน์ `%util` ของ `sda` = HDD) |
+
+ทางเลือก: `sudo apt install -y glances` (ครบสุดในจอเดียว รวม container + อุณหภูมิ) · กราฟ**ย้อนหลัง** ดูใน Grafana (`http://localhost:13000` ผ่าน tunnel ข้างบน)
+
 **log ของ container:** compose ไม่มี `logging:` → ใช้ค่าของ daemon = `log-driver local` ที่ `host-setup.sh` เขียน (หมุน + บีบอัด,
 ≈ 100 MB ต่อ container) · ใช้กับ container ที่**สร้างหลัง**ตั้งค่าเท่านั้น · ตรวจ: `docker info --format '{{.LoggingDriver}}'` = `local` ·
 ห้ามแก้ log option ใน `/etc/docker/daemon.json` เอง (รันสคริปต์ซ้ำจะ `REFUSED: /etc/docker/daemon.json exists with different content`) ·
