@@ -887,8 +887,10 @@ ssh pi5 'V=0.25.2; F=lazydocker_${V}_Linux_arm64.tar.gz; B=https://github.com/je
   สองบรรทัดใน `/opt/pos/.env`: `BACKUP_RCLONE_REMOTE=gdrive-dr:Srisurart-POS-DR/pi5-pos` + `BACKUP_RCLONE_CONFIG=/opt/pos/rclone/rclone.conf`
   (`backup-db.sh` อ่านจาก `.env` เอง — อยู่รอด `provision.yml`) · สร้าง credential: owner รัน `ops\setup-pi5-gdrive-backup.ps1` บน PC (login Google ในเบราว์เซอร์;
   สำเนา `ops\secrets\pi5-rclone.conf`) · ตรวจ: `backup-cron.log` จบด้วย `=== Backup Complete (local + offsite) ===`, sha256 ของไฟล์ใน Drive = ของในเครื่อง (ตรวจแล้ว 2026-10-25) ·
-  🟠 rclone ใช้ **shared client_id ของ rclone ที่จะถูกปลดในปี 2026** → owner ต้องสร้าง client_id ของตัวเอง (rclone.org/drive/#making-your-own-client-id) ก่อนมันหยุด ·
-  🟠 Drive ไม่ถูก prune (สคริปต์ลบแค่ในเครื่อง) — รูปเต็มทุกรอบ ดูพื้นที่ Drive (ฟรี 15 GB) เป็นระยะ
+  🟠 rclone ใช้ **shared client_id ของ rclone ที่จะถูกปลดในปี 2026** → owner สร้าง OAuth client ของตัวเองใน Google Cloud Console (ขั้นตอนอยู่หัวไฟล์ `ops\switch-pi5-gdrive-own-client.ps1` —
+  **ต้องกด Publish app** ไม่งั้น login หมดอายุทุก 7 วัน) แล้วรันสคริปต์นั้น → backup ย้ายไปโฟลเดอร์ใหม่ `Srisurart-POS-DR-own/pi5-pos` (client ใหม่มองไม่เห็นโฟลเดอร์เดิมเพราะ `drive.file`) ·
+  ✅ **Drive ลบของเก่าเองแล้ว:** `BACKUP_RCLONE_KEEP_DAYS=30` ใน `.env` → หลังอัปโหลดรอบนั้นสำเร็จ ลบไฟล์ `pos_backup_*`/`pos_images_*`/`pos_sale_photos_*` ที่เก่ากว่า 30 วัน
+  ในโฟลเดอร์นั้นชั้นบนสุดเท่านั้น (ค่า < 7 ถูกปฏิเสธ, ลบไม่สำเร็จ = `::warning::` ไม่ทำให้ backup ล้ม) · ยังควรดูพื้นที่ Drive (ฟรี 15 GB) เมื่อมีรูปเยอะ
 * **backup บนเครื่องเดียวกันไม่ใช่ backup ที่ปลอดภัย** — Pi เครื่องแรกมีสำเนาใน Google Drive แล้ว (ข้อบน); Pi เครื่องอื่นต้องตั้งเอง · Pi เครื่องเดียวในร้าน = ไฟไหม้/ขโมย/SD พัง → ข้อมูลหาย ·
   `--data-disk boot` = ข้อมูลกับ backup อยู่บน SD ใบเดียวกัน · ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหน · log สีเขียวไม่ได้แปลว่าออกจากเครื่อง (อ่านบรรทัด `::warning::`)
 * ครั้งแรกบน Pi ให้รัน `backup-db.sh` ด้วยมือหนึ่งครั้งหลัง deploy และอ่าน output (แผนย้าย §4.7) ·
