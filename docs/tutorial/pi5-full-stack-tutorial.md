@@ -803,6 +803,10 @@ git -C "$MAIN" worktree remove ../pos-pi5
   release `apk-pi5-<sha>` (ตัวแรก `apk-pi5-b5dccea`) · เครื่อง Android ต้องลงแอป **Tailscale** และ login tailnet ของ owner ·
   package id + key เดียวกับ APK ของ `mob04` → ติดตั้งทับ = เครื่องนั้นเปลี่ยนเซิร์ฟเวอร์ · ค่าเริ่ม `target=mob04` = เหมือนเดิม ·
   Pi ใหม่ (CA ใหม่) = แทน `pos-ca-pi5.crt` ด้วย `ca.crt` สาธารณะของเครื่องนั้น
+* **APK สำหรับเครื่องใน LAN ร้าน (ไม่ต้องมี Tailscale):** `gh workflow run android-apk.yml --ref main -f target=pi5 -f server_url=https://<IP ร้าน>` →
+  tag `apk-pi5-<IP แบบขีด>-<sha>` · `server_url` ต้องเป็น `https://<host>[:port]` ตัวเล็ก ไม่มี path/`/` ท้าย (workflow ตรวจก่อนใช้) ·
+  🔴 ใบรับรองของ Pi ต้องมี IP นั้นใน SAN — รัน `ops\pi5-change-lan-ip.sh <IP ร้าน>` ก่อน (IP ปัจจุบัน `192.168.1.116` มีอยู่แล้ว) ·
+  ย้ายไปเครือข่ายที่ IP เปลี่ยน = build APK ใหม่ (ส่วน `apk-pi5-*` แบบ Tailscale ไม่ต้อง)
 * 🔴 **คัดลอก `certs-ca` จาก `mob04` = ย้าย CA private key (`ca.key`) ออกจาก `mob04`** — owner ตัดสินเท่านั้น · ถ้าทำ: ส่ง VM → Pi **ตรงผ่าน ssh**
   (ห้ามผ่าน notebook / แชต / USB), ตรวจว่า SHA-256 ของ `ca.crt` บน Pi = ของ `frontend/assets/certs/pos-ca.crt`, และกฎใน CLAUDE.md
   "`ca.key` lives only in `certs-ca`" ต้องแก้ตาม · สำหรับซ้อม **ใช้ CA ใหม่**

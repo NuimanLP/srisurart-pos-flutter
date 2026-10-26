@@ -542,9 +542,18 @@ The `target` input (#787) picks the server and the CA the app trusts:
 |---|---|---|---|---|
 | `mob04` (default) | `https://172.30.58.20` | `frontend/assets/certs/pos-ca.crt` | `apk-<shortsha>` | faculty network / VPN, or Tailscale |
 | `pi5` | `https://100.70.181.98` | `pos-ca-pi5.crt`, copied over `pos-ca.crt` in the runner only | `apk-pi5-<shortsha>` | the Tailscale app on the owner's tailnet |
+| `pi5` + `server_url` | the given origin, e.g. `https://192.168.1.116` | as `pi5` | `apk-pi5-192-168-1-116-<shortsha>` | the same network as that address (the shop LAN) — no Tailscale |
 
 ```bash
 gh workflow run android-apk.yml --ref main -f target=pi5
+```
+
+For shop devices on the Pi's LAN, pass the LAN origin as well. The input must be
+`https://<host>[:port]` with a lowercase host and no path, and the server's certificate must name that address,
+which `ops/pi5-change-lan-ip.sh` arranges:
+
+```bash
+gh workflow run android-apk.yml --ref main -f target=pi5 -f server_url=https://192.168.1.116
 ```
 
 Both targets share one package id and key, so installing one over the other switches that device's server; the
