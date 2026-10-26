@@ -99,6 +99,12 @@ HTTPS to `100.70.181.98` from the PC = 200.
   `ops\switch-pi5-gdrive-own-client.ps1`: backups now go to `Srisurart-POS-DR-own/pi5-pos` (`drive.file` hides the
   old `Srisurart-POS-DR`, kept as is — the owner may delete it). A cron-shaped run: exit 0, `(remote keeps 30 days)`,
   sha256 of the dump on Drive = local. The script's WSL-source edit did not apply; synced by hand (`.env` == source).
+- ✅ 2026-10-26 cleanup (owner: "clear what is not needed"): old folder `Srisurart-POS-DR` (36 backup files, 70 KB) moved
+  to Drive **Trash** (`rclone purge --drive-use-trash`, recoverable 30 days); old shared-client credential deleted on the
+  Pi and the PC (`ops\secrets\pi5-rclone.conf`); superseded Pi env snapshots and this session's WSL `.env` backups
+  deleted (current source == Pi `.env` == `ops\secrets\pi5-pos-env-20261026T155201Z.env`); load-test/provision temp
+  dirs, the Pi's k6 leftovers and this session's merged branches removed. Owner still to do: revoke the old "rclone"
+  grant at myaccount.google.com/permissions (keep "Srisurart POS backup").
 - ✅ 2026-10-26: Drive retention live — PR #803 (`main` `35d5199`, release #804), Pi re-provisioned (`failed=0`,
   `.env` == source, script sha = `main`), `BACKUP_RCLONE_KEEP_DAYS=30`; a cron-shaped run ended
   `=== Backup Complete (local + offsite) === (remote keeps 30 days)`.
