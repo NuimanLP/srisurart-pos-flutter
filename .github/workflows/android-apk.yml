@@ -9,7 +9,11 @@ name: Android APK
 #                      device needs the Tailscale app on the owner's tailnet), the Pi's own CA
 #                      (assets/certs/pos-ca-pi5.crt copied over pos-ca.crt in the runner only),
 #                      tag `apk-pi5-<shortsha>`
-# Same package id + key: installing one target over the other switches that device's server.
+# `server_url` (optional, e.g. https://192.168.1.116) overrides the server only — `target` still picks
+# the CA, so the host's certificate must name that address (CERT_SAN_IPS; ops/pi5-change-lan-ip.sh
+# adds the shop's LAN IP). Tag `<prefix>-<host with dots as dashes>-<shortsha>`. Use it for shop
+# devices on the Pi's LAN, which then need no Tailscale.
+# Same package id + key: installing one build over another switches that device's server.
 
 on:
   workflow_dispatch:
@@ -19,6 +23,11 @@ on:
         type: choice
         options: [mob04, pi5]
         default: mob04
+      server_url:
+        description: 'Optional server origin, e.g. https://192.168.1.116 (https, host[:port], no path). Empty = the target default.'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write   # gh release create
@@ -26,8 +35,9 @@ permissions:
 env:
   FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc and flutter.yml
   # Origin only: every call site already passes '/api/v1/...' (api_client.dart).
-  API_BASE_URL: ${{ inputs.target == 'pi5' && 'https://100.70.181.98' || 'https://172.30.58.20' }}
-  TAG_PREFIX: ${{ inputs.target == 'pi5' && 'apk-pi5' || 'apk' }}
+  # API_BASE_URL / TAG_PREFIX are set by the first step (`server_url` is validated there first).
+  DEFAULT_URL: ${{ inputs.target == 'pi5' && 'https://100.70.181.98' || 'https://172.30.58.20' }}
+  BASE_PREFIX: ${{ inputs.target == 'pi5' && 'apk-pi5' || 'apk' }}
 
 defaults:
   run:
@@ -45,8 +55,30 @@ jobs:
       REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
       TARGET: ${{ inputs.target || 'mob04' }}
+      SERVER_URL: ${{ inputs.server_url }}
     steps:
       - uses: actions/checkout@v5
+
+      # Validate before use: the value reaches $GITHUB_ENV, a --dart-define and the release notes.
+      - name: resolve server URL
+        working-directory: .
+        run: |
+          if [ -z "$SERVER_URL" ]; then
+            api="$DEFAULT_URL"; prefix="$BASE_PREFIX"
+          else
+            if ! [[ "$SERVER_URL" =~ ^https://([a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)(:[0-9]{1,5})?$ ]]; then
+              # The raw value is not echoed: a newline in it could start a workflow command.
+              echo "::error::server_url must be https://<host>[:port] (lowercase host, no path or trailing slash)"
+              exit 1
+            fi
+            host="${BASH_REMATCH[1]}"
+            api="$SERVER_URL"; prefix="$BASE_PREFIX-${host//./-}"
+          fi
+          {
+            echo "API_BASE_URL=$api"
+            echo "TAG_PREFIX=$prefix"
+          } >> "$GITHUB_ENV"
+          echo "API_BASE_URL=$api  TAG_PREFIX=$prefix"
 
       - name: fail fast if the release already exists
         working-directory: .
@@ -110,7 +142,9 @@ jobs:
         working-directory: .
         run: |
           short="${SHA:0:7}"
-          if [ "$TARGET" = pi5 ]; then
+          if [ -n "$SERVER_URL" ]; then
+            reach="เครื่องต้องอยู่เครือข่ายเดียวกับ $API_BASE_URL และใบรับรองของเซิร์ฟเวอร์ต้องมีที่อยู่นี้ (The device must reach $API_BASE_URL directly, e.g. the shop LAN; the server certificate must name this address.)"
+          elif [ "$TARGET" = pi5 ]; then
             reach="ต้องเปิดแอป Tailscale (tailnet ของ owner) บนเครื่องนี้ (The device must run Tailscale on the owner's tailnet.)"
           else
             reach="The device must be on the faculty network/VPN."
@@ -124,4 +158,4 @@ jobs:
           NOTES
           gh release create "$TAG_PREFIX-$short" apk-out/*.apk \
             --repo "$REPO" --target "$SHA" \
-            --title "Android APK $TARGET $short" --notes-file notes.md --prerelease
+            --title "Android APK $TARGET${SERVER_URL:+ $API_BASE_URL} $short" --notes-file notes.md --prerelease
