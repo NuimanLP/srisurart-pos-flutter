@@ -860,6 +860,7 @@ ssh pi5 'V=0.25.2; F=lazydocker_${V}_Linux_arm64.tar.gz; B=https://github.com/je
 | CPU/RAM ต่อ container | `sudo docker stats` (`cloud` ไม่อยู่กลุ่ม `docker`; ใน `pi5-deploy` ไม่ต้อง `sudo`) |
 | RAM / swap | `free -h` |
 | พื้นที่ SD + HDD | `df -h / /srv/pos-data` |
+| **เปลี่ยนสายไฟ / ถอดปลั๊ก Pi** | 🔴 ปิดเครื่องก่อนเสมอ: `ssh pi5 "sudo shutdown -h now"` → รอ ~30 วิ จนไฟเขียว (ACT) หยุดกะพริบ → ค่อยถอด · เสียบแล้ว Pi บูตเอง + container ขึ้นเอง (`restart: unless-stopped`) ใน 1–2 นาที · เช็ค: `curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/health/ready` ต้องได้ `200` และ `sudo vcgencmd get_throttled` ต้องได้ `0x0` · ระหว่างดับ Discord จะเตือน แล้วแจ้งกลับมาปกติเอง · สายใหม่ไม่ได้เพิ่มกระแสเกิน 3 A ของ River 3 |
 | อุณหภูมิ / ไฟตก-ร้อนจนลดความเร็ว | `sudo vcgencmd measure_temp` · `sudo vcgencmd get_throttled` (`0x0` = ปกติ) |
 | ดิสก์ทำงานหนักแค่ไหน | `iostat -x 2` (คอลัมน์ `%util` ของ `sda` = HDD) |
 

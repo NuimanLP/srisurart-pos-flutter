@@ -472,7 +472,7 @@ migration from `mob04` is agreed it holds no real shop data (tenant `001` exists
 | Backups | Twice-daily dumps (cron hour `3,12` UTC = 10:00 and 19:00 ICT), each uploaded to Google Drive `Srisurart-POS-DR-own/pi5-pos` with a sha256 (#783) through the owner's own OAuth client (Cloud project `srisurart-backup`, In production, since 2026-10-26); copies older than 30 days are deleted there (`BACKUP_RCLONE_KEEP_DAYS=30`, #803). Restore from the Drive copy rehearsed 2026-10-25: 0 errors, 33 tables + 27 migrations match live |
 | Monitoring | Prometheus, Grafana, Gatus on loopback, reached over an SSH tunnel; alerts go to the Pi's own Discord webhook |
 | Load test | 2026-10-26, on the Pi at 24 r/s: reads p95 7 ms, mixed read/write p95 17 ms, stock exact, peak CPU 58% of 400% — see [Measured on the Raspberry Pi 5](#measured-on-the-raspberry-pi-5-2026-10-26-light-run) |
-| Power | `throttled=0x0` over 14 h with the HDD on EcoFlow River 3 USB-C (5 V / 3 A). Only the official 27 W PSU gives 5 A |
+| Power | `throttled=0x0` over 14 h with the HDD on EcoFlow River 3 USB-C (5 V / 3 A). Only the official 27 W PSU gives 5 A. Before unplugging power or swapping a cable: `ssh pi5 "sudo shutdown -h now"`, wait ~30 s for the ACT LED to stop (never pull power while Postgres is writing); it boots and brings every container back by itself |
 | Clients | Browser at `https://100.70.181.98` (Tailscale) or the LAN IP; Android: the `pi5` APK below, with the Tailscale app on the device |
 
 **Moving to the shop changes the LAN IP**, which is baked into the certificate SAN, CORS and the Gatus target.
