@@ -109,6 +109,7 @@ HTTPS to `100.70.181.98` from the PC = 200.
   `.env` == source, script sha = `main`), `BACKUP_RCLONE_KEEP_DAYS=30`; a cron-shaped run ended
   `=== Backup Complete (local + offsite) === (remote keeps 30 days)`.
 - 2026-10-27: owner is swapping the Pi's USB power cable. Procedure (now in README + tutorial §10): `ssh pi5 "sudo shutdown -h now"`, wait ~30 s, swap, power on; after 2 min expect `/health/ready` 200 and `get_throttled=0x0`. Avoid the 10:00/19:00 ICT backups. Not yet verified post-boot — run the check when the owner reports the Pi is back.
+- 2026-10-28: Home Assistant Container installed on the Pi (owner request) — see README Pi table + tutorial §15. Verified: HA answers 302 on 127.0.0.1:8123, POS ready 200, throttled 0x0, ~300 MB RAM. NOT verified: LAN and Tailscale access from the PC (Tailscale `:8123` SYN never reaches the Pi → tailnet ACL; LAN test from PC also failed, maybe different subnet). Owner to do: allow `tcp:8123` in the tailnet ACL and create the HA owner account. The Pi's uptime showed no reboot, so the owner's power-cable swap did not interrupt it.
 - Official 27 W PSU for 5 A headroom (not urgent while `throttled` stays `0x0`).
 - Try `apk-pi5-b5dccea` on a real device; restore of image tarballs once photos exist.
 - Run `ops\pi5-change-lan-ip.sh` on move day. Whether `mob04`'s data moves to the Pi is undecided.

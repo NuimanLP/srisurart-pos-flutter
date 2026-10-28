@@ -986,3 +986,12 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — APK ของ Pi (`apk-pi5-*`, §9) ติดตั้งทับ = เครื่องนั้นย้ายไป Pi แต่ข้อมูลใน `mob04` ไม่ตามไป · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
 * ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · Grafana/Prometheus/Gatus/Bull-Board ไม่เปิดผ่าน tailnet grant
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)
+
+## 15. Home Assistant บน Pi (2026-10-28, owner สั่ง)
+
+* ลงแบบ **Container แยก** (HA OS/Supervised ลงไม่ได้ เพราะ Pi รัน Debian + POS stack) · compose: `deploy/homeassistant/compose.yml` → `/opt/homeassistant/compose.yml` · config บน HDD `/srv/pos-data/homeassistant` · image ปักเวอร์ชัน+digest · `mem_limit 1g`, `cpus 1.5` · `network_mode: host` (เห็นอุปกรณ์ใน LAN) พอร์ต `8123`
+* **ไม่ผ่าน nginx ของ POS** และ `deploy.yml` ไม่แตะโปรเจกต์นี้ · ufw: `8123/tcp` จาก `192.168.1.0/24` และ `in on tailscale0` เท่านั้น (ไม่เปิดสู่อินเทอร์เน็ต)
+* สั่งมือ (ผ่าน `cloud`): `cd /opt/homeassistant && sudo docker compose up -d` · อัปเดต = แก้ tag+digest ใน compose แล้ว `pull` + `up -d` · ถอด = `docker compose down` (ไม่ใส่ `-v`; config อยู่บน HDD จึงไม่ถูกลบ)
+* ครั้งแรกเปิด `http://192.168.1.116:8123` (ใน LAN) → สร้างบัญชี owner ในหน้า onboarding เอง (รหัสผ่านไม่ผ่าน Claude)
+* ผ่าน Tailscale ต้องให้ ACL ของ tailnet อนุญาต `tcp:8123` ไปที่ `pi5-pos` (owner ทำใน Tailscale admin) — 2026-10-28 จาก PC ต่อ `100.70.181.98:8123` ไม่ติด (SYN ไม่ถึง Pi) ขณะที่ `:443` ติด → ACL จำกัดพอร์ต
+* วัดหลังลง: HA ใช้ ~300 MB RAM · POS `/health/ready` 200 · `throttled=0x0`
