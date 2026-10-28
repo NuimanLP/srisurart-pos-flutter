@@ -1,0 +1,22 @@
+# Home Assistant (Container install) on the Pi 5 — separate compose project, NOT part of the POS stack.
+# Lives in /opt/homeassistant; config on the HDD (/srv/pos-data/homeassistant). Reachable on the LAN and
+# Tailscale only (ufw rules, docs/tutorial/pi5-full-stack-tutorial.md §15) — never through the POS nginx.
+# The POS deploy (deploy.yml) never touches this project.
+name: homeassistant
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10.4@sha256:23f4dfbb69ce76315dbc4de7915504f1c2dcecd7ca2648113a493a385972e133
+    container_name: homeassistant
+    restart: unless-stopped
+    network_mode: host # LAN device discovery (mDNS/SSDP); serves :8123
+    privileged: false
+    environment:
+      TZ: Asia/Bangkok
+    volumes:
+      - /srv/pos-data/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    mem_limit: 1g # keep the POS stack safe: 8 GB host, POS uses ~1.5 GB
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
