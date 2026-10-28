@@ -986,3 +986,13 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — APK ของ Pi (`apk-pi5-*`, §9) ติดตั้งทับ = เครื่องนั้นย้ายไป Pi แต่ข้อมูลใน `mob04` ไม่ตามไป · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
 * ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · Grafana/Prometheus/Gatus/Bull-Board ไม่เปิดผ่าน tailnet grant
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)
+
+## 15. Home Assistant บน Pi (2026-10-28, owner สั่ง)
+
+* ลงแบบ **Container แยก** (HA OS/Supervised ลงไม่ได้ เพราะ Pi รัน Debian + POS stack) · compose: `deploy/homeassistant/compose.yml` → `/opt/homeassistant/compose.yml` · config บน HDD `/srv/pos-data/homeassistant` · image ปักเวอร์ชัน+digest · `mem_limit 1g`, `cpus 1.5` · `network_mode: host` (เห็นอุปกรณ์ใน LAN) พอร์ต `8123`
+* **ไม่ผ่าน nginx ของ POS** และ `deploy.yml` ไม่แตะโปรเจกต์นี้ · ufw: `8123/tcp` จาก `192.168.1.0/24` และ `in on tailscale0` เท่านั้น (ไม่เปิดสู่อินเทอร์เน็ต)
+* สั่งมือ (ผ่าน `cloud`): `cd /opt/homeassistant && sudo docker compose up -d` · อัปเดต = แก้ tag+digest ใน compose แล้ว `pull` + `up -d` · ถอด = `docker compose down` (ไม่ใส่ `-v`; config อยู่บน HDD จึงไม่ถูกลบ)
+* ครั้งแรกเปิด `http://192.168.1.116:8123` (ใน LAN) → สร้างบัญชี owner ในหน้า onboarding เอง (รหัสผ่านไม่ผ่าน Claude)
+* **เข้าผ่าน Tailscale (ใช้งานได้จริง 2026-10-28):** tailnet ACL ต้องอนุญาต `tcp:8123,8443` (grant `autogroup:member → autogroup:self` ที่มี 22/80/443 อยู่แล้ว — owner เพิ่มใน Tailscale admin; ก่อนเพิ่ม SYN ไม่ถึง Pi เลย) + เปิด **HTTPS Certificates** ที่หน้า DNS · แล้วบน Pi: `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8123` (คงอยู่ข้ามรีบูต; ปิด = `--https=8443 off`) → **`https://pi5-pos.tailc2ba46.ts.net:8443`** (ใบรับรองจริง ไม่ต้อง `-k`, เฉพาะใน tailnet) · ธรรมดา `http://100.70.181.98:8123` ก็ได้
+* 🔴 **HA รุ่นนี้ (2026.10) อ่าน `http:` จาก `configuration.yaml` แค่ครั้งแรก** แล้วย้ายไป `.storage/http` — แก้ YAML ทีหลังไม่มีผล (log: `not set-up for reverse proxies` → 400 ตอนผ่าน serve) · วิธีแก้: หยุด container → ใส่ `use_x_forwarded_for: true` และ `trusted_proxies: ["127.0.0.1/32","::1/128"]` ใน `data.stable` ของ `/srv/pos-data/homeassistant/.storage/http` → `up -d` (ทำแล้ว; อย่าใส่ `http:` ใน YAML อีก)
+* วัดหลังลง: HA ใช้ ~300 MB RAM · POS `/health/ready` 200 · `throttled=0x0`
