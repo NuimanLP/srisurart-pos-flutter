@@ -453,7 +453,7 @@ ssh pi5 'sudo docker info --format "{{.DockerRootDir}} {{.Driver}}"; systemctl c
 ]
 ```
 
-  Grafana/Prometheus/Gatus/platform-ui **ไม่เปิดผ่าน grant** — ใช้ SSH tunnel (§10) เสมอ · ที่ผูก `127.0.0.1` อยู่แล้ว grant ก็เข้าไม่ถึง (`tests` ข้างบนกันคนเผลอเพิ่มพอร์ต)
+  Grafana/Prometheus/Gatus/platform-ui เดิม**ไม่เปิดผ่าน grant** (SSH tunnel §10) — 2026-10-29 owner สั่งเปิด HTTPS ผ่าน `tailscale serve` พอร์ต 13000/13100/13200/13300/19090 (§10) ซึ่งต้องเพิ่มพอร์ตเหล่านี้ใน grant `autogroup:self` · tunnel ยังใช้ได้ · ที่ผูก `127.0.0.1` อยู่แล้ว grant ก็เข้าไม่ถึง (`tests` ข้างบนกันคนเผลอเพิ่มพอร์ต)
 * 🟠 **ประสิทธิภาพ:** uplink ของ Wi-Fi ที่ Pi เครื่องแรกต่ออยู่ (วงชั่วคราว ไม่ใช่ที่ร้าน) วัดได้แค่ ~2 Mbit/s (~240 KB/s) → โหลดเว็บครั้งแรก (cold) ช้า · ตั้งแต่ release `8713c9f` (PR #778) nginx gzip เฉพาะ static web build (~15 MB → ~5 MB; API ไม่บีบ) · **เครื่องในร้านใช้ LAN IP ตรง ๆ — Tailscale ไว้เข้าจากนอกร้านเท่านั้น**
 * `autoApprovers` ของ tailnet ครอบแค่ `172.30.58.20/32` (`mob04`) → **route ของ Pi ต้อง approve ด้วยมือ**
 * แผนฟรี Personal = **ใช้ที่ไม่ใช่เชิงพาณิชย์เท่านั้น** — ร้านใช้จริงต้องให้ owner ตัดสินใหม่
@@ -824,6 +824,9 @@ ssh -N -L 13000:127.0.0.1:3000 -L 19090:127.0.0.1:9090 -L 13100:127.0.0.1:3100 -
 
 แล้วเปิด `http://localhost:13000` (Grafana), `:19090`, `:13100`, `:13200`, `:13300` (Gatus — uptime + alert → Discord, `07 §10.5`)
 
+**HTTPS ผ่าน Tailscale (owner สั่ง 2026-10-29, ทุกตัว):** ไม่ต้องทำ tunnel — `tailscale serve --tls-terminated-tcp` ปลายทางยังเป็น `127.0.0.1` เหมือนเดิม (ตัว dashboard ไม่ได้เปลี่ยน bind) · `https://pi5-pos.tailc2ba46.ts.net:` **`13000`** Grafana · **`13100`** Bull-Board (basic auth) · **`13200`** platform-ui · **`13300`** Gatus · **`19090`** Prometheus (⚠️ ไม่มี login) · ใบรับรองจริง เข้าได้เฉพาะอุปกรณ์ของ owner (grant `autogroup:self`) ·
+ตั้ง: `sudo tailscale serve --bg --tls-terminated-tcp=13000 tcp://127.0.0.1:3000` (ซ้ำต่อพอร์ต) · ปิด: `--tls-terminated-tcp=13000 off` · ต้องเพิ่ม `tcp:13000,13100,13200,13300,19090` ใน ACL grant ของ `pi5-pos` ด้วย (ไม่งั้น SYN ไม่ถึง Pi) · พอร์ต `https=` ของ serve ใช้ได้แค่ 443/8443/10000 จึงต้องใช้แบบ TLS-terminated TCP
+
 RAM (งบ 8 GB, `mem_limit` รวม ≈ 4.3 GB — เพดาน ไม่ใช่การจอง):
 
 ```bash
@@ -984,7 +987,7 @@ Tailscale: `sudo tailscale down` → `sudo apt-get remove tailscale` → ลบ 
 * ห้ามลบ drop-in `RequiresMountsFor` · ห้ามเปิด SNAT ของ Tailscale กลับ · ห้าม `--lan-ip 172.30.58.20` / `172.30.58.20` ใน `CERT_SAN_IPS` ของ Pi
 * หลัง deploy เพิ่ม Tailscale ด้วย `--profile vm` (§4.1) — ไม่รัน `--profile pi5 --data-disk ...` ซ้ำ (สคริปต์รุ่นเก่า restart Docker เสมอ)
 * Pi = โฮสต์ที่ร้านตั้งใจใช้จริง (owner 2026-10-24) แต่ `mob04` ยังเป็น production จนกว่าตกลงย้ายข้อมูล — APK ของ Pi (`apk-pi5-*`, §9) ติดตั้งทับ = เครื่องนั้นย้ายไป Pi แต่ข้อมูลใน `mob04` ไม่ตามไป · ห้ามบอกว่า backup ปลอดภัย จนกว่า owner ตัดสิน (§11)
-* ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · Grafana/Prometheus/Gatus/Bull-Board ไม่เปิดผ่าน tailnet grant
+* ฉลาก tunnel §10: `13200` = platform-ui (สร้าง tenant แรกผ่านพอร์ตนี้) · ตั้งแต่ 2026-10-29 ทุก dashboard เปิดผ่าน `tailscale serve` TLS-terminated TCP (§10) ได้ด้วย (เฉพาะอุปกรณ์ของ owner)
 * แก้ `.env` ด้วยมือ: ตรวจด้วย `grep -c '^KEY='` เสมอ และเติมบรรทัดว่างก่อน append (คู่มือ VM §2.5)
 
 ## 15. Home Assistant บน Pi (2026-10-28, owner สั่ง)
