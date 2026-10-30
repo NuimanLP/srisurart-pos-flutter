@@ -20,3 +20,20 @@ services:
     logging:
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
+
+  # Matter controller for HA's Matter integration (HA Container has no add-ons). Add the integration in HA with
+  # URL ws://localhost:5580/ws. Commission devices from the HA Companion app (phone on the shop LAN).
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable@sha256:170aa093ce91c76cde4cc390918307590f0f5558fcec93f913af3cb019e6562a # tracks 8.1.x
+    container_name: matter-server
+    restart: unless-stopped
+    network_mode: host # mDNS + IPv6 link-local to reach Matter devices; serves ws on :5580 (not opened in ufw)
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - /srv/pos-data/homeassistant-matter:/data
+    mem_limit: 256m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
