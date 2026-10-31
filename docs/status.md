@@ -296,6 +296,8 @@ third item — load-time RAM of the full stack on `mob04` — says "measured in 
 
 ## Release log (newest first)
 
+**2026-10-31 — camera scan on the add-product form.** `main` `e1f68ab2` (release #821, #822): deployed to the Pi by hand (`failed=0`, ready 200); `mob04` Deploy run `41205979387` stuck `pending`, not deployed. Record: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md`.
+
 **2026-10-30/31 — Dependabot clear-out + Pi deploy.** `main` `0710ecf9` (releases #817, #819): #815 matter-server, #816 dev/lint tooling bumps, #818 `qs` override; all 11 open Dependabot alerts cleared. Deployed to the Pi by hand (`.current_sha` `0710ecf9a81a42bc3a93431ad66890b34bfe75b0`, `failed=0`, `/health/ready` 200, 17 containers); MPTCP disabled on the Pi and (re-posted warning, 2026-10-31) on `mob04` too (`7.0.0-28-generic`, was `=1`; kernel still unpatched, no reboot). Record: `docs/handoff_log/session-2026-10-25-pi5-first-deploy.md`.
 
 🔴 **The development freeze was lifted by the owner on 2026-10-10; normal development resumed** (it had run since
