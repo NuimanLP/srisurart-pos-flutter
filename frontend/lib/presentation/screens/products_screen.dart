@@ -2169,10 +2169,11 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       ),
       // iPad keyboard: shrink above it at once (the default 100 ms animation
       // shrinks it after the focused field was scrolled into view, leaving
-      // the field under the footer), and sit at the top so a keyboard that
-      // reports no inset (floating/split) still leaves the form's top visible.
+      // the field under the footer), and on touch platforms sit at the top so
+      // a keyboard that reports no inset (floating/split) still leaves the
+      // form's top visible.
       insetAnimationDuration: Duration.zero,
-      alignment: Alignment.topCenter,
+      alignment: formDialogAlignment(),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
         // Title and the บันทึก / ยกเลิก buttons stay put; only the form
@@ -2754,6 +2755,8 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
     final after = d == null ? null : (p.stock + d < 0 ? 0 : p.stock + d);
 
     return Dialog(
+      // iPad keyboard: shrink above it at once (see _ProductEditDialog).
+      insetAnimationDuration: Duration.zero,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400),
         // Scrolls under whole-screen zoom instead of overflowing.

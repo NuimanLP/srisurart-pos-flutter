@@ -9,7 +9,18 @@
 // `insetAnimationDuration: Duration.zero`; AlertDialog has no such parameter.
 // Test: test/keyboard_safe_dialogs_test.dart.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+
+/// Alignment for a tall form Dialog: top on touch platforms (iOS/Android —
+/// Flutter web on iPad Safari reports iOS), so a keyboard that reports no
+/// inset (floating/split) still leaves the top of the form visible; null
+/// (the default, centred) elsewhere.
+Alignment? formDialogAlignment() =>
+    defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.android
+        ? Alignment.topCenter
+        : null;
 
 class InstantKeyboardInset extends StatelessWidget {
   final Widget child;

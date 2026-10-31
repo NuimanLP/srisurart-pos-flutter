@@ -10,6 +10,7 @@ import '../../core/theme/app_colors.dart';
 import '../../data/repositories/review_items_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/review_item.dart';
+import '../widgets/instant_keyboard_inset.dart';
 
 class OwnerReviewScreen extends StatefulWidget {
   const OwnerReviewScreen({super.key});
@@ -184,7 +185,9 @@ class _RejectedAndStuckTab extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        return AlertDialog(
+        // iPad keyboard: scroll the field into view above it.
+        return InstantKeyboardInset(child: AlertDialog(
+          scrollable: true,
           title: const Row(
             children: [
               Icon(Icons.warning_amber_rounded, color: AppColors.error),
@@ -245,7 +248,7 @@ class _RejectedAndStuckTab extends StatelessWidget {
               child: const Text('ยืนยันการทิ้ง'),
             ),
           ],
-        );
+        ));
       },
     );
 

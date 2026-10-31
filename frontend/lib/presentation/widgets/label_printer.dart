@@ -297,6 +297,8 @@ class _LabelPrinterState extends State<LabelPrinter> {
     final printProducts = _printProducts;
     return Dialog(
       insetPadding: const EdgeInsets.all(24),
+      // iPad keyboard: shrink above it at once (see InstantKeyboardInset).
+      insetAnimationDuration: Duration.zero,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 780, maxHeight: 720),
         child: Column(
