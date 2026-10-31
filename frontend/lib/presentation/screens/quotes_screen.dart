@@ -29,6 +29,7 @@ import '../blocs/pending_quote_cubit.dart';
 import '../widgets/app_card.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/quote_a4_view.dart';
 import '../widgets/search_field.dart';
@@ -194,7 +195,9 @@ class _QuotesScreenState extends State<QuotesScreen> {
     final controller = TextEditingController(text: '90');
     return showDialog<int>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      // iPad keyboard: scroll the field into view above it.
+      builder: (ctx) => InstantKeyboardInset(child: AlertDialog(
+        scrollable: true,
         title: const Text('ล้างรายการเก่า'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -221,7 +224,7 @@ class _QuotesScreenState extends State<QuotesScreen> {
             child: const Text('ตกลง'),
           ),
         ],
-      ),
+      )),
     );
   }
 

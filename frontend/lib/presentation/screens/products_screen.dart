@@ -33,6 +33,7 @@ import '../../domain/reports/net_sales.dart'
     show NetSales, PaymentGroup, TopItem, toReportLites;
 import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/loading_view.dart';
@@ -2166,6 +2167,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         horizontal: narrow ? 12 : 40,
         vertical: 24,
       ),
+      // iPad keyboard: shrink above it at once (the default 100 ms animation
+      // shrinks it after the focused field was scrolled into view, leaving
+      // the field under the footer), and sit at the top so a keyboard that
+      // reports no inset (floating/split) still leaves the form's top visible.
+      insetAnimationDuration: Duration.zero,
+      alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
         // Title and the บันทึก / ยกเลิก buttons stay put; only the form

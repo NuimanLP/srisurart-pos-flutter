@@ -1070,6 +1070,9 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     final supplierProducts = _supplierProducts;
     final lowStock = _lowStock;
     return Dialog(
+      // iPad keyboard — same as the add-product dialog (products_screen.dart).
+      insetAnimationDuration: Duration.zero,
+      alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
         child: Padding(
