@@ -2236,6 +2236,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                           hint: _isNew
                               ? null
                               : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
+                          // Camera scan fills the part number (new product only).
+                          suffix: _isNew
+                              ? BarcodeScanButton(
+                                  onScanned: (v) =>
+                                      setState(() => _partNo.text = v),
+                                )
+                              : null,
                         ),
                       ),
                       // Either name is enough, so the pair is marked once.
@@ -2379,6 +2386,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     bool required = false,
     String? hint,
     String? error,
+    Widget? suffix,
   }) {
     final theme = Theme.of(context);
     return Column(
@@ -2417,6 +2425,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
             helperMaxLines: 2,
             errorText: error,
             errorMaxLines: 2,
+            suffixIcon: suffix,
           ),
         ),
       ],

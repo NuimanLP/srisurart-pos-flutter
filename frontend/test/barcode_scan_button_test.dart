@@ -95,6 +95,56 @@ void main() {
     });
   });
 
+  testWidgets('Products: add-product form scan fills the part number', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: repositoryProviders(db, useApiRepositories: false),
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
+              BlocProvider<PendingQuoteCubit>(
+                create: (_) => PendingQuoteCubit(),
+              ),
+              BlocProvider<CartCubit>(create: (_) => CartCubit()),
+            ],
+            child: const MaterialApp(home: Scaffold(body: ProductsScreen())),
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      await tester.tap(find.text('เพิ่มสินค้า'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      barcodeScanner = (_) async => 'SCAN-NEW-1';
+      final dialogCam = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byTooltip(BarcodeScanButton.scanTooltip),
+      );
+      await tester.tap(dialogCam);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final partNo = tester.widget<TextField>(
+        find
+            .descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(TextField),
+            )
+            .first,
+      );
+      expect(partNo.controller!.text, 'SCAN-NEW-1');
+      tester.takeException(); // category-dropdown overflow in the test font is pre-existing
+      await db.close();
+    });
+  });
+
   testWidgets('Checkout: a scan adds a known part, alerts an unknown one', (
     tester,
   ) async {
