@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../blocs/auth_cubit.dart';
 import 'app_button.dart';
 import 'app_text_field.dart';
+import 'instant_keyboard_inset.dart';
 
 class DeviceEnrolmentDialog extends StatefulWidget {
   const DeviceEnrolmentDialog({super.key});
@@ -82,7 +83,9 @@ class _DeviceEnrolmentDialogState extends State<DeviceEnrolmentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // iPad keyboard: scroll the field into view above it.
+    return InstantKeyboardInset(child: AlertDialog(
+      scrollable: true,
       title: const Row(
         children: [
           Icon(Icons.devices, color: AppColors.orange),
@@ -127,6 +130,6 @@ class _DeviceEnrolmentDialogState extends State<DeviceEnrolmentDialog> {
           busy: _busy,
         ),
       ],
-    );
+    ));
   }
 }

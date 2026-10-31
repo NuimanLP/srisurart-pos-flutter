@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import 'instant_keyboard_inset.dart';
 import 'login_form.dart';
 
 class LoginDialog extends StatelessWidget {
@@ -20,7 +21,8 @@ class LoginDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       // Scrolls instead of overflowing on a short screen / under 2x–3x zoom.
       scrollable: true,
       title: const Row(
@@ -46,6 +48,6 @@ class LoginDialog extends StatelessWidget {
           },
         ),
       ),
-    );
+    ));
   }
 }

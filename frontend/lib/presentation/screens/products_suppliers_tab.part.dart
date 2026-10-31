@@ -1385,7 +1385,8 @@ class _EditQuoteDialogState extends State<_EditQuoteDialog> {
         _parseMoney(_cost.text) != null &&
         _parseMoney(_freight.text, emptyIsZero: true) != null;
     return SyncStatusBuilder(
-      builder: (context, status, isDegraded) => AlertDialog(
+      // iPad keyboard: keep the focused field in view above it.
+      builder: (context, status, isDegraded) => InstantKeyboardInset(child: AlertDialog(
         title: const Text('แก้ไขราคา'), // agent ร่าง
         content: SizedBox(
           width: 360,
@@ -1441,7 +1442,7 @@ class _EditQuoteDialogState extends State<_EditQuoteDialog> {
             child: const Text('บันทึก'),
           ),
         ],
-      ),
+      )),
     );
   }
 }
@@ -1582,7 +1583,8 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
     final theme = Theme.of(context);
     final matches = _matches;
     return SyncStatusBuilder(
-      builder: (context, status, isDegraded) => AlertDialog(
+      // iPad keyboard: keep the focused field in view above it.
+      builder: (context, status, isDegraded) => InstantKeyboardInset(child: AlertDialog(
         title: Text(
           widget.product != null
               ? 'เพิ่มซัพพลายเออร์ใหม่'
@@ -1739,7 +1741,7 @@ class _AddQuoteDialogState extends State<_AddQuoteDialog> {
             child: const Text('บันทึก'),
           ),
         ],
-      ),
+      )),
     );
   }
 }

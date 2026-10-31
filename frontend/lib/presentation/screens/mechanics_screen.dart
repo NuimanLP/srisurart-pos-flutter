@@ -33,6 +33,7 @@ import '../../domain/reports/credit_statement.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/mechanic_statement_a4.dart';
 import '../widgets/money_text.dart';
@@ -1816,7 +1817,8 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.editing != null;
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       title: Text(editing ? 'แก้ไขข้อมูลช่าง' : 'เพิ่มช่างใหม่'),
       content: SizedBox(
         width: 480,
@@ -1885,7 +1887,7 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
           onPressed: _busy ? null : _save,
         ),
       ],
-    );
+    ));
   }
 }
 
@@ -2055,7 +2057,8 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
     final amt = double.tryParse(_amount.text.trim()) ?? 0;
     final after = (_outstanding - amt).clamp(0.0, double.infinity);
 
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       title: Text('💵 รับชำระเครดิต — ${widget.mechanic.nameTH ?? ''}'),
       content: SizedBox(
         width: 480,
@@ -2253,7 +2256,7 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
           onPressed: _busy ? null : _submit,
         ),
       ],
-    );
+    ));
   }
 }
 

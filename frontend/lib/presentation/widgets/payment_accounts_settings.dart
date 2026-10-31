@@ -21,6 +21,7 @@ import '../blocs/auth_cubit.dart';
 import 'app_button.dart';
 import 'app_card.dart';
 import 'confirm_dialog.dart';
+import 'instant_keyboard_inset.dart';
 import 'sync_status_builder.dart';
 
 /// The section body (not scrollable itself — the settings pane scrolls).
@@ -519,7 +520,8 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       title: Text(
         _editing ? 'แก้ไขบัญชีรับเงิน' : 'เพิ่มบัญชีรับเงิน', // เจ้าของรับรอง 2026-10-10
       ),
@@ -641,6 +643,6 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
           child: const Text('บันทึก'),
         ),
       ],
-    );
+    ));
   }
 }

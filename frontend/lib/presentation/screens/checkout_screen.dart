@@ -56,6 +56,7 @@ import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
 import '../widgets/barcode_scan_button.dart';
 import '../widgets/device_role_banner.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
@@ -3846,7 +3847,9 @@ class _QtyDialogState extends State<_QtyDialog> {
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
-    return AlertDialog(
+    // iPad keyboard: scroll the field into view above it.
+    return InstantKeyboardInset(child: AlertDialog(
+      scrollable: true,
       title: Text(
         widget.item.name,
         maxLines: 2,
@@ -3877,7 +3880,7 @@ class _QtyDialogState extends State<_QtyDialog> {
         ),
         FilledButton(onPressed: _submit, child: const Text('ตกลง')),
       ],
-    );
+    ));
   }
 }
 
