@@ -17,6 +17,7 @@ import '../../data/repositories/offline_pin_repository.dart';
 import '../blocs/auth_cubit.dart';
 import 'app_button.dart';
 import 'app_text_field.dart';
+import 'instant_keyboard_inset.dart';
 
 class OfflinePinSetupDialog extends StatefulWidget {
   const OfflinePinSetupDialog({super.key, this.onSuccess});
@@ -167,7 +168,8 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       title: const Row(
         children: [
           Icon(Icons.pin, color: AppColors.orange),
@@ -256,6 +258,6 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
           busy: _busy,
         ),
       ],
-    );
+    ));
   }
 }

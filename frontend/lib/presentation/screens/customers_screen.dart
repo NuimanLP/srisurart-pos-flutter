@@ -24,6 +24,7 @@ import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/search_field.dart';
 import '../widgets/sync_status_builder.dart';
@@ -709,7 +710,8 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
               Expanded(child: b),
             ],
           );
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       scrollable: true,
       title: Text(_isNew ? 'เพิ่มลูกค้าใหม่' : 'แก้ไขข้อมูลลูกค้า'),
       content: SizedBox(
@@ -742,6 +744,6 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
           onPressed: _saving ? null : _save,
         ),
       ],
-    );
+    ));
   }
 }

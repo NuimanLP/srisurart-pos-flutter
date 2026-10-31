@@ -19,6 +19,7 @@ import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/device_enrolment_dialog.dart';
+import '../widgets/instant_keyboard_inset.dart';
 
 class DevicesScreen extends StatefulWidget {
   const DevicesScreen({super.key});
@@ -804,7 +805,9 @@ class _CreateDeviceDialogState extends State<_CreateDeviceDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    // iPad keyboard: scroll the field into view above it.
+    return InstantKeyboardInset(child: AlertDialog(
+      scrollable: true,
       title: const Row(
         children: [
           Icon(Icons.add_to_queue, color: AppColors.navy),
@@ -891,7 +894,7 @@ class _CreateDeviceDialogState extends State<_CreateDeviceDialog> {
           onPressed: _busy ? null : _submit,
         ),
       ],
-    );
+    ));
   }
 }
 
@@ -1086,7 +1089,8 @@ class _RetireDeviceDialogState extends State<_RetireDeviceDialog> {
   Widget build(BuildContext context) {
     final device = widget.device;
 
-    return AlertDialog(
+    // iPad keyboard: keep the focused field in view above it.
+    return InstantKeyboardInset(child: AlertDialog(
       title: Row(
         children: [
           const Icon(Icons.warning_amber_rounded, color: AppColors.error),
@@ -1234,6 +1238,6 @@ class _RetireDeviceDialogState extends State<_RetireDeviceDialog> {
           child: Text(_busy ? 'กำลังปลดเครื่อง...' : 'ยืนยันปลดระวางเครื่อง'),
         ),
       ],
-    );
+    ));
   }
 }

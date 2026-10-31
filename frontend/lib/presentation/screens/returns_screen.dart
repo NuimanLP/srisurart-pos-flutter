@@ -36,6 +36,7 @@ import '../repositories/repository_providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/sale_photo_strip.dart';
 import '../widgets/search_field.dart';
@@ -225,7 +226,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
+        // iPad keyboard: scroll the field into view above it.
+        return InstantKeyboardInset(child: AlertDialog(
+          scrollable: true,
           title: const Text('ยกเลิกบิลออฟไลน์'),
           content: Form(
             key: formKey,
@@ -269,7 +272,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
               },
             ),
           ],
-        );
+        ));
       },
     );
 

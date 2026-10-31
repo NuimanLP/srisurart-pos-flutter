@@ -38,6 +38,8 @@ Future<void> showClosingReport(BuildContext context) {
     context: context,
     builder: (_) => Dialog(
       insetPadding: const EdgeInsets.all(24),
+      // iPad keyboard (counted-cash fields): shrink above it at once.
+      insetAnimationDuration: Duration.zero,
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 860, maxHeight: 720),
