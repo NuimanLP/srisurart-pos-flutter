@@ -68,7 +68,8 @@
 - **Camera barcode scan (owner request 2026-10-12, PR #697):** one shared `BarcodeScanButton` (`mobile_scanner` 7.4.2) on
   products search, the checkout scan field (goes through `_submitBarcode` → `_handleBarcode`, the same path as typing / a USB
   scanner) and the create-PO search (adds a line only on an exact part number). Matches `partNo` only — there is no barcode
-  column; PO receiving has no search, so no button. 🔴 **Web never fetches a decoder from a CDN:** native `BarcodeDetector`
+  column; PO receiving has no search, so no button. Also on stocktake search and (2026-10-31) the add-product form's
+  `รหัสสินค้า` field (new product only — the part number is locked after create). 🔴 **Web never fetches a decoder from a CDN:** native `BarcodeDetector`
   where present, else **zxing-wasm 3.1.3 bundled in `frontend/web/zxing/`** (`VERSION.txt` holds npm integrity + sha256;
   precached by `sw.js`) — Windows desktop Chrome/Edge have no `BarcodeDetector`, so the bundle is what makes the shop PC
   work. Bumping `mobile_scanner` = re-check the zxing version it pins and update the bundle. Support is checked **before**
