@@ -592,7 +592,7 @@ on:
 > `aarch64` → `actions-runner-linux-arm64-<VER>` (เช่น Raspberry Pi 5), อย่างอื่นปฏิเสธ · sha256 ที่ส่งต้องเป็นของ arch **เครื่องนั้น**
 > (หน้า New self-hosted runner เลือก Linux + x64 หรือ ARM64) · `RUNNER_NAME` (ค่าเริ่ม `mob04-demo`) และ `RUNNER_LABELS`
 > (ค่าเริ่ม `srisurart-demo-deploy`) override ได้ทาง env — **บน `aarch64` บังคับต้องใส่ทั้งสองค่า** (ค่าเริ่มเป็นของ `mob04` และ `config.sh --replace` จะยึด registration `mob04-demo` ไป) · **`sudo` ล้าง env** จึงต้องส่งผ่าน sudo:
-> `sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>` · 🔴 **ห้าม runner สองตัวใช้ label
+> `sudo RUNNER_NAME=pi5-deploy RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>` · 🔴 **ห้าม runner สองตัวใช้ label
 > `srisurart-demo-deploy` ร่วมกัน** — job `deploy` เลือกด้วย label นี้ GitHub จะส่ง deploy ไปเครื่องไหนก็ได้ที่ว่าง
 
 1. **กัน fork PR ไม่ให้รันเองได้** — Settings → Actions → General → *Approval for running fork pull request workflows

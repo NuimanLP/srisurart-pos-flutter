@@ -200,6 +200,9 @@ jobs:
   # required reviewer NuimanLP) and its own concurrency group, so approving, waiting for or failing
   # one host never holds or cancels the other. 🔴 Never put srisurart-demo-deploy on the Pi runner,
   # or srisurart-pi5-deploy on mob04's: GitHub hands a job to any idle runner with the labels.
+  # The automatic (workflow_run) path is off until the repo variable PI5_CD is 'true' — set it once
+  # the runner is online and the tutorial §7 rehearsal passed, so no release leaves a Pi job waiting
+  # for a runner that does not exist. A dispatch with target=pi5/both works without it.
   pi5-images:
     name: pi5 — arm64 images on GHCR?
     needs: resolve
@@ -213,12 +216,13 @@ jobs:
           && github.event.workflow_run.head_branch == 'main')
         || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
           && (inputs.target == 'pi5' || inputs.target == 'both')))
+      && (github.event_name == 'workflow_dispatch' || vars.PI5_CD == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       ready: ${{ steps.arm64.outputs.ready }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -247,6 +251,7 @@ jobs:
           && github.event.workflow_run.head_branch == 'main')
         || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
           && (inputs.target == 'pi5' || inputs.target == 'both')))
+      && (github.event_name == 'workflow_dispatch' || vars.PI5_CD == 'true')
     runs-on: [self-hosted, ARM64, srisurart-pi5-deploy]
     # The required-reviewer rule on `pi5` (NuimanLP) is the gate, as `demo` is for mob04.
     environment: pi5

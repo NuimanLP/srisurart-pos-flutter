@@ -171,12 +171,18 @@
   `verify-ghcr-tags.sh <sha> linux/arm64` and is red for a release with no arm64 image, before any Approve. Then the
   same `sudo -n -u deploy /usr/local/bin/pos-deploy auto|manual <sha>` as `mob04` (rollback, `ROLLBACK_FLOOR`,
   never-older on auto, duplicate-SHA skip). `workflow_dispatch` input `target` = `demo` (default, the old behaviour) |
-  `pi5` | `both`. 🔴 Create the `pi5` environment **with its reviewer before** the first `main` run that has this job —
-  GitHub auto-creates a missing environment with **no** protection rule, and the Pi would deploy unapproved.
+  `pi5` | `both`. The **automatic** path also needs repo variable **`PI5_CD=true`** (both Pi jobs' `if:`) — set it only
+  after the runner is online and the tutorial §7 rehearsal passed; unset = no Pi job waits on a missing runner. A
+  dispatch with `target=pi5`/`both` works without it. Environment `pi5` exists (2026-11-27: reviewer `NuimanLP`,
+  `main`-only branch policy) — 🔴 never delete/recreate it bare: GitHub auto-creates a missing environment with **no**
+  protection rule, and the Pi would deploy unapproved.
   🔴 The workflow is still named `Deploy (demo)`: approving it now asks per environment — tick only the host you mean.
-  Stale waiting runs block `deploy-pi5` the same way they block `deploy-demo` (cancel them). The playbook dumps the
-  DB only when a migration is pending — the hand-run `backup-db.sh` before each Pi deploy is not part of CD.
-  Runner setup: `docs/tutorial/pi5-full-stack-tutorial.md` §7.
+  🔴 Approving through the API: pick the pending deployment by **`.environment.name`** (`demo` or `pi5`), never by
+  `.[].environment.id` / position — one run now holds both, and the wrong id deploys the wrong host.
+  Stale waiting runs block `deploy-pi5` the same way they block `deploy-demo` (cancel them).
+  🔴 **Before approving `pi5`, run `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups'`** — CD (the playbook)
+  dumps the DB only when a migration is pending; `pos-deploy.sh` takes no backup and stays that way.
+  Runner setup + rehearsal: `docs/tutorial/pi5-full-stack-tutorial.md` §7.
 - **Tailscale on `mob04` (2026-10-13, `docs/research/tailscale-remote-access-plan-2026-10-13.md`):** subnet router for
   `172.30.58.20/32` only (`tag:pos-server`, Personal plan = non-commercial). 🔴 `--snat-subnet-routes=false` is required —
   never re-enable SNAT (every phone would share one IP: per-IP login rate limit + nginx's RFC1918 allowlist). SSH over the

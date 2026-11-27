@@ -22,7 +22,7 @@
 | ✅ พิสูจน์บน Pi จริง 2026-10-26 | load test k6 แบบเบา (ยิงบน Pi ผ่าน nginx + rate limit จริง 24 req/s): อ่าน p95 7.3 ms · ผสมอ่าน/เขียน 5 นาที p95 16.5 ms · แย่งซื้อ 100 คน/50 ชิ้น = 50 บิลพอดี สต็อกไม่ติดลบ (p95 933 ms รอบแรกตอนระบบเย็น, 67 ms รอบซ้ำ) · CPU สูงสุด 58% จาก 400%, RAM 1.8 GB, 55 °C, ไม่ throttle — `docs/handoff_log/session-2026-10-26-pi5-load-test.md` (ไม่นับเป็น #380) |
 | ✅ พิสูจน์บน Pi จริง 2026-10-25 | กู้ฐานข้อมูลจากสำเนาใน Google Drive (§11): 0 error, 33 ตาราง + 27 migration = ของจริง · ไฟ: `throttled=0x0` ตลอด 14 ชม. พร้อม HDD · APK สำหรับ Pi build ได้ (`target=pi5`, §9) · สคริปต์เปลี่ยน IP ตอนย้ายร้าน (§2 ข้อ 3) ซ้อมด้วย IP เดิมผ่าน |
 | ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้รูปสินค้า/รูปหลักฐาน (ยังไม่มีรูป) · ลอง APK ของ Pi บนเครื่องจริง · ไฟสำรอง/UPS ทดสอบจริง |
-| 🟠 ต่อใน repo แล้ว 2026-11-27 — ยังไม่เคยรันจริง | **CD ไป Pi:** job `deploy-pi5` ใน `.github/workflows/deploy.yml` (`[self-hosted, ARM64, srisurart-pi5-deploy]`, environment `pi5`, ตรวจ `linux/arm64` ก่อน) — ใช้ได้เมื่อ owner ทำ §7 (environment + runner) · 🔴 **หน้า Approve ของ `Deploy (demo)` แยก `demo` (= `mob04`) กับ `pi5` — ติ๊กเฉพาะเครื่องที่ตั้งใจ** · §8 (ทางมือ) ยังเป็นทาง deploy แรกและทางสำรอง |
+| 🟠 ต่อใน repo แล้ว 2026-11-27 — ยังไม่เคยรันจริง | **CD ไป Pi:** job `deploy-pi5` ใน `.github/workflows/deploy.yml` (`[self-hosted, ARM64, srisurart-pi5-deploy]`, environment `pi5`, ตรวจ `linux/arm64` ก่อน) — environment `pi5` มีแล้ว · ใช้ได้เมื่อ owner ทำ §7 (runner + ซ้อม) · ทางอัตโนมัติเปิดเมื่อตั้ง repo variable `PI5_CD=true` (§7 ข้อ 7) · 🔴 **หน้า Approve ของ `Deploy (demo)` แยก `demo` (= `mob04`) กับ `pi5` — ติ๊กเฉพาะเครื่องที่ตั้งใจ** · §8 (ทางมือ) ยังเป็นทาง deploy แรกและทางสำรอง |
 
 🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · Pi เครื่องแรกถูกตั้งเป็นโฮสต์ของร้านแล้ว (2026-10-24) แต่ยังไม่มีข้อมูลจริง —
 tenant แรกมีแล้ว (`001`) · backup นอกเครื่อง = Google Drive (§11, ตั้งแล้ว 2026-10-25) · APK ของ Pi มีแล้ว (§9) — ติดตั้งทับ APK ของ `mob04` = เครื่องนั้นย้ายไปคุยกับ Pi (ข้อมูลใน `mob04` ไม่ตามไป)
@@ -618,18 +618,19 @@ ssh pi5-deploy 'id; ls -ld /opt/pos; stat -c "%A %U:%G %n" /opt/pos/.env'
 job `deploy-pi5` รอใน environment **`pi5`** จนกว่า `NuimanLP` กด Approve → runner บน Pi รัน `sudo -n -u deploy /usr/local/bin/pos-deploy auto <sha>`
 (ตัวเดียวกับ `mob04`: `ansible_connection=local`, rollback อัตโนมัติ, `ROLLBACK_FLOOR`, ไม่ถอยหลังตอน auto, SHA ซ้ำ = ข้าม) ·
 job ของ `mob04` (`deploy`, environment `demo`) ยังรันเหมือนเดิม — **สอง host อนุมัติแยกกัน** ในหน้า Review deployments ติ๊กเฉพาะเครื่องที่จะ deploy ·
-กดเองได้: Actions → `Deploy (demo)` → Run workflow → `target` = `demo` (ค่าเริ่ม) / `pi5` / `both` · `image_tag` เก่า = rollback (`manual`)
+กดเองได้: Actions → `Deploy (demo)` → Run workflow → `target` = `demo` (ค่าเริ่ม) / `pi5` / `both` · `image_tag` เก่า = rollback (`manual`) ·
+🔴 **ทางอัตโนมัติปิดอยู่จนกว่าตั้ง repo variable `PI5_CD=true`** (ข้อ 7) — ยังไม่ตั้ง = merge เข้า `main` ไม่สร้าง job ของ Pi เลย · กด Run workflow `target=pi5` ได้เสมอ
 
 ทำ **หลัง §8** (Pi มี `.current_sha` แล้ว — ไม่มี = deploy ที่ล้มจะไม่มีอะไรให้ rollback) · ทั้งหมด owner ทำเอง (`sudo` ของ `cloud` ถามรหัส):
 
-**1. environment `pi5` ก่อนอย่างอื่น** — Settings → Environments → New environment `pi5` → Required reviewers = `NuimanLP` · 🔴 ถ้ายังไม่มี environment ตอน run แรก
-GitHub สร้างให้เอง **แบบไม่มี reviewer** = Pi deploy โดยไม่มีใครกด · ตรวจ:
+**1. environment `pi5` — มีแล้ว (2026-11-27: reviewer `NuimanLP`, branch policy `main` เท่านั้น)** · ตรวจอย่างเดียว · 🔴 ห้ามลบแล้วสร้างใหม่เปล่า ๆ —
+GitHub สร้าง environment ที่หายไปให้เอง **แบบไม่มี reviewer** = Pi deploy โดยไม่มีใครกด:
 
 ```bash
 gh api repos/NuimanLP/srisurart-pos-flutter/environments/pi5 --jq '.protection_rules[]|[.type,(.reviewers//[]|map(.reviewer.login)|join(","))]|@tsv'
 ```
 
-✅ `required_reviewers	NuimanLP`
+✅ มีบรรทัด `required_reviewers	NuimanLP`
 
 **2. token + version + sha256** — token (อายุ 1 ชม.):
 
@@ -662,11 +663,49 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.nam
 
 ✅ `pi5-deploy	online	self-hosted,Linux,ARM64,srisurart-pi5-deploy` แยกจาก `mob04-demo` (ที่ไม่มี `srisurart-pi5-deploy`)
 
-**5. ซ้อมครั้งแรกแบบไม่เปลี่ยนอะไร** — Run workflow `target=pi5`, `image_tag` ว่าง → Approve `pi5` · Pi รัน SHA นั้นอยู่แล้ว → playbook จบที่ duplicate-release check ·
-log ของ job ต้องมี `runner-job-started: repository=NuimanLP/srisurart-pos-flutter workflow_ref=…/deploy.yml@refs/heads/main event=workflow_dispatch`
-และ `pos-deploy: running=<sha> release=<sha> mode=manual` · ✅ `ssh pi5-deploy 'cat /opt/pos/.current_sha'` ไม่เปลี่ยน · เก็บกวาด `git -C "$MAIN" worktree remove ../pos-runner`
+**5. ตรวจ sudo ของ `gha-runner`** (ต้องมีสิทธิ์ **เดียว**):
 
-* backup ก่อน deploy ด้วยมือ (§8 ข้อ 5) **ไม่อยู่ใน CD** — playbook dump DB เองเฉพาะตอนมี migration ค้าง · อยากได้สำเนาก่อนกด Approve ให้รัน `backup-db.sh` เองก่อน
+```bash
+ssh -t pi5 'sudo -l -U gha-runner'
+```
+
+✅ มีแค่ `(deploy) NOPASSWD: /usr/local/bin/pos-deploy` · มีอย่างอื่น (เช่น `(ALL)`) → **หยุด** ถอด runner (ท้ายข้อนี้)
+
+```bash
+ssh -t pi5 'sudo -u gha-runner sudo -n -u deploy /usr/local/bin/pos-deploy 2>&1 | grep "pos-deploy: usage"'
+```
+
+✅ พิมพ์ `::error::pos-deploy: usage: …` (= self-test เดียวกับที่สคริปต์ setup รัน) · ไม่มีบรรทัด / ถามรหัส → sudoers ไม่ถึง หยุด
+
+**6. ซ้อมจริง: rollout SHA เดิมทั้งชุด** — `.env` เปลี่ยน = playbook ไม่หยุดที่ duplicate-release check แต่ rolling restart SHA เดิม (api-1→3, web, nginx):
+
+1. backup ก่อน (ข้อ 8): `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'`
+2. ในนาม `deploy` เติมบรรทัดว่างท้าย `.env` (ไม่แก้ค่าใด): `ssh pi5-deploy 'echo >> /opt/pos/.env && tail -c 3 /opt/pos/.env | od -c | head -1'` ✅ ลงท้าย `\n  \n`
+3. Actions → `Deploy (demo)` → Run workflow → `target=pi5`, `image_tag` ว่าง → Review deployments → ติ๊ก **`pi5` เท่านั้น** → Approve
+4. log ของ job ต้องมี `runner-job-started: repository=NuimanLP/srisurart-pos-flutter workflow_ref=…/deploy.yml@refs/heads/main event=workflow_dispatch`,
+   `pos-deploy: running=<sha> release=<sha> mode=manual` และ recap `failed=0`
+5. ตรวจผล:
+
+```bash
+ssh pi5-deploy 'cat /opt/pos/.current_sha; curl -sk -o /dev/null -w "health_ready=%{http_code}\n" https://127.0.0.1/health/ready; cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml ps --format "table {{.Service}}\t{{.Status}}"'
+```
+
+✅ `.current_sha` = SHA เดิม · `health_ready=200` · api-1..3 / worker / nginx `Up … (healthy)` (หรือ `Up`) · log ค้างที่ `/home/deploy/pos-deploy/last-deploy.log`
+
+**7. เปิดทางอัตโนมัติ** — เฉพาะเมื่อข้อ 4 `online` และข้อ 6 ผ่าน: Settings → Secrets and variables → Actions → Variables → New repository variable
+`PI5_CD` = `true` (ไม่ใช่ secret) · ปิด = ลบตัวแปรหรือตั้งค่าอื่น · เก็บกวาด `git -C "$MAIN" worktree remove ../pos-runner`
+
+**8. 🔴 ทุก release: backup ก่อนกด Approve `pi5`:**
+
+```bash
+ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
+```
+
+CD (playbook) dump DB เอง **เฉพาะตอนมี migration ค้าง** · `pos-deploy` ไม่ backup (และไม่แก้ให้ทำ) · ไม่ทำข้อนี้ = deploy ที่ไม่มี migration ไม่มีสำเนาล่าสุดก่อนเปลี่ยน
+
+* **playbook ถูกตัดที่ 20 นาที** (`PLAYBOOK_TIMEOUT_SECONDS=1200` ใน `pos-deploy.sh`) แล้ว rollback — uplink ของ Pi ช้า (deploy แรกค้างที่ pull 14 นาที §8 ข้อ 2b) ·
+  release ที่เปลี่ยน base image (postgres/redis/nginx/monitoring digest ใน `deploy/compose/`) → **pre-pull บน Pi ก่อน Approve** ด้วยคำสั่ง §8 ข้อ 2b (`TAG=<sha ของ release>`)
+* อนุมัติผ่าน API: เลือก pending deployment ด้วย `.environment.name` (`demo` หรือ `pi5`) — ห้ามใช้ `.[].environment.id` / ตัวแรก (run เดียวมีทั้งสอง host)
 * run ที่รอ Approve ค้างจะถือ slot `deploy-pi5` → run ใหม่ `pending` · cancel run เก่าก่อน (เหมือน `deploy-demo`)
 * runner offline (service `active` แต่ไม่รับงาน): `sudo systemctl restart actions.runner.NuimanLP-srisurart-pos-flutter.pi5-deploy.service` ในนาม `cloud`
 * ทางมือ §8 ยังใช้ได้เสมอ (runner ล่ม / เน็ตออก GitHub ไม่ได้) — แต่อย่ารันพร้อม job ที่กำลัง deploy (`pos-deploy` ล็อกเฉพาะตัวมันเอง ไม่ล็อก `ansible-playbook` ที่รันมือ)
