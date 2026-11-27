@@ -16,9 +16,11 @@
 # overridden from the environment; on an aarch64 host both are REQUIRED (the defaults are mob04's,
 # and config.sh --replace would take over mob04-demo). sudo resets the environment, so pass them
 # through sudo:
-#   sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>
-# Two runners must never share the srisurart-demo-deploy label: deploy.yml's deploy job targets
-# that label, and GitHub would hand the deploy to whichever of them is idle.
+#   sudo RUNNER_NAME=<name> RUNNER_LABELS=<label> ./setup-mob04-runner.sh <token> <ver> <sha256>
+# The Raspberry Pi 5 shop server (deploy.yml job `deploy-pi5`, 2026-11-27) is exactly:
+#   sudo RUNNER_NAME=pi5-deploy RUNNER_LABELS=srisurart-pi5-deploy ./setup-mob04-runner.sh <token> <ver> <sha256>
+# Two runners must never share a deploy label (srisurart-demo-deploy = mob04, srisurart-pi5-deploy
+# = the Pi): GitHub hands a job to whichever runner with that label is idle.
 #
 # Example:
 #   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.337.0 <sha256 from that page>

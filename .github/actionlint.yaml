@@ -2,3 +2,5 @@
 self-hosted-runner:
   labels:
     - srisurart-demo-deploy
+    # The Raspberry Pi 5 shop server's runner (deploy.yml `deploy-pi5`, 2026-11-27).
+    - srisurart-pi5-deploy

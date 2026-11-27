@@ -164,7 +164,19 @@
   `data-root` to `/srv/pos-data/docker` with a `RequiresMountsFor=/srv/pos-data` drop-in (plus `log-driver local`; Docker is restarted only when `daemon.json`/drop-in actually change, so a re-run is safe) — 🔴 never remove it (Docker would
   start on an empty SD dir); backups stay on the boot disk (the only off-host copy is the owner-PC pull, #363, wired for `mob04` only).
   A runner on a Pi must set `RUNNER_NAME` + `RUNNER_LABELS` (script refuses on aarch64 otherwise) and **never share
-  `srisurart-demo-deploy`**. 🔴 **Pi CD is not wired:** `deploy.yml` runs on `mob04`'s label and passes no platform.
+  `srisurart-demo-deploy`**.
+- **Pi CD (2026-11-27, owner decision):** every green `main` also queues `deploy.yml` job `deploy-pi5` —
+  runner `pi5-deploy`, labels `[self-hosted, ARM64, srisurart-pi5-deploy]`, environment **`pi5`** (required reviewer
+  `NuimanLP`), concurrency group `deploy-pi5` (never `deploy-demo`). A GitHub-hosted `pi5-images` job first runs
+  `verify-ghcr-tags.sh <sha> linux/arm64` and is red for a release with no arm64 image, before any Approve. Then the
+  same `sudo -n -u deploy /usr/local/bin/pos-deploy auto|manual <sha>` as `mob04` (rollback, `ROLLBACK_FLOOR`,
+  never-older on auto, duplicate-SHA skip). `workflow_dispatch` input `target` = `demo` (default, the old behaviour) |
+  `pi5` | `both`. 🔴 Create the `pi5` environment **with its reviewer before** the first `main` run that has this job —
+  GitHub auto-creates a missing environment with **no** protection rule, and the Pi would deploy unapproved.
+  🔴 The workflow is still named `Deploy (demo)`: approving it now asks per environment — tick only the host you mean.
+  Stale waiting runs block `deploy-pi5` the same way they block `deploy-demo` (cancel them). The playbook dumps the
+  DB only when a migration is pending — the hand-run `backup-db.sh` before each Pi deploy is not part of CD.
+  Runner setup: `docs/tutorial/pi5-full-stack-tutorial.md` §7.
 - **Tailscale on `mob04` (2026-10-13, `docs/research/tailscale-remote-access-plan-2026-10-13.md`):** subnet router for
   `172.30.58.20/32` only (`tag:pos-server`, Personal plan = non-commercial). 🔴 `--snat-subnet-routes=false` is required —
   never re-enable SNAT (every phone would share one IP: per-IP login rate limit + nginx's RFC1918 allowlist). SSH over the
