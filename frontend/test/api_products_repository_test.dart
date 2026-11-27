@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:srisurart_pos/core/errors/pos_exception.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
@@ -197,6 +198,71 @@ void main() {
     // A 4xx is a verdict: the next press is a new action too.
     await expectLater(repo.add(input), throwsA(anything));
     expect(keys[3], isNot(keys[2]));
+  });
+
+  // The first create committed but its reply was lost (502); the owner then
+  // EDITS the form and presses again. A changed body is a new key, so the
+  // server answers 409 DUPLICATE_PART_NO — that must not read as "someone
+  // else's part": the product is pulled into Drift and the screen gets the
+  // "may already be saved" sentence. A 409 with no lost attempt before it
+  // stays the plain duplicate.
+  test('add: an edited retry after a lost reply that gets 409 DUPLICATE_PART_NO pulls the product and says it may be saved', () async {
+    final posts = <String>[];
+    var pulls = 0;
+    final mockClient = MockClient((request) async {
+      if (request.method == 'GET' && request.url.path == '/api/v1/products') {
+        pulls++;
+        return http.Response(
+          '{"status":"success","data":[{"id":"p_lost","partNo":"NEW-9",'
+          '"name":"Pad","nameTH":"","category":"เบรก","brand":"",'
+          '"price":"120.00","cost":"80.00","stock":4,"minStock":1,'
+          '"updatedAt":"2026-11-27T10:00:00.000Z","deletedAt":null}]}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      if (request.method == 'POST' && request.url.path == '/api/v1/products') {
+        posts.add(request.body);
+        if (posts.length == 1) {
+          return http.Response('{"status":"error","error":{"code":"BAD_GATEWAY","message":"x"}}', 502);
+        }
+        return http.Response(
+          '{"status":"error","error":{"code":"DUPLICATE_PART_NO","message":"dup"}}',
+          409,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('{}', 404);
+    });
+    final repo = ApiProductsRepository(db, ApiClient(httpClient: mockClient));
+
+    await expectLater(
+      repo.add(const ProductsCompanion(partNo: Value('NEW-9'), name: Value('Pad'), price: Value(120.0))),
+      throwsA(anything),
+    );
+    // Edited: a different price.
+    Object? err;
+    try {
+      await repo.add(const ProductsCompanion(partNo: Value('new-9'), name: Value('Pad'), price: Value(150.0)));
+    } catch (e) {
+      err = e;
+    }
+    expect(posts, hasLength(2));
+    expect(err, isA<PosException>());
+    expect((err! as PosException).message, ApiProductsRepository.addMayHaveSavedMessage);
+    expect(pulls, greaterThanOrEqualTo(1));
+    final row = await (db.select(db.products)..where((t) => t.id.equals('p_lost'))).getSingleOrNull();
+    expect(row?.price, 120.0, reason: 'the server kept the first attempt');
+
+    // Resolved: the next 409 for that part number is a plain duplicate.
+    Object? again;
+    try {
+      await repo.add(const ProductsCompanion(partNo: Value('NEW-9'), name: Value('Pad'), price: Value(150.0)));
+    } catch (e) {
+      again = e;
+    }
+    expect(again, isA<PosException>());
+    expect((again! as PosException).message, isNot(ApiProductsRepository.addMayHaveSavedMessage));
   });
 
   test('adjustStock applies server stockAfter directly without local clamping and logs movement', () async {

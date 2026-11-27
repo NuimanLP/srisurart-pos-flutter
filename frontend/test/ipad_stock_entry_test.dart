@@ -48,8 +48,15 @@ class _GatedProducts extends ProductsRepository {
   _GatedProducts(super.db);
   Completer<void>? gate;
   Object? failWith;
+  Object? failCategory;
   int adds = 0;
   int adjusts = 0;
+
+  @override
+  Future<void> addCategory(String name) async {
+    if (failCategory != null) throw failCategory!;
+    return super.addCategory(name);
+  }
 
   @override
   Future<ProductRow?> add(ProductsCompanion data) async {
@@ -471,6 +478,202 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(pos.saved, isNotNull);
       expect('${pos.saved!.items.single.qty}', shown);
+      await db.close();
+    });
+  });
+
+  // ── Review fixes (PR #829) ────────────────────────────────────────────
+
+  testWidgets('create PO: a "1.2.3" or "." cost is never saved as ฿0',
+      (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final pos = _RecordingPos(db);
+    await tester.runAsync(() async {
+      await (db.update(db.products)..where((t) => t.id.equals('p2')))
+          .write(const ProductsCompanion(stock: Value(3)));
+      await _pump(tester, db,
+          const PurchaseOrdersScreen(prefill: PoPrefill(supplier: 'NGK Thailand')),
+          pos: pos);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final cost = _field('ราคาทุน ฿');
+      await tester.ensureVisible(cost);
+      await tester.enterText(cost, '1.2.3');
+      await tester.pump();
+      final shown = _text(tester, cost);
+      await tester.enterText(cost, '.');
+      await tester.pump();
+      // "." is not a cost: nothing may be saved.
+      await tester.tap(find.text('บันทึกใบสั่งซื้อ'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(pos.saved, isNull, reason: '"." saved as a cost');
+      // Back to the text the filter kept for "1.2.3": saved exactly as shown.
+      await tester.enterText(cost, shown);
+      await tester.pump();
+      await tester.tap(find.text('บันทึกใบสั่งซื้อ'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(pos.saved, isNotNull);
+      expect(pos.saved!.items.single.cost, double.parse(shown));
+      await db.close();
+    });
+  });
+
+  testWidgets('create PO: a blank qty is not saved as 1', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final pos = _RecordingPos(db);
+    await tester.runAsync(() async {
+      await (db.update(db.products)..where((t) => t.id.equals('p2')))
+          .write(const ProductsCompanion(stock: Value(3)));
+      await _pump(tester, db,
+          const PurchaseOrdersScreen(prefill: PoPrefill(supplier: 'NGK Thailand')),
+          pos: pos);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final qty = _field('จำนวน');
+      await tester.ensureVisible(qty);
+      await tester.enterText(qty, '');
+      await tester.pump();
+      await tester.tap(find.text('บันทึกใบสั่งซื้อ'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(pos.saved, isNull);
+      expect(find.text('กรอกจำนวนและราคาทุนให้ครบทุกรายการ'), findsOneWidget);
+      await db.close();
+    });
+  });
+
+  testWidgets('create PO: adding a listed part again shows the new qty that '
+      'is saved', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final pos = _RecordingPos(db);
+    await tester.runAsync(() async {
+      await (db.update(db.products)..where((t) => t.id.equals('p2')))
+          .write(const ProductsCompanion(stock: Value(3)));
+      final p2 = await (db.select(db.products)
+            ..where((t) => t.id.equals('p2')))
+          .getSingle();
+      await _pump(tester, db,
+          const PurchaseOrdersScreen(prefill: PoPrefill(supplier: 'NGK Thailand')),
+          pos: pos);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final search = _field('เพิ่มสินค้า · Add Items');
+      await tester.enterText(search, p2.partNo);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      final shown = _text(tester, _field('จำนวน'));
+      await tester.tap(find.text('บันทึกใบสั่งซื้อ'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(pos.saved, isNotNull);
+      expect('${pos.saved!.items.single.qty}', shown);
+      await db.close();
+    });
+  });
+
+  for (final label in ['สต็อก', 'สต็อกขั้นต่ำ']) {
+    testWidgets('add-product: a blank $label is not saved as a default',
+        (tester) async {
+      final db = AppDatabase(NativeDatabase.memory());
+      await tester.runAsync(() async {
+        await _pump(tester, db, const ProductsScreen());
+        await _openAdd(tester);
+        await _type(tester, 'รหัสสินค้า', 'IPAD-BLANK');
+        await _type(tester, 'ชื่อ (TH)', 'ว่าง');
+        await _type(tester, label, '');
+        await tester.tap(_saveButton);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        _allowCategoryOverflow(tester);
+        expect(await _byPartNo(db, 'IPAD-BLANK'), isNull);
+        expect(
+          find.descendant(
+            of: find.byType(Dialog),
+            matching: find.text('กรุณากรอกจำนวนสต็อกและสต็อกขั้นต่ำ'),
+          ),
+          findsOneWidget,
+        );
+        await db.close();
+      });
+    });
+  }
+
+  testWidgets('add-product: a missing part number is said inside the dialog, '
+      'and typing clears it', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await _pump(tester, db, const ProductsScreen());
+      await _openAdd(tester);
+      await _type(tester, 'ชื่อ (TH)', 'ไม่มีรหัส');
+      await tester.tap(_saveButton);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      _allowCategoryOverflow(tester);
+      final inDialog = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('กรุณากรอกรหัสสินค้า'),
+      );
+      expect(inDialog, findsOneWidget);
+      await _type(tester, 'รหัสสินค้า', 'X');
+      expect(inDialog, findsNothing);
+      await db.close();
+    });
+  });
+
+  testWidgets('add-product: a refused new category is said inside the dialog',
+      (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    const msg = 'เพิ่มประเภทไม่ได้ (ทดสอบ)';
+    final repo = _GatedProducts(db)
+      ..failCategory = const PosException('NETWORK_ERROR', msg);
+    await tester.runAsync(() async {
+      await _pump(tester, db, const ProductsScreen(), products: repo);
+      await _openAdd(tester);
+      final newCat = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.widgetWithText(TextField, 'ใหม่…'),
+      );
+      await tester.enterText(newCat, 'ช่วงล่าง');
+      await tester.pump();
+      await tester.tap(find.descendant(
+        of: find.byType(Dialog),
+        matching: find.widgetWithIcon(IconButton, Icons.add),
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      _allowCategoryOverflow(tester);
+      expect(
+        find.descendant(of: find.byType(Dialog), matching: find.text(msg)),
+        findsOneWidget,
+      );
+      await db.close();
+    });
+  });
+
+  testWidgets('adjust stock: editing the amount clears the refusal',
+      (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    const msg = 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ (ทดสอบ)';
+    final repo = _FailingAdjust(db, const PosException('NETWORK_ERROR', msg));
+    await tester.runAsync(() async {
+      await _pump(tester, db, const ProductsScreen(), products: repo);
+      await _openAdjust(tester);
+      await tester.tap(find.byKey(const Key('adjust-step-1')));
+      await tester.pump();
+      await tester.tap(_saveButton);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(find.text(msg), findsOneWidget);
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.byType(EditableText),
+        ).first,
+        '+2',
+      );
+      await tester.pump();
+      expect(find.text(msg), findsNothing);
       await db.close();
     });
   });

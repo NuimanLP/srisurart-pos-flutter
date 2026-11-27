@@ -1977,7 +1977,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   double _taxRate = 7;
 
   /// บันทึก was pressed once: from then on a missing required field is
-  /// marked next to the field itself (the toast still says why).
+  /// marked next to the field itself (the line above the buttons says why).
   bool _triedSave = false;
 
   /// A save is running: a second tap on บันทึก is ignored (iPad on a slow
@@ -2125,7 +2125,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     try {
       await repo.addCategory(v);
     } catch (e) {
-      _toast(ServerErrorResolver.resolveCounterError(e));
+      _showSaveError(ServerErrorResolver.resolveCounterError(e));
       return;
     }
     await widget.onCategoriesChanged();
@@ -2150,11 +2150,17 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     // a blank one, so a Thai-only product stores the Thai name in both.
     final name = productNameOrThai(_name.text, nameTH);
     if (partNo.isEmpty) {
-      _toast('กรุณากรอกรหัสสินค้า');
+      _showSaveError('กรุณากรอกรหัสสินค้า');
       return;
     }
     if (name.isEmpty) {
-      _toast('กรุณากรอกชื่อสินค้า');
+      _showSaveError('กรุณากรอกชื่อสินค้า');
+      return;
+    }
+    // A blank count is not a number: saving it as 0 / 5 would store what the
+    // screen does not show.
+    if (_countsMissing) {
+      _showSaveError(_countsHint);
       return;
     }
     final repo = context.read<ProductsRepository>();
@@ -2182,8 +2188,8 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         brand: _brand.text.trim(),
         price: _fSell,
         cost: _fCost,
-        stock: int.tryParse(_stock.text) ?? 0,
-        minStock: int.tryParse(_minStock.text) ?? 5,
+        stock: int.parse(_stock.text),
+        minStock: int.parse(_minStock.text),
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
       final ProductRow? result;
@@ -2207,7 +2213,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         brand: Value(_brand.text.trim()),
         price: Value(_fSell),
         cost: Value(_fCost),
-        minStock: Value(int.tryParse(_minStock.text) ?? 5),
+        minStock: Value(int.parse(_minStock.text)),
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
       final bool ok;
@@ -2226,9 +2232,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     if (mounted) Navigator.of(context).pop(true);
   }
 
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
+  // agent ร่าง — new, awaiting owner approval (PR #829).
+  static const _countsHint = 'กรุณากรอกจำนวนสต็อกและสต็อกขั้นต่ำ';
+
+  /// Stock (new product only — it is locked on edit) or min stock is blank.
+  bool get _countsMissing =>
+      (_isNew && _stock.text.trim().isEmpty) || _minStock.text.trim().isEmpty;
 
   /// The save was refused: say why above the buttons; the form keeps every
   /// typed value.
@@ -2404,6 +2413,9 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                           _stock,
                           enabled: _isNew,
                           wholeNumber: true,
+                          error: _triedSave && _isNew && _stock.text.trim().isEmpty
+                              ? ''
+                              : null,
                           hint: _isNew
                               ? null
                               : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
@@ -2411,7 +2423,14 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                       ),
                       SizedBox(
                         width: w,
-                        child: _field('สต็อกขั้นต่ำ', _minStock, wholeNumber: true),
+                        child: _field(
+                          'สต็อกขั้นต่ำ',
+                          _minStock,
+                          wholeNumber: true,
+                          error: _triedSave && _minStock.text.trim().isEmpty
+                              ? ''
+                              : null,
+                        ),
                       ),
                     ],
                   );
@@ -2529,8 +2548,9 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
           inputFormatters: wholeNumber
               ? [FilteringTextInputFormatter.digitsOnly]
               : null,
-          // Re-check the marked fields as the user fixes them.
-          onChanged: _triedSave ? (_) => setState(() {}) : null,
+          // Re-check the marked fields as the user fixes them; an edit also
+          // clears the last refusal.
+          onChanged: (_) => setState(() => _saveError = null),
           decoration: InputDecoration(
             isDense: true,
             border: const OutlineInputBorder(),
@@ -2797,7 +2817,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                   )
                 : null,
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() => _saveError = null),
         ),
       ],
     );
@@ -2829,6 +2849,7 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
     final next = (int.tryParse(_delta.text) ?? 0) + n;
     final text = next > 0 ? '+$next' : '$next';
     setState(() {
+      _saveError = null;
       _delta.value = TextEditingValue(
         text: text,
         selection: TextSelection.collapsed(offset: text.length),
@@ -2968,7 +2989,7 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                   hintText: '+10 หรือ -3',
                   border: OutlineInputBorder(),
                 ),
-                onChanged: (_) => setState(() {}),
+                onChanged: (_) => setState(() => _saveError = null),
               ),
               const SizedBox(height: 8),
               // Big ± steps: no need to type a minus sign on a phone keypad.
@@ -3003,6 +3024,9 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
               const SizedBox(height: 4),
               TextField(
                 controller: _note,
+                onChanged: (_) {
+                  if (_saveError != null) setState(() => _saveError = null);
+                },
                 decoration: const InputDecoration(
                   isDense: true,
                   hintText: 'เหตุผลในการปรับ…',

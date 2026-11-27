@@ -34,6 +34,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
+import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
 import '../widgets/purchase_order_a4.dart';
 import '../widgets/status_chip.dart';
@@ -706,6 +707,10 @@ class _DraftItem {
   double cost;
   // Set once the user types a cost; a supplier change then leaves it alone.
   bool costEdited = false;
+  // The field holds no number (blank, "."): the line cannot be saved, since
+  // [qty]/[cost] would no longer be what the field shows.
+  bool qtyBlank = false;
+  bool costBlank = false;
   _DraftItem({
     required this.partNo,
     required this.name,
@@ -850,6 +855,16 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
       final p = widget.products.where((p) => p.partNo == item.partNo);
       if (p.isNotEmpty) item.cost = _costFor(p.first);
     }
+    _rekeyRows();
+  }
+
+  /// The draft rows' fields are built from `initialValue`: a new key makes
+  /// them show item.qty / item.cost again (so nothing is blank any more).
+  void _rekeyRows() {
+    for (final item in _items) {
+      item.qtyBlank = false;
+      item.costBlank = false;
+    }
     _priceGen++;
   }
 
@@ -861,13 +876,19 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   double get _poTotalDraft =>
       _items.fold<double>(0, (s, i) => s + i.qty * i.cost);
 
-  bool get _canSave => _supplier.trim().isNotEmpty && _items.isNotEmpty;
+  bool get _linesFilled =>
+      _items.every((i) => !i.qtyBlank && !i.costBlank);
+
+  bool get _canSave =>
+      _supplier.trim().isNotEmpty && _items.isNotEmpty && _linesFilled;
 
   void _addItem(ProductRow product, {int qty = 1}) {
     setState(() {
       final ex = _items.where((i) => i.partNo == product.partNo).firstOrNull;
       if (ex != null) {
         ex.qty += 1;
+        // Its qty field was built from the old number: show the new one.
+        _rekeyRows();
       } else {
         _items.add(
           _DraftItem(
@@ -1153,9 +1174,13 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                           _DraftItemRow(
                             key: ValueKey((item.partNo, _priceGen)),
                             item: item,
-                            onQty: (q) => setState(() => item.qty = q),
+                            onQty: (q) => setState(() {
+                              item.qtyBlank = q == null;
+                              if (q != null) item.qty = q;
+                            }),
                             onCost: (c) => setState(() {
-                              item.cost = c;
+                              item.costBlank = c == null;
+                              if (c != null) item.cost = c;
                               item.costEdited = true;
                             }),
                             onRemove: () => _removeItem(item.partNo),
@@ -1178,13 +1203,21 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
               ),
               const SizedBox(height: 16),
               if (!_canSave && !_busy)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    // agent ร่าง
-                    'เลือกซัพพลายเออร์และเพิ่มสินค้าอย่างน้อย 1 รายการ',
+                    _linesFilled
+                        // agent ร่าง
+                        ? 'เลือกซัพพลายเออร์และเพิ่มสินค้าอย่างน้อย 1 รายการ'
+                        // agent ร่าง — new, awaiting owner approval (PR #829)
+                        : 'กรอกจำนวนและราคาทุนให้ครบทุกรายการ',
                     textAlign: TextAlign.end,
-                    style: TextStyle(color: AppColors.steelBlue, fontSize: 12),
+                    style: TextStyle(
+                      color: _linesFilled
+                          ? AppColors.steelBlue
+                          : AppColors.error,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               // Wrap, not Row: at phone width (390) the two buttons don't fit
@@ -1216,8 +1249,9 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
 class _DraftItemRow extends StatelessWidget {
   final _DraftItem item;
-  final ValueChanged<int> onQty;
-  final ValueChanged<double> onCost;
+  // null = the field holds no number.
+  final ValueChanged<int?> onQty;
+  final ValueChanged<double?> onCost;
   final VoidCallback onRemove;
 
   const _DraftItemRow({
@@ -1253,12 +1287,14 @@ class _DraftItemRow extends StatelessWidget {
       value: item.qty.toString(),
       // A count: digits only, so "2.5" cannot show while 1 is saved.
       wholeNumber: true,
-      onChanged: (s) => onQty(int.tryParse(s) ?? 1),
+      invalid: item.qtyBlank,
+      onChanged: (s) => onQty(int.tryParse(s)),
     );
     final costField = _MiniNum(
       label: 'ราคาทุน ฿',
       value: _trim(item.cost),
-      onChanged: (s) => onCost(double.tryParse(s) ?? 0),
+      invalid: item.costBlank,
+      onChanged: (s) => onCost(double.tryParse(s)),
     );
     // FittedBox(scaleDown) keeps the total a deterministic 70dp cell that works
     // in BOTH the wide Row and the narrow Wrap (a Flexible here would crash the
@@ -1346,11 +1382,14 @@ class _MiniNum extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
   final bool wholeNumber;
+  // Red border: the field holds no number.
+  final bool invalid;
   const _MiniNum({
     required this.label,
     required this.value,
     required this.onChanged,
     this.wholeNumber = false,
+    this.invalid = false,
   });
 
   @override
@@ -1374,12 +1413,16 @@ class _MiniNum extends StatelessWidget {
               ? AppTextField(
                   initialValue: value,
                   onChanged: onChanged,
+                  errorText: invalid ? '' : null,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 )
+              // Baht: one number, at most 2 decimals ("1.2.3" is refused).
               : AppTextField.numeric(
                   initialValue: value,
                   onChanged: onChanged,
+                  errorText: invalid ? '' : null,
+                  inputFormatters: moneyInputFormatters,
                 ),
         ),
       ],
