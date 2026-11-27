@@ -12,6 +12,7 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -37,6 +38,7 @@ import '../widgets/instant_keyboard_inset.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/low_stock_alert.dart' show StockLevel, stockLevel;
 import '../widgets/loading_view.dart';
+import '../widgets/money_input_formatters.dart';
 import '../widgets/product_image_editor.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/stocktake_view.dart' show StocktakePage;
@@ -938,7 +940,9 @@ class _StockTabState extends State<_StockTab> {
                     ),
                   ),
                 )
-              : viewport.maxWidth < AppBreakpoints.compact
+              // Cards below the tablet/desktop boundary: on an iPad in
+              // portrait the table's ปรับสต็อก / แก้ไข sat off the right edge.
+              : viewport.maxWidth < AppBreakpoints.expanded
               ? _cardList(theme, filtered, isDegraded)
               : Container(
                   margin: const EdgeInsets.all(16),
@@ -1282,7 +1286,7 @@ class _StockTabState extends State<_StockTab> {
     ),
   );
 
-  /// Phone layout (< [AppBreakpoints.compact]): one card per product instead
+  /// Phone/tablet layout (< [AppBreakpoints.expanded]): one card per product instead
   /// of a nine-column table that only scrolls sideways. Same data, same
   /// actions, same selection as the table rows.
   Widget _cardList(
@@ -1976,6 +1980,20 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   /// marked next to the field itself (the toast still says why).
   bool _triedSave = false;
 
+  /// A save is running: a second tap on บันทึก is ignored (iPad on a slow
+  /// link — two products, or a confusing "already exists" for the first).
+  bool _saving = false;
+
+  /// Why the last save was refused, shown above the buttons: a SnackBar sits
+  /// under the dialog (and under the keyboard-shrunk dialog it is hidden).
+  String? _saveError;
+
+  /// Return/Next on the on-screen keyboard walks the text fields in this
+  /// order (default traversal stops on the scan button / category dropdown
+  /// and drops the keyboard). Filled in initState.
+  final _focus = <TextEditingController, FocusNode>{};
+  late final List<TextEditingController> _nextOrder;
+
   // owner-ratified 2026-10-12
   static const _nameHint = 'กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง';
 
@@ -2003,7 +2021,44 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     _category =
         p?.category ??
         (_categories.isNotEmpty ? _categories.first : 'เครื่องยนต์');
+    _nextOrder = [
+      if (_isNew) _partNo,
+      _name,
+      _nameTH,
+      _brand,
+      _compat,
+      if (_isNew) _stock,
+      _minStock,
+      _cost,
+      _freight,
+      _price,
+    ];
+    for (final c in _nextOrder) {
+      _focus[c] = FocusNode();
+    }
     _loadTax();
+  }
+
+  /// The field after [c] in [_nextOrder] takes the focus (keyboard stays up).
+  void _focusNext(TextEditingController c) {
+    final i = _nextOrder.indexOf(c);
+    if (i < 0 || i + 1 >= _nextOrder.length) {
+      _focus[c]?.unfocus();
+      return;
+    }
+    final node = _focus[_nextOrder[i + 1]]!..requestFocus();
+    // The web build does not scroll a field focused this way into view (the
+    // price box sits below the fold); bring it up so the owner sees it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = node.context;
+      if (ctx == null || !ctx.mounted) return;
+      // A jump, not an animation: a same-spot jump from the field just left
+      // would cancel an animation a few pixels in.
+      Scrollable.ensureVisible(
+        ctx,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
   }
 
   Future<void> _loadTax() async {
@@ -2031,6 +2086,9 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       _newCatCtrl,
     ]) {
       c.dispose();
+    }
+    for (final n in _focus.values) {
+      n.dispose();
     }
     super.dispose();
   }
@@ -2081,7 +2139,11 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   }
 
   Future<void> _save() async {
-    if (!_triedSave) setState(() => _triedSave = true);
+    if (_saving) return;
+    setState(() {
+      _triedSave = true;
+      _saveError = null;
+    });
     final partNo = _partNo.text.trim();
     final nameTH = _nameTH.text.trim();
     // Either name is enough; `products.name` is NOT NULL and the server refuses
@@ -2096,7 +2158,20 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       return;
     }
     final repo = context.read<ProductsRepository>();
+    setState(() => _saving = true);
+    try {
+      await _write(repo, partNo, name, nameTH);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
+  Future<void> _write(
+    ProductsRepository repo,
+    String partNo,
+    String name,
+    String nameTH,
+  ) async {
     if (_isNew) {
       final companion = ProductsCompanion.insert(
         id: '', // repo's add() overrides this with newUuid()
@@ -2115,12 +2190,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       try {
         result = await repo.add(companion);
       } catch (e) {
-        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        _showSaveError(ServerErrorResolver.resolveCounterError(e));
         return;
       }
       if (!mounted) return;
       if (result == null) {
-        _toast('รหัส "$partNo" มีอยู่แล้วในระบบ');
+        _showSaveError('รหัส "$partNo" มีอยู่แล้วในระบบ');
         return;
       }
     } else {
@@ -2139,12 +2214,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       try {
         ok = await repo.update(widget.product!.id, patch);
       } catch (e) {
-        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        _showSaveError(ServerErrorResolver.resolveCounterError(e));
         return;
       }
       if (!mounted) return;
       if (!ok) {
-        _toast('เกิดข้อผิดพลาดในการบันทึก');
+        _showSaveError('เกิดข้อผิดพลาดในการบันทึก');
         return;
       }
     }
@@ -2153,6 +2228,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
 
   void _toast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// The save was refused: say why above the buttons; the form keeps every
+  /// typed value.
+  void _showSaveError(String msg) {
+    if (mounted) setState(() => _saveError = msg);
   }
 
   @override
@@ -2322,7 +2403,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                           'สต็อก',
                           _stock,
                           enabled: _isNew,
-                          numeric: true,
+                          wholeNumber: true,
                           hint: _isNew
                               ? null
                               : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
@@ -2330,7 +2411,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                       ),
                       SizedBox(
                         width: w,
-                        child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
+                        child: _field('สต็อกขั้นต่ำ', _minStock, wholeNumber: true),
                       ),
                     ],
                   );
@@ -2343,6 +2424,18 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
               ),
             ),
             const Divider(height: 1),
+            if (_saveError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+                child: Text(
+                  _saveError!,
+                  key: const Key('product-save-error'),
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
               child: Row(
@@ -2362,8 +2455,14 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                       foregroundColor: AppColors.white,
                       minimumSize: const Size(0, 48),
                     ),
-                    onPressed: _save,
-                    icon: const Icon(Icons.check, size: 20),
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check, size: 20),
                     label: const Text('บันทึก'),
                   ),
                 ],
@@ -2390,7 +2489,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     String label,
     TextEditingController ctrl, {
     bool enabled = true,
-    bool numeric = false,
+    bool wholeNumber = false,
     bool required = false,
     String? hint,
     String? error,
@@ -2421,8 +2520,14 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         TextField(
           controller: ctrl,
           enabled: enabled,
-          keyboardType: numeric
-              ? const TextInputType.numberWithOptions(decimal: true)
+          focusNode: _focus[ctrl],
+          textInputAction: TextInputAction.next,
+          onEditingComplete: () => _focusNext(ctrl),
+          // A count: digits only, so what the field shows is what is saved
+          // ("12.5" / "1,000" used to show and save as 0).
+          keyboardType: wholeNumber ? TextInputType.number : null,
+          inputFormatters: wholeNumber
+              ? [FilteringTextInputFormatter.digitsOnly]
               : null,
           // Re-check the marked fields as the user fixes them.
           onChanged: _triedSave ? (_) => setState(() {}) : null,
@@ -2670,7 +2775,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         const SizedBox(height: 4),
         TextField(
           controller: ctrl,
+          focusNode: _focus[ctrl],
+          textInputAction: TextInputAction.next,
+          onEditingComplete: () => _focusNext(ctrl),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          // Baht: "1,200" keeps its digits instead of saving as 0.
+          inputFormatters: moneyInputFormatters,
           textAlign: TextAlign.right,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
@@ -2726,9 +2836,21 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
     });
   }
 
+  /// A save is running: a second tap on บันทึก is ignored (the Drift build
+  /// would apply the delta twice).
+  bool _saving = false;
+
+  /// Why the last save was refused, shown above the buttons (a SnackBar is
+  /// hidden under the dialog while the keyboard is up).
+  String? _saveError;
+
   Future<void> _save() async {
     final d = int.tryParse(_delta.text);
-    if (d == null) return;
+    if (d == null || _saving) return;
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
     try {
       await context.read<ProductsRepository>().adjustStock(
         widget.product.id,
@@ -2738,9 +2860,10 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
-        );
+        setState(() {
+          _saving = false;
+          _saveError = ServerErrorResolver.resolveCounterError(e);
+        });
       }
       return;
     }
@@ -2939,6 +3062,17 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                     ),
                   ),
               ],
+              if (_saveError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _saveError!,
+                  key: const Key('adjust-save-error'),
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -2954,8 +3088,8 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                       foregroundColor: AppColors.white,
                     ),
                     // Nothing to save until a whole number is typed (_save
-                    // would return early anyway).
-                    onPressed: d == null ? null : _save,
+                    // would return early anyway), nor while a save runs.
+                    onPressed: d == null || _saving ? null : _save,
                     child: const Text('บันทึก'),
                   ),
                 ],

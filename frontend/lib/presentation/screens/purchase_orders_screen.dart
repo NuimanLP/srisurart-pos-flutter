@@ -12,6 +12,7 @@
 //   open → รอรับสินค้า, received → รับแล้ว, cancelled → ยกเลิก.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/errors/pos_exception.dart';
@@ -1250,6 +1251,8 @@ class _DraftItemRow extends StatelessWidget {
     final qtyField = _MiniNum(
       label: 'จำนวน',
       value: item.qty.toString(),
+      // A count: digits only, so "2.5" cannot show while 1 is saved.
+      wholeNumber: true,
       onChanged: (s) => onQty(int.tryParse(s) ?? 1),
     );
     final costField = _MiniNum(
@@ -1342,10 +1345,12 @@ class _MiniNum extends StatelessWidget {
   final String label;
   final String value;
   final ValueChanged<String> onChanged;
+  final bool wholeNumber;
   const _MiniNum({
     required this.label,
     required this.value,
     required this.onChanged,
+    this.wholeNumber = false,
   });
 
   @override
@@ -1365,10 +1370,17 @@ class _MiniNum extends StatelessWidget {
         const SizedBox(width: 6),
         SizedBox(
           width: 68,
-          child: AppTextField.numeric(
-            initialValue: value,
-            onChanged: onChanged,
-          ),
+          child: wholeNumber
+              ? AppTextField(
+                  initialValue: value,
+                  onChanged: onChanged,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                )
+              : AppTextField.numeric(
+                  initialValue: value,
+                  onChanged: onChanged,
+                ),
         ),
       ],
     );

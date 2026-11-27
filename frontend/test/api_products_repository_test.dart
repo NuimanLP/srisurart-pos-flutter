@@ -147,6 +147,58 @@ void main() {
     expect(item.nameTH, 'สินค้าในแคช');
   });
 
+  // iPad stock entry: a new product whose reply was lost (5xx) is pressed
+  // again under the SAME Idempotency-Key, so the server replays the first
+  // create instead of answering 409 DUPLICATE_PART_NO ("already exists") for
+  // a product the owner never saw saved. A 4xx verdict closes the attempt.
+  test('add: a retry after a 5xx reuses the Idempotency-Key; a 4xx closes it', () async {
+    final keys = <String?>[];
+    final replies = <http.Response>[
+      http.Response('{"status":"error","error":{"code":"INTERNAL","message":"x"}}', 500),
+      http.Response(
+        '{"status":"success","data":{"id":"p_new","partNo":"NEW-1","name":"Pad",'
+        '"price":"120.00","cost":"80.00","stock":4}}',
+        201,
+        headers: {'content-type': 'application/json'},
+      ),
+      http.Response(
+        '{"status":"error","error":{"code":"DUPLICATE_PART_NO","message":"dup"}}',
+        409,
+        headers: {'content-type': 'application/json'},
+      ),
+      http.Response(
+        '{"status":"error","error":{"code":"DUPLICATE_PART_NO","message":"dup"}}',
+        409,
+        headers: {'content-type': 'application/json'},
+      ),
+    ];
+    final mockClient = MockClient((request) async {
+      keys.add(request.headers['Idempotency-Key'] ?? request.headers['idempotency-key']);
+      return replies.removeAt(0);
+    });
+    final repo = ApiProductsRepository(db, ApiClient(httpClient: mockClient));
+    const input = ProductsCompanion(
+      partNo: Value('NEW-1'),
+      name: Value('Pad'),
+      price: Value(120.0),
+      cost: Value(80.0),
+      stock: Value(4),
+    );
+
+    await expectLater(repo.add(input), throwsA(anything));
+    final added = await repo.add(input);
+    expect(added?.id, 'p_new');
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0], reason: 'the retry replays the first attempt');
+
+    // Saved: the same form pressed again is a NEW action (new key).
+    await expectLater(repo.add(input), throwsA(anything));
+    expect(keys[2], isNot(keys[0]));
+    // A 4xx is a verdict: the next press is a new action too.
+    await expectLater(repo.add(input), throwsA(anything));
+    expect(keys[3], isNot(keys[2]));
+  });
+
   test('adjustStock applies server stockAfter directly without local clamping and logs movement', () async {
     await db.into(db.products).insert(
           ProductsCompanion.insert(

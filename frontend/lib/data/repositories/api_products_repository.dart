@@ -33,6 +33,10 @@ class ApiProductsRepository extends ProductsRepository {
   /// out under the same `Idempotency-Key` — see [PendingWrites].
   final PendingWrites _pendingAdjusts = PendingWrites();
 
+  /// New products whose create got no verdict: the same body pressed again
+  /// is sent under the same `Idempotency-Key` (fingerprint = the body).
+  final PendingWrites _pendingAdds = PendingWrites();
+
   /// Picture uploads / removals whose fate is unknown: the same picture pressed
   /// again goes out under the same `Idempotency-Key`. Fingerprint
   /// `<productId>|put|<sha256>` or `<productId>|delete`; a different edit of
@@ -318,11 +322,23 @@ class ApiProductsRepository extends ProductsRepository {
       if (data.compat.present && data.compat.value != null) 'compat': data.compat.value,
     };
 
-    final res = await rethrowCounterError(() => apiClient.post('/api/v1/products', body: body, headers: idempotencyKey()));
+    // Same form pressed again after a lost reply (5xx / 429 / timeout) goes
+    // out under the same key: the server replays the first create instead of
+    // a 409 DUPLICATE_PART_NO for a product the owner never saw saved.
+    final attempt = _pendingAdds.of(jsonEncode(body));
+    final Object? res;
+    try {
+      res = await apiClient.post('/api/v1/products', body: body, headers: attempt.headers);
+    } on ApiException catch (e) {
+      _pendingAdds.closeIfVerdict(attempt, e);
+      throw posExceptionFromApi(e);
+    }
     if (res is Map) {
       final comp = _productToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.products).insertOnConflictUpdate(comp);
-      return await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
+      final row = await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
+      _pendingAdds.close(attempt);
+      return row;
     }
     throw unreadableResponse();
   }
