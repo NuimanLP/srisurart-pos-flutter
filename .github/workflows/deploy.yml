@@ -21,6 +21,10 @@ name: Deploy (demo)
 # connection, and rolls back automatically. A job-started hook on the runner admits only this file,
 # on `main`, for workflow_run / workflow_dispatch (deploy/scripts/runner-job-started.sh).
 #
+# 2026-11-27 — the same release also goes to the Raspberry Pi 5 shop server (`deploy-pi5`, its own
+# runner label, `pi5` environment and concurrency group; jobs at the end of this file). A dispatch
+# picks the host with `target` (default demo = the old behaviour); a workflow_run queues both.
+#
 # 🔴 This repo is PUBLIC.
 #   * Nothing here may ever be triggered by `pull_request` / `pull_request_target`, and no other
 #     workflow may name the runner's label (the hook refuses it anyway).
@@ -41,6 +45,11 @@ on:
         description: "Commit on main to deploy (full or short SHA). Empty = the newest commit on main that changed code (a docs-only head has no images). An earlier SHA is a rollback; the schema never moves backwards."
         required: false
         default: ""
+      target:
+        description: "Where to deploy: demo (mob04), pi5 (the shop's Raspberry Pi 5) or both. Each host still waits for its own Approve."
+        type: choice
+        options: [demo, pi5, both]
+        default: demo
 
 permissions:
   contents: read
@@ -156,7 +165,8 @@ jobs:
         (github.event_name == 'workflow_run'
           && github.event.workflow_run.event == 'push'
           && github.event.workflow_run.head_branch == 'main')
-        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+          && inputs.target != 'pi5'))
     runs-on: [self-hosted, srisurart-demo-deploy]
     # required-reviewer protection rule on this environment (#366, 2026-09-21) — this is the gate,
     # not just bookkeeping. GitHub will not dispatch this job to the runner until NuimanLP approves.
@@ -172,6 +182,83 @@ jobs:
     # 🔴 Cancelling this run (or hitting this timeout) does NOT stop a deploy already in progress:
     # pos-deploy ignores INT/TERM/HUP once it starts changing the VM and runs to the end, rollback
     # included; its log is /home/deploy/pos-deploy/last-deploy.log (07 §6.1).
+    timeout-minutes: 50
+    steps:
+      - name: pos-deploy (deploy, roll back on failure)
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'auto' }}
+          RELEASE: ${{ needs.resolve.outputs.sha }}
+        run: |
+          [[ "$RELEASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::resolve produced no commit SHA"; exit 1; }
+          sudo -n -u deploy /usr/local/bin/pos-deploy "$MODE" "$RELEASE"
+
+  # ── Raspberry Pi 5 shop server (`pi5-pos`, owner decision 2026-11-27) ──────────────────────────
+  # The same release as `deploy` above, to a second host, through the same pos-deploy.sh (rollback,
+  # ROLLBACK_FLOOR, never-older on auto, the playbook's duplicate-SHA skip), the same job-started
+  # hook and the same sudoers rule — installed on the Pi by setup-mob04-runner.sh with
+  # RUNNER_NAME=pi5-deploy RUNNER_LABELS=srisurart-pi5-deploy. Its own environment (`pi5`,
+  # required reviewer NuimanLP) and its own concurrency group, so approving, waiting for or failing
+  # one host never holds or cancels the other. 🔴 Never put srisurart-demo-deploy on the Pi runner,
+  # or srisurart-pi5-deploy on mob04's: GitHub hands a job to any idle runner with the labels.
+  # The automatic (workflow_run) path is off until the repo variable PI5_CD is 'true' — set it once
+  # the runner is online and the tutorial §7 rehearsal passed, so no release leaves a Pi job waiting
+  # for a runner that does not exist. A dispatch with target=pi5/both works without it.
+  pi5-images:
+    name: pi5 — arm64 images on GHCR?
+    needs: resolve
+    # GitHub-hosted, before the approval gate: a release without an arm64 image (anything before
+    # 5c7f210) is red here and never asks for an Approve it could not use.
+    if: >-
+      needs.resolve.outputs.images_ready == 'true'
+      && github.repository == 'NuimanLP/srisurart-pos-flutter' && (
+        (github.event_name == 'workflow_run'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'main')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+          && (inputs.target == 'pi5' || inputs.target == 'both')))
+      && (github.event_name == 'workflow_dispatch' || vars.PI5_CD == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.arm64.outputs.ready }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: both release images hold linux/arm64?
+        id: arm64
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::resolve produced no commit SHA"; exit 1; }
+          # resolve already saw both tags, so any non-zero here is red: 1 = a tag vanished,
+          # 2 = registry error or a release not built for arm64 (waiting will not add it).
+          if ! deploy/scripts/verify-ghcr-tags.sh "$SHA" linux/arm64; then
+            echo "::error::Not deploying $SHA to pi5: GHCR has no linux/arm64 image for it (or could not be asked)."
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+  deploy-pi5:
+    name: deploy to pi5
+    needs: [resolve, pi5-images]
+    if: >-
+      needs.pi5-images.outputs.ready == 'true'
+      && github.repository == 'NuimanLP/srisurart-pos-flutter' && (
+        (github.event_name == 'workflow_run'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'main')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+          && (inputs.target == 'pi5' || inputs.target == 'both')))
+      && (github.event_name == 'workflow_dispatch' || vars.PI5_CD == 'true')
+    runs-on: [self-hosted, ARM64, srisurart-pi5-deploy]
+    # The required-reviewer rule on `pi5` (NuimanLP) is the gate, as `demo` is for mob04.
+    environment: pi5
+    concurrency:
+      group: deploy-pi5
+      cancel-in-progress: false
+    # Same budget as mob04: pos-deploy's two 20-minute playbook attempts + lock wait fit inside 50.
     timeout-minutes: 50
     steps:
       - name: pos-deploy (deploy, roll back on failure)

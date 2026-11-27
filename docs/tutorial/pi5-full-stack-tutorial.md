@@ -22,7 +22,7 @@
 | ✅ พิสูจน์บน Pi จริง 2026-10-26 | load test k6 แบบเบา (ยิงบน Pi ผ่าน nginx + rate limit จริง 24 req/s): อ่าน p95 7.3 ms · ผสมอ่าน/เขียน 5 นาที p95 16.5 ms · แย่งซื้อ 100 คน/50 ชิ้น = 50 บิลพอดี สต็อกไม่ติดลบ (p95 933 ms รอบแรกตอนระบบเย็น, 67 ms รอบซ้ำ) · CPU สูงสุด 58% จาก 400%, RAM 1.8 GB, 55 °C, ไม่ throttle — `docs/handoff_log/session-2026-10-26-pi5-load-test.md` (ไม่นับเป็น #380) |
 | ✅ พิสูจน์บน Pi จริง 2026-10-25 | กู้ฐานข้อมูลจากสำเนาใน Google Drive (§11): 0 error, 33 ตาราง + 27 migration = ของจริง · ไฟ: `throttled=0x0` ตลอด 14 ชม. พร้อม HDD · APK สำหรับ Pi build ได้ (`target=pi5`, §9) · สคริปต์เปลี่ยน IP ตอนย้ายร้าน (§2 ข้อ 3) ซ้อมด้วย IP เดิมผ่าน |
 | ❌ ยังไม่เคยทำ | ซ้อมถอดดิสก์ตอน boot (`RequiresMountsFor` — ออกแบบถูกตามเอกสาร systemd, ยังไม่เห็นบน Pi) · กู้รูปสินค้า/รูปหลักฐาน (ยังไม่มีรูป) · ลอง APK ของ Pi บนเครื่องจริง · ไฟสำรอง/UPS ทดสอบจริง |
-| ❌ ยังไม่ต่อ | **CD ไป Pi ยังไม่มี:** job `deploy` ใน `.github/workflows/deploy.yml` รันบน `[self-hosted, srisurart-demo-deploy]` (= `mob04`) และ `verify-ghcr-tags.sh` ใน workflow ยังไม่ส่ง platform → §8 ของคู่มือนี้จึงเป็น **ทางมือ / ซ้อม** เท่านั้น · 🔴 **กด approve `Deploy (demo)` = deploy ไป `mob04` เสมอ ไม่ใช่ Pi** |
+| 🟠 ต่อใน repo แล้ว 2026-11-27 — ยังไม่เคยรันจริง | **CD ไป Pi:** job `deploy-pi5` ใน `.github/workflows/deploy.yml` (`[self-hosted, ARM64, srisurart-pi5-deploy]`, environment `pi5`, ตรวจ `linux/arm64` ก่อน) — environment `pi5` มีแล้ว · ใช้ได้เมื่อ owner ทำ §7 (runner + ซ้อม) · ทางอัตโนมัติเปิดเมื่อตั้ง repo variable `PI5_CD=true` (§7 ข้อ 7) · 🔴 **หน้า Approve ของ `Deploy (demo)` แยก `demo` (= `mob04`) กับ `pi5` — ติ๊กเฉพาะเครื่องที่ตั้งใจ** · §8 (ทางมือ) ยังเป็นทาง deploy แรกและทางสำรอง |
 
 🔴 **`mob04` ยังเป็น production จนกว่า owner ตัดสิน** (แผนย้าย §5 cutover ยังไม่เริ่ม) · Pi เครื่องแรกถูกตั้งเป็นโฮสต์ของร้านแล้ว (2026-10-24) แต่ยังไม่มีข้อมูลจริง —
 tenant แรกมีแล้ว (`001`) · backup นอกเครื่อง = Google Drive (§11, ตั้งแล้ว 2026-10-25) · APK ของ Pi มีแล้ว (§9) — ติดตั้งทับ APK ของ `mob04` = เครื่องนั้นย้ายไปคุยกับ Pi (ข้อมูลใน `mob04` ไม่ตามไป)
@@ -612,42 +612,117 @@ ssh pi5-deploy 'id; ls -ld /opt/pos; stat -c "%A %U:%G %n" /opt/pos/.env'
 
 ---
 
-## 7. (ทางเลือก ซ้อมเท่านั้น — ไม่แนะนำตอนนี้) runner บน Pi
+## 7. CD ไป Pi — runner `pi5-deploy` + กด Approve (2026-11-27)
 
-**ไม่แนะนำจนกว่า `deploy.yml` จะ target Pi** — runner ที่ติดตั้งจะ **ไม่ได้รับงาน deploy ใด ๆ** (job ยังรันบน label `srisurart-demo-deploy` ของ `mob04`)
-แต่สคริปต์ยังเขียน `/etc/sudoers.d/pos-deploy` และ GitHub ใส่ label เริ่มต้น `self-hosted`, `Linux`, `ARM64` ให้ — workflow ใดที่ขอแค่ `self-hosted` อาจมาลงเครื่องนี้
+**ทำงานอย่างไร:** ทุก `main` ที่เขียว → `Deploy (demo)` รัน job `pi5-images` (GitHub-hosted: `verify-ghcr-tags.sh <sha> linux/arm64`) →
+job `deploy-pi5` รอใน environment **`pi5`** จนกว่า `NuimanLP` กด Approve → runner บน Pi รัน `sudo -n -u deploy /usr/local/bin/pos-deploy auto <sha>`
+(ตัวเดียวกับ `mob04`: `ansible_connection=local`, rollback อัตโนมัติ, `ROLLBACK_FLOOR`, ไม่ถอยหลังตอน auto, SHA ซ้ำ = ข้าม) ·
+job ของ `mob04` (`deploy`, environment `demo`) ยังรันเหมือนเดิม — **สอง host อนุมัติแยกกัน** ในหน้า Review deployments ติ๊กเฉพาะเครื่องที่จะ deploy ·
+กดเองได้: Actions → `Deploy (demo)` → Run workflow → `target` = `demo` (ค่าเริ่ม) / `pi5` / `both` · `image_tag` เก่า = rollback (`manual`) ·
+🔴 **ทางอัตโนมัติปิดอยู่จนกว่าตั้ง repo variable `PI5_CD=true`** (ข้อ 7) — ยังไม่ตั้ง = merge เข้า `main` ไม่สร้าง job ของ Pi เลย · กด Run workflow `target=pi5` ได้เสมอ
 
-ถ้ายังต้องการ: ทำ **หลัง §6** (สคริปต์อ้าง user `deploy`) · ส่งสคริปต์ทั้งสามจาก worktree §3.5 (ไม่งั้นมัน `git clone --depth 1` จาก `main`
-มาเอง ซึ่งไม่ตรึงที่ `$TAG`):
+ทำ **หลัง §8** (Pi มี `.current_sha` แล้ว — ไม่มี = deploy ที่ล้มจะไม่มีอะไรให้ rollback) · ทั้งหมด owner ทำเอง (`sudo` ของ `cloud` ถามรหัส):
 
-* หน้า GitHub → Settings → Actions → Runners → New self-hosted runner → **Linux + ARM64** → จด token, version, sha256 ของ tarball arm64
-
-```bash
-scp "$WT"/deploy/scripts/{setup-mob04-runner.sh,pos-deploy.sh,runner-job-started.sh} pi5:/tmp/
-```
-
-บน `aarch64` สคริปต์ **บังคับ** `RUNNER_NAME` + `RUNNER_LABELS` และ `sudo` ล้าง env จึงต้องใส่หลัง `sudo`:
+**1. environment `pi5` — มีแล้ว (2026-11-27: reviewer `NuimanLP`, branch policy `main` เท่านั้น)** · ตรวจอย่างเดียว · 🔴 ห้ามลบแล้วสร้างใหม่เปล่า ๆ —
+GitHub สร้าง environment ที่หายไปให้เอง **แบบไม่มี reviewer** = Pi deploy โดยไม่มีใครกด:
 
 ```bash
-ssh -t pi5 'cd /tmp && sudo RUNNER_NAME=pi5-demo RUNNER_LABELS=srisurart-pi-deploy bash ./setup-mob04-runner.sh <token> <version> <sha256>'
+gh api repos/NuimanLP/srisurart-pos-flutter/environments/pi5 --jq '.protection_rules[]|[.type,(.reviewers//[]|map(.reviewer.login)|join(","))]|@tsv'
 ```
+
+✅ มีบรรทัด `required_reviewers	NuimanLP`
+
+**2. token + version + sha256** — token (อายุ 1 ชม.):
+
+```bash
+gh api -X POST repos/NuimanLP/srisurart-pos-flutter/actions/runners/registration-token --jq .token
+```
+
+version + sha256: Settings → Actions → Runners → New self-hosted runner → **Linux + ARM64** (sha256 ของ tarball **arm64**)
+
+**3. ส่งสคริปต์จาก checkout ของ `origin/main`** (ไม่งั้นสคริปต์ `git clone --depth 1` จาก `main` มาเอง — ผลเหมือนกัน แต่ตรวจไม่ได้ว่าได้ตัวไหน):
+
+```bash
+git -C "$MAIN" fetch origin && git -C "$MAIN" worktree add --detach ../pos-runner origin/main && scp "$MAIN"/../pos-runner/deploy/scripts/{setup-mob04-runner.sh,pos-deploy.sh,runner-job-started.sh} pi5:/tmp/
+```
+
+**4. ติดตั้งบน Pi** — บน `aarch64` สคริปต์ **บังคับ** `RUNNER_NAME` + `RUNNER_LABELS` และ `sudo` ล้าง env จึงต้องใส่หลัง `sudo`:
+
+```bash
+ssh -t pi5 'cd /tmp && sudo RUNNER_NAME=pi5-deploy RUNNER_LABELS=srisurart-pi5-deploy bash ./setup-mob04-runner.sh <token> <version> <sha256>'
+```
+
+✅ `sudoers verification PASSED` และ `[8/8]` แสดง `active (running)`
 
 🔴 **ห้ามใช้ label `srisurart-demo-deploy` หรือชื่อ `mob04-demo`** — `config.sh --replace` จะยึด registration ของ `mob04` และ GitHub
-จะส่ง deploy ของ production ไปเครื่องไหนก็ได้ที่ว่าง · ตรวจ: `gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.name,.status]|@tsv'` เห็น `pi5-demo` แยกจาก `mob04-demo`
+จะส่ง deploy ของ production ไปเครื่องไหนก็ได้ที่ว่าง · ตรวจ:
 
-**ถอด runner** (หน้า GitHub → runner `pi5-demo` → Remove → จด remove token):
+```bash
+gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[]|[.name,.status,([.labels[].name]|join(","))]|@tsv'
+```
+
+✅ `pi5-deploy	online	self-hosted,Linux,ARM64,srisurart-pi5-deploy` แยกจาก `mob04-demo` (ที่ไม่มี `srisurart-pi5-deploy`)
+
+**5. ตรวจ sudo ของ `gha-runner`** (ต้องมีสิทธิ์ **เดียว**):
+
+```bash
+ssh -t pi5 'sudo -l -U gha-runner'
+```
+
+✅ มีแค่ `(deploy) NOPASSWD: /usr/local/bin/pos-deploy` · มีอย่างอื่น (เช่น `(ALL)`) → **หยุด** ถอด runner (ท้ายข้อนี้)
+
+```bash
+ssh -t pi5 'sudo -u gha-runner sudo -n -u deploy /usr/local/bin/pos-deploy 2>&1 | grep "pos-deploy: usage"'
+```
+
+✅ พิมพ์ `::error::pos-deploy: usage: …` (= self-test เดียวกับที่สคริปต์ setup รัน) · ไม่มีบรรทัด / ถามรหัส → sudoers ไม่ถึง หยุด
+
+**6. ซ้อมจริง: rollout SHA เดิมทั้งชุด** — `.env` เปลี่ยน = playbook ไม่หยุดที่ duplicate-release check แต่ rolling restart SHA เดิม (api-1→3, web, nginx):
+
+1. backup ก่อน (ข้อ 8): `ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'`
+2. ในนาม `deploy` เติมบรรทัดว่างท้าย `.env` (ไม่แก้ค่าใด): `ssh pi5-deploy 'echo >> /opt/pos/.env && tail -c 3 /opt/pos/.env | od -c | head -1'` ✅ ลงท้าย `\n  \n`
+3. Actions → `Deploy (demo)` → Run workflow → `target=pi5`, `image_tag` ว่าง → Review deployments → ติ๊ก **`pi5` เท่านั้น** → Approve
+4. log ของ job ต้องมี `runner-job-started: repository=NuimanLP/srisurart-pos-flutter workflow_ref=…/deploy.yml@refs/heads/main event=workflow_dispatch`,
+   `pos-deploy: running=<sha> release=<sha> mode=manual` และ recap `failed=0`
+5. ตรวจผล:
+
+```bash
+ssh pi5-deploy 'cat /opt/pos/.current_sha; curl -sk -o /dev/null -w "health_ready=%{http_code}\n" https://127.0.0.1/health/ready; cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml ps --format "table {{.Service}}\t{{.Status}}"'
+```
+
+✅ `.current_sha` = SHA เดิม · `health_ready=200` · api-1..3 / worker / nginx `Up … (healthy)` (หรือ `Up`) · log ค้างที่ `/home/deploy/pos-deploy/last-deploy.log`
+
+**7. เปิดทางอัตโนมัติ** — เฉพาะเมื่อข้อ 4 `online` และข้อ 6 ผ่าน: Settings → Secrets and variables → Actions → Variables → New repository variable
+`PI5_CD` = `true` (ไม่ใช่ secret) · ปิด = ลบตัวแปรหรือตั้งค่าอื่น · เก็บกวาด `git -C "$MAIN" worktree remove ../pos-runner`
+
+**8. 🔴 ทุก release: backup ก่อนกด Approve `pi5`:**
+
+```bash
+ssh pi5-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
+```
+
+CD (playbook) dump DB เอง **เฉพาะตอนมี migration ค้าง** · `pos-deploy` ไม่ backup (และไม่แก้ให้ทำ) · ไม่ทำข้อนี้ = deploy ที่ไม่มี migration ไม่มีสำเนาล่าสุดก่อนเปลี่ยน
+
+* **playbook ถูกตัดที่ 20 นาที** (`PLAYBOOK_TIMEOUT_SECONDS=1200` ใน `pos-deploy.sh`) แล้ว rollback — uplink ของ Pi ช้า (deploy แรกค้างที่ pull 14 นาที §8 ข้อ 2b) ·
+  release ที่เปลี่ยน base image (postgres/redis/nginx/monitoring digest ใน `deploy/compose/`) → **pre-pull บน Pi ก่อน Approve** ด้วยคำสั่ง §8 ข้อ 2b (`TAG=<sha ของ release>`)
+* อนุมัติผ่าน API: เลือก pending deployment ด้วย `.environment.name` (`demo` หรือ `pi5`) — ห้ามใช้ `.[].environment.id` / ตัวแรก (run เดียวมีทั้งสอง host)
+* run ที่รอ Approve ค้างจะถือ slot `deploy-pi5` → run ใหม่ `pending` · cancel run เก่าก่อน (เหมือน `deploy-demo`)
+* runner offline (service `active` แต่ไม่รับงาน): `sudo systemctl restart actions.runner.NuimanLP-srisurart-pos-flutter.pi5-deploy.service` ในนาม `cloud`
+* ทางมือ §8 ยังใช้ได้เสมอ (runner ล่ม / เน็ตออก GitHub ไม่ได้) — แต่อย่ารันพร้อม job ที่กำลัง deploy (`pos-deploy` ล็อกเฉพาะตัวมันเอง ไม่ล็อก `ansible-playbook` ที่รันมือ)
+
+**ถอด runner** (หน้า GitHub → runner `pi5-deploy` → Remove → จด remove token):
 
 ```bash
 ssh -t pi5 'cd /home/gha-runner/actions-runner && sudo ./svc.sh stop && sudo ./svc.sh uninstall && sudo -u gha-runner ./config.sh remove --token <remove-token> && sudo rm /etc/sudoers.d/pos-deploy'
 ```
 
-✅ `gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[].name'` ไม่มี `pi5-demo`
+✅ `gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners -q '.runners[].name'` ไม่มี `pi5-deploy` · run ที่มี `deploy-pi5` จะค้าง `queued` (ไม่มี runner) → cancel
 
 ---
 
 ## 8. deploy ครั้งแรกขึ้น Pi (ทางมือ ในนาม `deploy`)
 
-ทุกคำสั่งเขียนครบข้างล่าง · ข้ามจากคู่มือ VM §3 ได้แก่: ข้อ 1 (คิว `Deploy (demo)` เป็นของ `mob04`), ข้อ 2–4 (ทำแล้วใน §3.5 — ห้ามสร้าง worktree ซ้ำ),
+ทุกคำสั่งเขียนครบข้างล่าง · ข้ามจากคู่มือ VM §3 ได้แก่: ข้อ 1 (คิว `Deploy (demo)` — ของ Pi คือ §7 ไม่ใช่ทางมือ), ข้อ 2–4 (ทำแล้วใน §3.5 — ห้ามสร้าง worktree ซ้ำ),
 และการตรวจ `forward ok` ในข้อ 6 (Pi ใหม่ไม่มี `.current_sha` → คำสั่งนั้นพิมพ์ `STOP` เสมอ)
 
 **1. SHA + worktree** — ทำแล้วใน §3.5 (`$TAG`, `$WT`, Windows `$REPO`) · หน้าต่างใหม่ = ประกาศตัวแปร §2 ข้อ 4 และ §3.5 ใหม่
