@@ -8,6 +8,7 @@
 // ตรวจนับสต็อก page (widgets/stocktake_view.dart, the same adjustStock); the edit
 // form strips stock + partNo exactly like the JSX.
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' show Value;
@@ -308,6 +309,7 @@ class _StockTabState extends State<_StockTab> {
           q.isEmpty ||
           p.name.toLowerCase().contains(q) ||
           p.nameTH.contains(q) ||
+          p.brand.toLowerCase().contains(q) ||
           p.partNo.toLowerCase().contains(q);
       return zOk && sOk && searchOk;
     }).toList();
@@ -376,7 +378,9 @@ class _StockTabState extends State<_StockTab> {
         onImageChanged: _load,
       ),
     );
-    if (saved == true) await _load();
+    // null = dismissed (tap outside / Esc): after an add whose picture failed
+    // the product exists, so reload as ยกเลิก does.
+    if (saved == true || (p == null && saved == null)) await _load();
   }
 
   Future<void> _openAdjust(ProductRow p) async {
@@ -1085,14 +1089,10 @@ class _StockTabState extends State<_StockTab> {
                     fontSize: 15,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  p.nameTH,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.secondary,
-                  ),
-                ),
+                if (_brandLine(theme, p) case final line?) ...[
+                  const SizedBox(height: 2),
+                  line,
+                ],
               ],
             ),
           ),
@@ -1286,6 +1286,33 @@ class _StockTabState extends State<_StockTab> {
     ),
   );
 
+  /// The muted line under a product's name in the table and the cards:
+  /// `brand · nameTH`, empty parts left out, nameTH only when it is not
+  /// the name itself (a Thai-only product), at most two lines. Null when
+  /// nothing is left.
+  Widget? _brandLine(ThemeData theme, ProductRow p) {
+    final brand = p.brand.trim();
+    final th = p.nameTH.isNotEmpty && p.nameTH != p.name ? p.nameTH : '';
+    if (brand.isEmpty && th.isEmpty) return null;
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (brand.isNotEmpty)
+            TextSpan(
+              text: brand,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          if (brand.isNotEmpty && th.isNotEmpty) const TextSpan(text: ' · '),
+          if (th.isNotEmpty) TextSpan(text: th),
+        ],
+      ),
+      key: Key('product-subline-${p.id}'),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
+    );
+  }
+
   /// Phone/tablet layout (< [AppBreakpoints.expanded]): one card per product instead
   /// of a nine-column table that only scrolls sideways. Same data, same
   /// actions, same selection as the table rows.
@@ -1358,14 +1385,7 @@ class _StockTabState extends State<_StockTab> {
                             fontSize: 16,
                           ),
                         ),
-                        if (p.nameTH.isNotEmpty && p.nameTH != p.name)
-                          Text(
-                            p.nameTH,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: theme.colorScheme.secondary,
-                            ),
-                          ),
+                        ?_brandLine(theme, p),
                       ],
                     ),
                   ),
@@ -1958,8 +1978,31 @@ class _ProductEditDialog extends StatefulWidget {
 }
 
 class _ProductEditDialogState extends State<_ProductEditDialog> {
-  late final bool _isNew;
+  /// The product being edited; null until a new one is saved. A new product
+  /// whose picture upload failed turns this into its edit form (a second
+  /// บันทึก is then an update, never a second product).
+  late ProductRow? _product = widget.product;
+  bool get _isNew => _product == null;
   late List<String> _categories;
+
+  /// เพิ่มสินค้าใหม่: the picked photo (shrunk), uploaded after add().
+  Uint8List? _pendingJpeg;
+
+  /// The picture upload after add() is running (the button says so).
+  bool _uploadingImage = false;
+
+  /// The picture block is shrinking a photo: บันทึก waits for it (else the
+  /// product would be saved without the picture the owner is waiting for).
+  bool _photoBusy = false;
+
+  /// The product was saved but its picture was not: the banner, and why.
+  bool _imageFailed = false;
+  String? _imageError;
+
+  // agent ร่าง
+  static const _uploadingImageLabel = 'กำลังอัปโหลดรูป…';
+  static const _imageFailedBanner = 'บันทึกสินค้าแล้ว แต่อัปโหลดรูปไม่สำเร็จ';
+  static const _skipImageLabel = 'ข้ามไปก่อน';
 
   late final TextEditingController _partNo;
   late final TextEditingController _name;
@@ -2001,7 +2044,6 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   void initState() {
     super.initState();
     final p = widget.product;
-    _isNew = p == null;
     _categories = List<String>.from(widget.categories);
     _partNo = TextEditingController(text: p?.partNo ?? '');
     // A Thai-only product stores its Thai name in `name` too (see
@@ -2204,6 +2246,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         _showSaveError('รหัส "$partNo" มีอยู่แล้วในระบบ');
         return;
       }
+      _product = result;
     } else {
       // Strip stock + partNo from the patch (parity with the JSX).
       final patch = ProductsCompanion(
@@ -2218,7 +2261,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       );
       final bool ok;
       try {
-        ok = await repo.update(widget.product!.id, patch);
+        ok = await repo.update(_product!.id, patch);
       } catch (e) {
         _showSaveError(ServerErrorResolver.resolveCounterError(e));
         return;
@@ -2229,7 +2272,51 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         return;
       }
     }
+    if (_pendingJpeg != null) {
+      await _uploadPendingImage(repo);
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// The new product's picture, after add(): closes the dialog when it is
+  /// up; otherwise the dialog stays open as the product's edit form, with the
+  /// banner. A retry sends the same JPEG (the same idempotency key).
+  Future<void> _uploadPendingImage(ProductsRepository repo) async {
+    final jpeg = _pendingJpeg!;
+    setState(() {
+      _uploadingImage = true;
+      _imageError = null;
+    });
+    try {
+      await repo.setImage(_product!.id, jpeg);
+    } catch (e) {
+      // ApiClient's own timeout ends a hung upload. The picture may have
+      // landed anyway (a pull wrote the key meanwhile): then it is done.
+      final row = await repo.getById(_product!.id);
+      if (!mounted) return;
+      if (row?.imageKey == null) {
+        setState(() {
+          _uploadingImage = false;
+          _imageFailed = true;
+          _imageError = ServerErrorResolver.resolveCounterError(e);
+        });
+        return;
+      }
+    }
+    _pendingJpeg = null;
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  Future<void> _retryImage() async {
+    if (_saving) return;
+    final repo = context.read<ProductsRepository>();
+    setState(() => _saving = true);
+    try {
+      await _uploadPendingImage(repo);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   // agent ร่าง — new, awaiting owner approval (PR #829).
@@ -2300,12 +2387,20 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-              // The picture of an existing product (API build only).
-              if (!_isNew)
-                ProductImageEditor(
-                  product: widget.product!,
-                  onChanged: () => widget.onImageChanged(),
-                ),
+              // The picture (API build only). A new product's is kept here
+              // until บันทึก sends it — also while that upload runs or after
+              // it failed (never the edit-mode editor with a PUT of its own).
+              ProductImageEditor(
+                product: _isNew || _imageFailed || _pendingJpeg != null
+                    ? null
+                    : _product,
+                onChanged: () => widget.onImageChanged(),
+                onPicked: (jpeg) => _pendingJpeg = jpeg,
+                onBusyChanged: (busy) {
+                  if (mounted) setState(() => _photoBusy = busy);
+                },
+                enabled: !_saving && !_uploadingImage,
+              ),
               // Two columns that fill the dialog (one below 560 px): each
               // field used to be capped at 300 px, and 2 × 300 + 16 never fit
               // the 612 px content width, so every field sat alone on half a
@@ -2443,6 +2538,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
               ),
             ),
             const Divider(height: 1),
+            if (_imageFailed) _imageFailedBox(theme),
             if (_saveError != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
@@ -2464,17 +2560,21 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(0, 48),
                     ),
-                    onPressed: () => Navigator.of(context).pop(false),
+                    // A product saved here (its picture failed) is in the
+                    // list now: reload it even on ยกเลิก.
+                    onPressed: () =>
+                        Navigator.of(context).pop(widget.product == null && !_isNew),
                     child: const Text('ยกเลิก'),
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
+                    key: const Key('product-save'),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.orange,
                       foregroundColor: AppColors.white,
                       minimumSize: const Size(0, 48),
                     ),
-                    onPressed: _saving ? null : _save,
+                    onPressed: _saving || _photoBusy ? null : _save,
                     icon: _saving
                         ? const SizedBox(
                             width: 20,
@@ -2482,13 +2582,63 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check, size: 20),
-                    label: const Text('บันทึก'),
+                    label: Text(_uploadingImage ? _uploadingImageLabel : 'บันทึก'),
                   ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The product is saved, its picture is not: retry the same picture, or
+  /// close and add it later from แก้ไขสินค้า.
+  Widget _imageFailedBox(ThemeData theme) {
+    return Container(
+      key: const Key('product-image-failed'),
+      margin: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.08),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            _imageFailedBanner,
+            style: TextStyle(
+              color: AppColors.error,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (_imageError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(_imageError!, style: theme.textTheme.bodySmall),
+            ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                key: const Key('product-image-failed-retry'),
+                onPressed: _saving || _photoBusy ? null : _retryImage,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('ลองอีกครั้ง'),
+              ),
+              TextButton(
+                key: const Key('product-image-failed-skip'),
+                onPressed: _saving ? null : () => Navigator.of(context).pop(true),
+                child: const Text(_skipImageLabel),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
