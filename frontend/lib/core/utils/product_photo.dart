@@ -2,6 +2,12 @@
 // ≤ [maxProductPhotoSide] px, JPEG at quality [productPhotoQuality], so the raw
 // `PUT /products/:id/image` stays well under the server's 3 MB limit.
 //
+// The size comes from the file's header ([imageHeaderSize]) — no probe decode:
+// on the web a probe is a full-size decode of a 12–48 MP iPad photo on the main
+// thread (iPad image upload, 2026-11-28). A file over 25 MB or a picture over
+// the server's 24 MP is refused before any decode. Only a format the header
+// reader does not know (e.g. HEIC from a desktop) still gets the old probe.
+//
 // Decoding and resizing use the engine (`ui.instantiateImageCodec` with a
 // target size, as qr_image.dart does) — which also applies the photo's EXIF
 // orientation (Skia's codec honours it; pinned by product_image_editor_test's
@@ -21,12 +27,25 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 
 import '../errors/pos_exception.dart';
+import 'image_header.dart';
 
 const maxProductPhotoSide = 1600;
 const productPhotoQuality = 85;
 
 /// Below the server's 3 MB (3 × 1024 × 1024) with room to spare.
 const maxProductPhotoBytes = 2900000;
+
+/// A picked file larger than this is refused before it is decoded.
+const maxProductPhotoInputBytes = 25 * 1024 * 1024;
+
+/// The server's `INPUT_PIXEL_LIMIT` (image-pipeline.ts): a bigger picture is
+/// refused before it is decoded.
+const maxProductPhotoInputPixels = 24000000;
+
+const productPhotoFileTooLarge = PosException(
+  'PRODUCT_IMAGE_FILE_TOO_LARGE',
+  'ไฟล์รูปใหญ่เกินไป (เกิน 25 MB)', // agent ร่าง
+);
 
 /// [source] (anything the engine decodes) → JPEG bytes, long side ≤
 /// [maxSide], length ≤ [maxBytes]. Too large at full size → 20 % smaller
@@ -39,19 +58,14 @@ Future<Uint8List> shrinkProductPhoto(
   int maxSide = maxProductPhotoSide,
   int maxBytes = maxProductPhotoBytes,
 }) async {
-  final int width;
-  final int height;
-  try {
-    final probe = await ui.instantiateImageCodec(source);
-    final frame = await probe.getNextFrame();
-    width = frame.image.width;
-    height = frame.image.height;
-    frame.image.dispose();
-    probe.dispose();
-  } catch (_) {
+  if (source.length > maxProductPhotoInputBytes) throw productPhotoFileTooLarge;
+  final size = imageHeaderSize(source) ?? await _probeSize(source);
+  final width = size.width;
+  final height = size.height;
+  if (width * height > maxProductPhotoInputPixels) {
     throw const PosException(
-      'IMAGE_UNREADABLE',
-      'อ่านรูปไม่ได้ กรุณาเลือกไฟล์รูป PNG หรือ JPG', // เจ้าของรับรอง 2026-10-10 (QR)
+      'PRODUCT_IMAGE_TOO_MANY_PIXELS',
+      'รูปละเอียดเกิน 24 ล้านพิกเซล กรุณาเลือกรูปอื่น', // agent ร่าง
     );
   }
   final longSide = math.max(width, height);
@@ -60,13 +74,18 @@ Future<Uint8List> shrinkProductPhoto(
     final scale = side / longSide;
     final w = math.max(1, (width * scale).round());
     final h = math.max(1, (height * scale).round());
-    final codec = await ui.instantiateImageCodec(
-      source,
-      targetWidth: w,
-      targetHeight: h,
-    );
-    final decoded = (await codec.getNextFrame()).image;
-    codec.dispose();
+    final ui.Image decoded;
+    try {
+      final codec = await ui.instantiateImageCodec(
+        source,
+        targetWidth: w,
+        targetHeight: h,
+      );
+      decoded = (await codec.getNextFrame()).image;
+      codec.dispose();
+    } catch (_) {
+      throw _unreadable; // a valid-looking header over a broken body
+    }
     // Flatten onto white: JPEG keeps no alpha channel.
     final recorder = ui.PictureRecorder();
     ui.Canvas(recorder)
@@ -95,6 +114,25 @@ Future<Uint8List> shrinkProductPhoto(
     'PRODUCT_IMAGE_TOO_LARGE',
     'รูปใหญ่เกิน 3 MB', // agent ร่าง (same as the server's PRODUCT_IMAGE_TOO_LARGE)
   );
+}
+
+const _unreadable = PosException(
+  'IMAGE_UNREADABLE',
+  'อ่านรูปไม่ได้ กรุณาเลือกไฟล์รูป PNG หรือ JPG', // เจ้าของรับรอง 2026-10-10 (QR)
+);
+
+/// The old full decode, only for a format [imageHeaderSize] does not read.
+Future<ImageSize> _probeSize(Uint8List source) async {
+  try {
+    final probe = await ui.instantiateImageCodec(source);
+    final frame = await probe.getNextFrame();
+    final size = (width: frame.image.width, height: frame.image.height);
+    frame.image.dispose();
+    probe.dispose();
+    return size;
+  } catch (_) {
+    throw _unreadable;
+  }
 }
 
 /// RGBA pixels → JPEG at [productPhotoQuality]. Top-level so [compute] can

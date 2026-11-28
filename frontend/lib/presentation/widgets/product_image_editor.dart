@@ -5,6 +5,17 @@
 // from the form's บันทึก. Offline (Degraded) the buttons are disabled;
 // anyone but the owner sees the picture with the reason. Nothing at all on
 // the Drift build (no server holds pictures). Owned by ProductsScreen.
+//
+// iPad (2026-11-28: the spinner never stopped, no request reached the
+// server): nothing is busy while the picker is open — iOS Safari can dismiss
+// it without ever answering — and a generation counter drops a pick that
+// answers late. After a pick: กำลังย่อรูป… (≤ [productPhotoProcessTimeout]) →
+// กำลังอัปโหลด… (≤ [productPhotoUploadTimeout]) → done, or a red message; a
+// failed upload's ลองอีกครั้ง re-sends the same in-memory JPEG, so the
+// idempotency fingerprint (the body bytes) does not change.
+
+import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -23,17 +34,55 @@ import 'confirm_dialog.dart';
 import 'product_image.dart';
 import 'sync_status_builder.dart';
 
+/// Longest the shrink of a picked photo may take before it is given up.
+const productPhotoProcessTimeout = Duration(seconds: 20);
+
+/// Longest a picture upload may take before the screen stops waiting (the
+/// request may still land; ลองอีกครั้ง then replays under the same key).
+const productPhotoUploadTimeout = Duration(seconds: 40);
+
+// agent ร่าง
+const productPhotoTimeoutMessage = 'ใช้เวลานานเกินไป กรุณาลองใหม่หรือเลือกรูปอื่น';
+
+/// The picker: a photo's bytes, or null when nothing was picked. A file over
+/// [maxProductPhotoInputBytes] is refused before it is read when the platform
+/// knows its size.
+Future<Uint8List?> pickProductPhotoBytes() async {
+  // First await: on the web the picker must open inside the tap.
+  final file = await FilePicker.pickFile(
+    type: FileType.image, // accept="image/*": iOS hands HEIC over as JPEG
+    webOptions: backupPickWebOptions,
+  );
+  if (file == null) return null;
+  if ((file.lengthSync() ?? 0) > maxProductPhotoInputBytes) {
+    throw productPhotoFileTooLarge;
+  }
+  return file.readAsBytes();
+}
+
+enum _Phase { idle, processing, uploading, failed }
+
 class ProductImageEditor extends StatefulWidget {
   const ProductImageEditor({
     super.key,
     required this.product,
     required this.onChanged,
+    this.pickPhoto = pickProductPhotoBytes,
+    this.shrink = shrinkProductPhoto,
+    this.processTimeout = productPhotoProcessTimeout,
+    this.uploadTimeout = productPhotoUploadTimeout,
   });
 
   final ProductRow product;
 
   /// Called after the picture was replaced or removed on the server.
   final VoidCallback onChanged;
+
+  /// Seams for tests; the defaults are the real picker and shrink.
+  final Future<Uint8List?> Function() pickPhoto;
+  final Future<Uint8List> Function(Uint8List source) shrink;
+  final Duration processTimeout;
+  final Duration uploadTimeout;
 
   @override
   State<ProductImageEditor> createState() => _ProductImageEditorState();
@@ -42,11 +91,22 @@ class ProductImageEditor extends StatefulWidget {
 class _ProductImageEditorState extends State<ProductImageEditor> {
   ProductImageUrls? _urls;
   late String? _imageKey = widget.product.imageKey;
-  bool _busy = false;
+  _Phase _phase = _Phase.idle;
   String? _error;
+
+  /// Bumped by every pick / retry / remove: a result of an older one is dropped.
+  int _gen = 0;
+
+  /// What ลองอีกครั้ง does after a failure (null = nothing worth retrying).
+  Future<void> Function()? _retry;
+
+  /// A remove (its own confirm + DELETE) is running.
+  bool _removing = false;
 
   // agent ร่าง
   static const _offlineNote = 'ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะเปลี่ยนรูปสินค้าได้';
+  static const _processingLabel = 'กำลังย่อรูป…'; // agent ร่าง
+  static const _uploadingLabel = 'กำลังอัปโหลด…'; // agent ร่าง
 
   @override
   void initState() {
@@ -73,27 +133,66 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
   }
 
   Future<void> _pick() async {
+    // No busy state here: the picker may never answer (iOS Safari).
+    final gen = ++_gen;
+    final Uint8List? source;
+    try {
+      source = await widget.pickPhoto();
+    } catch (e) {
+      if (gen == _gen) _showError(e, null);
+      return;
+    }
+    if (source == null || gen != _gen || !mounted) return;
+    await _process(gen, source);
+  }
+
+  Future<void> _process(int gen, Uint8List source) async {
     setState(() {
-      _busy = true;
+      _phase = _Phase.processing;
       _error = null;
+      _retry = null;
+    });
+    final Uint8List jpeg;
+    try {
+      jpeg = await widget.shrink(source).timeout(widget.processTimeout);
+    } catch (e) {
+      // Only a timeout is worth the same file again; a refused file is not.
+      if (gen == _gen) {
+        _showError(e, e is TimeoutException ? () => _process(++_gen, source) : null);
+      }
+      return;
+    }
+    if (gen != _gen || !mounted) return;
+    await _upload(gen, jpeg);
+  }
+
+  /// The retry keeps [jpeg] as is: the same bytes are the same key.
+  Future<void> _upload(int gen, Uint8List jpeg) async {
+    setState(() {
+      _phase = _Phase.uploading;
+      _error = null;
+      _retry = null;
     });
     try {
-      // First await: on the web the picker must open inside the tap.
-      final file = await FilePicker.pickFile(
-        type: FileType.image,
-        webOptions: backupPickWebOptions,
-      );
-      if (file == null || !mounted) return;
-      final jpeg = await shrinkProductPhoto(await file.readAsBytes());
-      if (!mounted) return;
       final repo = context.read<ProductsRepository>();
-      await repo.setImage(widget.product.id, jpeg);
+      await repo.setImage(widget.product.id, jpeg).timeout(widget.uploadTimeout);
+      if (gen != _gen) return;
       await _afterWrite(repo);
+      if (mounted && gen == _gen) setState(() => _phase = _Phase.idle);
     } catch (e) {
-      if (mounted) setState(() => _error = ServerErrorResolver.resolveCounterError(e));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (gen == _gen) _showError(e, () => _upload(++_gen, jpeg));
     }
+  }
+
+  void _showError(Object e, Future<void> Function()? retry) {
+    if (!mounted) return;
+    setState(() {
+      _phase = _Phase.failed;
+      _error = e is TimeoutException
+          ? productPhotoTimeoutMessage
+          : ServerErrorResolver.resolveCounterError(e);
+      _retry = retry;
+    });
   }
 
   Future<void> _remove() async {
@@ -105,9 +204,12 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
       confirmLabel: 'ลบ', // agent ร่าง
     );
     if (!ok || !mounted) return;
+    ++_gen; // a pick still waiting must not overwrite the removal
     setState(() {
-      _busy = true;
+      _removing = true;
+      _phase = _Phase.idle;
       _error = null;
+      _retry = null;
     });
     try {
       final repo = context.read<ProductsRepository>();
@@ -116,7 +218,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     } catch (e) {
       if (mounted) setState(() => _error = ServerErrorResolver.resolveCounterError(e));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _removing = false);
     }
   }
 
@@ -137,7 +239,12 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     final hasImage = urls.thumb(_imageKey) != null;
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
-        final enabled = isOwner && !isDegraded && !_busy;
+        final working =
+            _phase == _Phase.processing || _phase == _Phase.uploading;
+        final canWrite = isOwner && !isDegraded && !_removing;
+        // Picking again is allowed while a shrink runs (it supersedes it),
+        // not during an upload, which cannot be called back.
+        final canPick = canWrite && _phase != _Phase.uploading;
         final note = !isOwner
             ? ApiProductsRepository.imageOwnerOnlyMessage
             : (isDegraded ? _offlineNote : null);
@@ -173,7 +280,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                       children: [
                         OutlinedButton.icon(
                           key: const Key('product-image-pick'),
-                          onPressed: enabled ? _pick : null,
+                          onPressed: canPick ? _pick : null,
                           icon: const Icon(Icons.photo_library_outlined, size: 18),
                           label: Text(
                             hasImage ? 'เปลี่ยนรูป' : 'เลือกรูป', // agent ร่าง
@@ -182,24 +289,45 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                         if (hasImage)
                           TextButton.icon(
                             key: const Key('product-image-remove'),
-                            onPressed: enabled ? _remove : null,
+                            onPressed: canWrite && !working ? _remove : null,
                             style: TextButton.styleFrom(
                               foregroundColor: AppColors.error,
                             ),
                             icon: const Icon(Icons.delete_outline, size: 18),
                             label: const Text('ลบรูป'), // agent ร่าง
                           ),
-                        if (_busy)
-                          const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                        if (_retry != null && canPick)
+                          FilledButton.tonalIcon(
+                            key: const Key('product-image-retry'),
+                            onPressed: _retry,
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('ลองอีกครั้ง'),
                           ),
                       ],
                     ),
+                    if (working || _removing)
+                      Padding(
+                        key: const Key('product-image-status'),
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            if (working) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                _phase == _Phase.processing
+                                    ? _processingLabel
+                                    : _uploadingLabel,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     // The picture is its own write, apart from the form —
                     // say so, or the owner presses ยกเลิก expecting undo.
                     if (note == null)
@@ -227,6 +355,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           _error!,
+                          key: const Key('product-image-error'),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: AppColors.error,
                           ),
