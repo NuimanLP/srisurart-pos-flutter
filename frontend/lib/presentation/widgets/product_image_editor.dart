@@ -13,6 +13,10 @@
 // กำลังอัปโหลด… (≤ [productPhotoUploadTimeout]) → done, or a red message; a
 // failed upload's ลองอีกครั้ง re-sends the same in-memory JPEG, so the
 // idempotency fingerprint (the body bytes) does not change.
+//
+// เพิ่มสินค้าใหม่ ([product] null, owner only): there is no id to `PUT` to
+// yet, so a picked photo is shrunk and previewed locally and handed to
+// [ProductImageEditor.onPicked]; the dialog uploads it after its add().
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -60,6 +64,11 @@ Future<Uint8List?> pickProductPhotoBytes() async {
   return file.readAsBytes();
 }
 
+/// The picker every [ProductImageEditor] uses unless given its own — a seam
+/// for tests of the dialogs that build the editor themselves.
+@visibleForTesting
+Future<Uint8List?> Function() productPhotoPicker = pickProductPhotoBytes;
+
 enum _Phase { idle, processing, uploading, failed }
 
 class ProductImageEditor extends StatefulWidget {
@@ -67,19 +76,25 @@ class ProductImageEditor extends StatefulWidget {
     super.key,
     required this.product,
     required this.onChanged,
-    this.pickPhoto = pickProductPhotoBytes,
+    this.onPicked,
+    this.pickPhoto,
     this.shrink = shrinkProductPhoto,
     this.processTimeout = productPhotoProcessTimeout,
     this.uploadTimeout = productPhotoUploadTimeout,
   });
 
-  final ProductRow product;
+  /// Null = a product not saved yet (เพิ่มสินค้าใหม่): nothing is uploaded.
+  final ProductRow? product;
 
   /// Called after the picture was replaced or removed on the server.
   final VoidCallback onChanged;
 
+  /// No [product]: the shrunk JPEG of the picked photo, for the dialog to
+  /// upload after it saved the product.
+  final ValueChanged<Uint8List>? onPicked;
+
   /// Seams for tests; the defaults are the real picker and shrink.
-  final Future<Uint8List?> Function() pickPhoto;
+  final Future<Uint8List?> Function()? pickPhoto;
   final Future<Uint8List> Function(Uint8List source) shrink;
   final Duration processTimeout;
   final Duration uploadTimeout;
@@ -90,7 +105,10 @@ class ProductImageEditor extends StatefulWidget {
 
 class _ProductImageEditorState extends State<ProductImageEditor> {
   ProductImageUrls? _urls;
-  late String? _imageKey = widget.product.imageKey;
+  late String? _imageKey = widget.product?.imageKey;
+
+  /// No product yet: the picked photo, shrunk, shown until the dialog saves.
+  Uint8List? _local;
   _Phase _phase = _Phase.idle;
   String? _error;
 
@@ -107,6 +125,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
   static const _offlineNote = 'ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะเปลี่ยนรูปสินค้าได้';
   static const _processingLabel = 'กำลังย่อรูป…'; // agent ร่าง
   static const _uploadingLabel = 'กำลังอัปโหลด…'; // agent ร่าง
+  static const _uploadOnSaveNote = 'รูปจะอัปโหลดเมื่อกดบันทึก'; // agent ร่าง
 
   @override
   void initState() {
@@ -137,7 +156,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     final gen = ++_gen;
     final Uint8List? source;
     try {
-      source = await widget.pickPhoto();
+      source = await (widget.pickPhoto ?? productPhotoPicker)();
     } catch (e) {
       if (gen == _gen) _showError(e, null);
       return;
@@ -163,6 +182,14 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
       return;
     }
     if (gen != _gen || !mounted) return;
+    if (widget.product == null) {
+      setState(() {
+        _local = jpeg;
+        _phase = _Phase.idle;
+      });
+      widget.onPicked?.call(jpeg);
+      return;
+    }
     await _upload(gen, jpeg);
   }
 
@@ -175,7 +202,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     });
     try {
       final repo = context.read<ProductsRepository>();
-      await repo.setImage(widget.product.id, jpeg).timeout(widget.uploadTimeout);
+      await repo.setImage(widget.product!.id, jpeg).timeout(widget.uploadTimeout);
       if (gen != _gen) return;
       await _afterWrite(repo);
       if (mounted && gen == _gen) setState(() => _phase = _Phase.idle);
@@ -199,7 +226,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     final ok = await showConfirm(
       context,
       'ลบรูปสินค้า?', // agent ร่าง
-      'ลบรูปของ "${widget.product.name}" ออก การ์ดสินค้าจะแสดงเป็นไอคอนแทน', // agent ร่าง
+      'ลบรูปของ "${widget.product!.name}" ออก การ์ดสินค้าจะแสดงเป็นไอคอนแทน', // agent ร่าง
       danger: true,
       confirmLabel: 'ลบ', // agent ร่าง
     );
@@ -213,7 +240,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     });
     try {
       final repo = context.read<ProductsRepository>();
-      await repo.removeImage(widget.product.id);
+      await repo.removeImage(widget.product!.id);
       await _afterWrite(repo);
     } catch (e) {
       if (mounted) setState(() => _error = ServerErrorResolver.resolveCounterError(e));
@@ -224,7 +251,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
 
   /// The repository wrote the server's key to Drift; show it.
   Future<void> _afterWrite(ProductsRepository repo) async {
-    final row = await repo.getById(widget.product.id);
+    final row = await repo.getById(widget.product!.id);
     if (!mounted) return;
     setState(() => _imageKey = row?.imageKey);
     widget.onChanged();
@@ -236,7 +263,12 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     if (urls == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final isOwner = _isOwner;
-    final hasImage = urls.thumb(_imageKey) != null;
+    final isNew = widget.product == null;
+    // A new product: owner only, as the Add dialog had no picture before.
+    if (isNew && !isOwner) return const SizedBox.shrink();
+    final local = _local;
+    final hasServerImage = urls.thumb(_imageKey) != null;
+    final hasImage = local != null || hasServerImage;
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
         final working =
@@ -259,7 +291,13 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                   key: const Key('product-image-editor-thumb'),
                   width: 96,
                   height: 96,
-                  child: ProductImage(url: urls.thumb(_imageKey), iconSize: 32),
+                  child: local != null
+                      ? Image.memory(
+                          local,
+                          key: const Key('product-image-local-preview'),
+                          fit: BoxFit.cover,
+                        )
+                      : ProductImage(url: urls.thumb(_imageKey), iconSize: 32),
                 ),
               ),
               const SizedBox(width: 16),
@@ -286,7 +324,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                             hasImage ? 'เปลี่ยนรูป' : 'เลือกรูป', // agent ร่าง
                           ),
                         ),
-                        if (hasImage)
+                        if (hasServerImage && !isNew)
                           TextButton.icon(
                             key: const Key('product-image-remove'),
                             onPressed: canWrite && !working ? _remove : null,
@@ -334,7 +372,9 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
-                          'เปลี่ยนรูปแล้วบันทึกทันที ไม่ต้องกด "บันทึก"', // owner-ratified 2026-10-12
+                          isNew
+                              ? _uploadOnSaveNote
+                              : 'เปลี่ยนรูปแล้วบันทึกทันที ไม่ต้องกด "บันทึก"', // owner-ratified 2026-10-12
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.secondary,
                           ),
