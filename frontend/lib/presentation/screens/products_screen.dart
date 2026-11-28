@@ -309,6 +309,7 @@ class _StockTabState extends State<_StockTab> {
           q.isEmpty ||
           p.name.toLowerCase().contains(q) ||
           p.nameTH.contains(q) ||
+          p.brand.toLowerCase().contains(q) ||
           p.partNo.toLowerCase().contains(q);
       return zOk && sOk && searchOk;
     }).toList();
@@ -1086,14 +1087,10 @@ class _StockTabState extends State<_StockTab> {
                     fontSize: 15,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  p.nameTH,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.secondary,
-                  ),
-                ),
+                if (_brandLine(theme, p) case final line?) ...[
+                  const SizedBox(height: 2),
+                  line,
+                ],
               ],
             ),
           ),
@@ -1290,6 +1287,30 @@ class _StockTabState extends State<_StockTab> {
   /// Phone/tablet layout (< [AppBreakpoints.expanded]): one card per product instead
   /// of a nine-column table that only scrolls sideways. Same data, same
   /// actions, same selection as the table rows.
+  /// The muted line under a product's name in the table and the cards:
+  /// `brand · nameTH`, empty parts left out, nameTH only when it is not
+  /// the name itself (a Thai-only product). Null when nothing is left.
+  Widget? _brandLine(ThemeData theme, ProductRow p) {
+    final brand = p.brand.trim();
+    final th = p.nameTH.isNotEmpty && p.nameTH != p.name ? p.nameTH : '';
+    if (brand.isEmpty && th.isEmpty) return null;
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (brand.isNotEmpty)
+            TextSpan(
+              text: brand,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          if (brand.isNotEmpty && th.isNotEmpty) const TextSpan(text: ' · '),
+          if (th.isNotEmpty) TextSpan(text: th),
+        ],
+      ),
+      key: Key('product-subline-${p.id}'),
+      style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
+    );
+  }
+
   Widget _cardList(
     ThemeData theme,
     List<ProductRow> filtered,
@@ -1359,14 +1380,7 @@ class _StockTabState extends State<_StockTab> {
                             fontSize: 16,
                           ),
                         ),
-                        if (p.nameTH.isNotEmpty && p.nameTH != p.name)
-                          Text(
-                            p.nameTH,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: theme.colorScheme.secondary,
-                            ),
-                          ),
+                        ?_brandLine(theme, p),
                       ],
                     ),
                   ),
