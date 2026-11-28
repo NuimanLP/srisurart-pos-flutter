@@ -64,7 +64,7 @@ ImageSize? _jpeg(Uint8List b) {
     if (len < 2) return null;
     final seg = i + 4;
     if (marker == 0xE1 && len >= 8 && _ascii(b, seg, 'Exif')) {
-      orientation = _exifOrientation(b, seg + 6) ?? orientation;
+      orientation = _exifOrientation(b, seg + 6, i + 2 + len) ?? orientation;
     }
     final isSof = marker >= 0xC0 &&
         marker <= 0xCF &&
@@ -83,7 +83,9 @@ ImageSize? _jpeg(Uint8List b) {
 }
 
 /// The Orientation tag (0x0112) of IFD0 in the TIFF block at [t], or null.
-int? _exifOrientation(Uint8List b, int t) {
+/// Nothing at or past [end] (the APP1 segment's end) is read.
+int? _exifOrientation(Uint8List b, int t, int end) {
+  if (t + 8 > end) return null;
   final little = b[t] == 0x49 && b[t + 1] == 0x49;
   if (!little && !(b[t] == 0x4D && b[t + 1] == 0x4D)) return null;
   int u16(int o) => little ? _u16le(b, t + o) : _u16be(b, t + o);
@@ -91,7 +93,9 @@ int? _exifOrientation(Uint8List b, int t) {
       ? b[t + o] | b[t + o + 1] << 8 | b[t + o + 2] << 16 | b[t + o + 3] << 24
       : _u32be(b, t + o);
   final ifd = u32(4);
+  if (t + ifd + 2 > end) return null;
   final count = u16(ifd);
+  if (t + ifd + 2 + 12 * count > end) return null; // runs past its segment
   for (var k = 0; k < count; k++) {
     final e = ifd + 2 + 12 * k;
     if (u16(e) == 0x0112) return u16(e + 8);

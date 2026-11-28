@@ -2,10 +2,12 @@
 // ≤ [maxProductPhotoSide] px, JPEG at quality [productPhotoQuality], so the raw
 // `PUT /products/:id/image` stays well under the server's 3 MB limit.
 //
-// The size comes from the file's header ([imageHeaderSize]) — no probe decode:
-// on the web a probe is a full-size decode of a 12–48 MP iPad photo on the main
-// thread (iPad image upload, 2026-11-28). A file over 25 MB or a picture over
-// the server's 24 MP is refused before any decode. Only a format the header
+// The size comes from the file's header ([imageHeaderSize]), not from a probe
+// decode (iPad image upload, 2026-11-28): one decode per attempt instead of
+// two. On Safari that one decode is still full size — the engine decodes
+// through an `<img>` element and scales on a canvas — so a file over 25 MB or
+// a picture over 24 MP (the server's INPUT_PIXEL_LIMIT, used here as a
+// device-memory guard) is refused before any decode. Only a format the header
 // reader does not know (e.g. HEIC from a desktop) still gets the old probe.
 //
 // Decoding and resizing use the engine (`ui.instantiateImageCodec` with a
@@ -65,7 +67,7 @@ Future<Uint8List> shrinkProductPhoto(
   if (width * height > maxProductPhotoInputPixels) {
     throw const PosException(
       'PRODUCT_IMAGE_TOO_MANY_PIXELS',
-      'รูปละเอียดเกิน 24 ล้านพิกเซล กรุณาเลือกรูปอื่น', // agent ร่าง
+      'รูปใหญ่เกินไปสำหรับเครื่องนี้ กรุณาเลือกรูปอื่น', // agent ร่าง
     );
   }
   final longSide = math.max(width, height);

@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -19,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/errors/pos_exception.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/server_error_resolver.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
@@ -59,9 +61,10 @@ void main() {
     WidgetTester tester, {
     required Future<Uint8List?> Function() pickPhoto,
     Future<Uint8List> Function(Uint8List)? shrink,
-    Future<http.Response> Function(http.Request req, int n)? server,
+    Future<http.Response> Function(http.Request req, int n, AppDatabase db)? server,
     Duration processTimeout = const Duration(seconds: 20),
-    Duration uploadTimeout = const Duration(seconds: 40),
+    Duration writeTimeout = ApiClient.defaultWriteTimeout,
+    List<int>? changed,
     required Future<void> Function(AppDatabase db, List<http.Request> sent) body,
   }) async {
     tester.view.physicalSize = const Size(820, 1180);
@@ -92,9 +95,10 @@ void main() {
       final product = await db.select(db.products).getSingle();
       final client = ApiClient(
         baseUrl: 'https://shop.test',
+        writeTimeout: writeTimeout,
         httpClient: MockClient((req) async {
           sent.add(req);
-          if (server != null) return server(req, sent.length);
+          if (server != null) return server(req, sent.length, db);
           return http.Response(
               jsonEncode({'status': 'success', 'data': {'id': 'p1', 'imageKey': _newKey}}),
               200);
@@ -116,11 +120,10 @@ void main() {
               home: Scaffold(
                 body: ProductImageEditor(
                   product: product,
-                  onChanged: () {},
+                  onChanged: () => changed?.add(1),
                   pickPhoto: pickPhoto,
                   shrink: shrink ?? (b) async => b,
                   processTimeout: processTimeout,
-                  uploadTimeout: uploadTimeout,
                 ),
               ),
             ),
@@ -176,7 +179,7 @@ void main() {
       tester,
       pickPhoto: () async => photo,
       shrink: (_) => shrinking.future,
-      server: (req, n) => uploading.future,
+      server: (req, n, db) => uploading.future,
       body: (db, sent) async {
         await tester.tap(pick);
         await settle(tester, () => find.text('กำลังย่อรูป…').evaluate().isNotEmpty);
@@ -211,8 +214,10 @@ void main() {
     );
   });
 
-  testWidgets('an upload with no reply → timeout message; a refused file → its message',
-      (tester) async {
+  // The upload's cut-off is ApiClient's own (a 401 refresh may resend; a UI
+  // timeout shorter than that said "failed" while the server saved it).
+  testWidgets('an upload with no reply → ApiClient gives up, connection message + retry; '
+      'a refused file → its message', (tester) async {
     var n = 0;
     await pump(
       tester,
@@ -223,12 +228,12 @@ void main() {
         }
         return photo;
       },
-      server: (req, _) => Completer<http.Response>().future,
-      uploadTimeout: const Duration(milliseconds: 200),
+      server: (req, _, _) => Completer<http.Response>().future,
+      writeTimeout: const Duration(milliseconds: 200),
       body: (db, sent) async {
         await tester.tap(pick);
-        await settle(tester, () => find.text(productPhotoTimeoutMessage).evaluate().isNotEmpty);
-        expect(find.text(productPhotoTimeoutMessage), findsOneWidget);
+        await settle(tester, () => retry.evaluate().isNotEmpty);
+        expect(find.text(ServerErrorResolver.resolve(null)), findsOneWidget);
         expect(spinner, findsNothing);
         expect(retry, findsOneWidget);
 
@@ -252,7 +257,7 @@ void main() {
         shrinks++;
         return Uint8List.fromList(b);
       },
-      server: (req, n) async => n == 1
+      server: (req, n, db) async => n == 1
           ? http.Response(jsonEncode({'status': 'error', 'code': 'INTERNAL', 'message': 'x'}), 503)
           : http.Response(
               jsonEncode({'status': 'success', 'data': {'id': 'p1', 'imageKey': _newKey}}), 200),
@@ -271,6 +276,74 @@ void main() {
         expect(shrinks, 1);
         expect(retry, findsNothing);
         expect((await db.select(db.products).getSingle()).imageKey, _newKey);
+      },
+    );
+  });
+
+  testWidgets('one shrink at a time: pick disabled while shrinking; a cancel after the '
+      'timeout leaves no spinner; a re-pick waits for the old shrink', (tester) async {
+    final firstShrink = Completer<Uint8List>();
+    var shrinks = 0;
+    Uint8List? next = photo;
+    await pump(
+      tester,
+      pickPhoto: () async => next,
+      shrink: (b) {
+        shrinks++;
+        return shrinks == 1 ? firstShrink.future : Future.value(b);
+      },
+      processTimeout: const Duration(milliseconds: 300),
+      body: (db, sent) async {
+        await tester.tap(pick);
+        await settle(tester, () => find.text('กำลังย่อรูป…').evaluate().isNotEmpty);
+        expect(enabled(tester, pick), isFalse, reason: 'no second decode while one runs');
+
+        await settle(tester, () => find.text(productPhotoTimeoutMessage).evaluate().isNotEmpty);
+        expect(spinner, findsNothing);
+
+        // The picker is dismissed: nothing is left spinning.
+        next = null;
+        await tester.tap(pick);
+        await settle(tester, () => false);
+        expect(spinner, findsNothing);
+        expect(find.text('กำลังย่อรูป…'), findsNothing);
+
+        // A real re-pick: its shrink waits until the timed-out one has ended.
+        next = photo;
+        await tester.tap(pick);
+        await settle(tester, () => find.text('กำลังย่อรูป…').evaluate().isNotEmpty);
+        expect(shrinks, 1);
+        firstShrink.complete(photo);
+        await settle(tester, () => sent.isNotEmpty && spinner.evaluate().isEmpty);
+        expect(shrinks, 2);
+        expect(sent, hasLength(1), reason: 'the stale first result is dropped');
+        expect(spinner, findsNothing);
+      },
+    );
+  });
+
+  testWidgets('a failed upload whose picture landed anyway (row re-read) is a success',
+      (tester) async {
+    final changed = <int>[];
+    await pump(
+      tester,
+      pickPhoto: () async => photo,
+      changed: changed,
+      server: (req, n, db) async {
+        // The picture reached the product (e.g. a pull) while the reply was lost.
+        await (db.update(db.products)..where((t) => t.id.equals('p1')))
+            .write(const ProductsCompanion(imageKey: Value(_newKey)));
+        return http.Response(
+            jsonEncode({'status': 'error', 'code': 'INTERNAL', 'message': 'x'}), 503);
+      },
+      body: (db, sent) async {
+        await tester.tap(pick);
+        await settle(tester, () => changed.isNotEmpty);
+        await settle(tester, () => spinner.evaluate().isEmpty);
+        expect(changed, [1]);
+        expect(find.byKey(const Key('product-image-error')), findsNothing);
+        expect(retry, findsNothing);
+        expect(find.text('เปลี่ยนรูป'), findsOneWidget);
       },
     );
   });

@@ -378,7 +378,9 @@ class _StockTabState extends State<_StockTab> {
         onImageChanged: _load,
       ),
     );
-    if (saved == true) await _load();
+    // null = dismissed (tap outside / Esc): after an add whose picture failed
+    // the product exists, so reload as ยกเลิก does.
+    if (saved == true || (p == null && saved == null)) await _load();
   }
 
   Future<void> _openAdjust(ProductRow p) async {
@@ -1284,12 +1286,10 @@ class _StockTabState extends State<_StockTab> {
     ),
   );
 
-  /// Phone/tablet layout (< [AppBreakpoints.expanded]): one card per product instead
-  /// of a nine-column table that only scrolls sideways. Same data, same
-  /// actions, same selection as the table rows.
   /// The muted line under a product's name in the table and the cards:
   /// `brand · nameTH`, empty parts left out, nameTH only when it is not
-  /// the name itself (a Thai-only product). Null when nothing is left.
+  /// the name itself (a Thai-only product), at most two lines. Null when
+  /// nothing is left.
   Widget? _brandLine(ThemeData theme, ProductRow p) {
     final brand = p.brand.trim();
     final th = p.nameTH.isNotEmpty && p.nameTH != p.name ? p.nameTH : '';
@@ -1307,10 +1307,15 @@ class _StockTabState extends State<_StockTab> {
         ],
       ),
       key: Key('product-subline-${p.id}'),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
       style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
     );
   }
 
+  /// Phone/tablet layout (< [AppBreakpoints.expanded]): one card per product instead
+  /// of a nine-column table that only scrolls sideways. Same data, same
+  /// actions, same selection as the table rows.
   Widget _cardList(
     ThemeData theme,
     List<ProductRow> filtered,
@@ -1986,6 +1991,10 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   /// The picture upload after add() is running (the button says so).
   bool _uploadingImage = false;
 
+  /// The picture block is shrinking a photo: บันทึก waits for it (else the
+  /// product would be saved without the picture the owner is waiting for).
+  bool _photoBusy = false;
+
   /// The product was saved but its picture was not: the banner, and why.
   bool _imageFailed = false;
   String? _imageError;
@@ -2280,19 +2289,20 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       _imageError = null;
     });
     try {
-      await repo
-          .setImage(_product!.id, jpeg)
-          .timeout(productPhotoUploadTimeout);
+      await repo.setImage(_product!.id, jpeg);
     } catch (e) {
+      // ApiClient's own timeout ends a hung upload. The picture may have
+      // landed anyway (a pull wrote the key meanwhile): then it is done.
+      final row = await repo.getById(_product!.id);
       if (!mounted) return;
-      setState(() {
-        _uploadingImage = false;
-        _imageFailed = true;
-        _imageError = e is TimeoutException
-            ? productPhotoTimeoutMessage
-            : ServerErrorResolver.resolveCounterError(e);
-      });
-      return;
+      if (row?.imageKey == null) {
+        setState(() {
+          _uploadingImage = false;
+          _imageFailed = true;
+          _imageError = ServerErrorResolver.resolveCounterError(e);
+        });
+        return;
+      }
     }
     _pendingJpeg = null;
     if (mounted) Navigator.of(context).pop(true);
@@ -2377,12 +2387,19 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-              // The picture (API build only). A new product's — or one whose
-              // upload after add() failed — is kept here until บันทึก sends it.
+              // The picture (API build only). A new product's is kept here
+              // until บันทึก sends it — also while that upload runs or after
+              // it failed (never the edit-mode editor with a PUT of its own).
               ProductImageEditor(
-                product: _isNew || _imageFailed ? null : _product,
+                product: _isNew || _imageFailed || _pendingJpeg != null
+                    ? null
+                    : _product,
                 onChanged: () => widget.onImageChanged(),
                 onPicked: (jpeg) => _pendingJpeg = jpeg,
+                onBusyChanged: (busy) {
+                  if (mounted) setState(() => _photoBusy = busy);
+                },
+                enabled: !_saving && !_uploadingImage,
               ),
               // Two columns that fill the dialog (one below 560 px): each
               // field used to be capped at 300 px, and 2 × 300 + 16 never fit
@@ -2557,7 +2574,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                       foregroundColor: AppColors.white,
                       minimumSize: const Size(0, 48),
                     ),
-                    onPressed: _saving ? null : _save,
+                    onPressed: _saving || _photoBusy ? null : _save,
                     icon: _saving
                         ? const SizedBox(
                             width: 20,
@@ -2610,7 +2627,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
             children: [
               FilledButton.tonalIcon(
                 key: const Key('product-image-failed-retry'),
-                onPressed: _saving ? null : _retryImage,
+                onPressed: _saving || _photoBusy ? null : _retryImage,
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('ลองอีกครั้ง'),
               ),

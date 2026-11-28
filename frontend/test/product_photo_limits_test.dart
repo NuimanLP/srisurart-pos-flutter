@@ -51,6 +51,39 @@ void main() {
       expect(imageHeaderSize(webp), (width: 321, height: 123));
     });
 
+    test('malformed JPEG segments: len=0 and a SOF cut off mid-header → null', () {
+      expect(imageHeaderSize(Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 1, 2])), isNull);
+      expect(
+        imageHeaderSize(Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00])),
+        isNull,
+      );
+    });
+
+    test('an EXIF IFD count running past its APP1 segment is not read', () {
+      // APP1: Exif, II TIFF, IFD at 8 claiming 3 entries but holding 1. The
+      // "3rd entry" would sit inside the next (APP2) segment, where an
+      // orientation-6 entry is planted; the SOF says 300 wide × 100 high.
+      final app1Payload = <int>[
+        ...'Exif'.codeUnits, 0, 0, //
+        0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, // TIFF header
+        0x03, 0x00, // count = 3 (only 1 present)
+        0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x2C, 0x01, 0x00, 0x00,
+      ];
+      final app2Payload = <int>[
+        ...List.filled(8, 0),
+        0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
+      ];
+      final bytes = Uint8List.fromList([
+        0xFF, 0xD8,
+        0xFF, 0xE1, 0, app1Payload.length + 2, ...app1Payload,
+        0xFF, 0xE2, 0, app2Payload.length + 2, ...app2Payload,
+        0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 100, 0x01, 0x2C, 0x03,
+        ...List.filled(9, 0),
+        0xFF, 0xD9,
+      ]);
+      expect(imageHeaderSize(bytes), (width: 300, height: 100));
+    });
+
     test('not an image / truncated → null', () {
       expect(imageHeaderSize(Uint8List.fromList(List.filled(64, 7))), isNull);
       expect(imageHeaderSize(Uint8List.fromList([0xFF, 0xD8, 0xFF])), isNull);
@@ -73,7 +106,9 @@ void main() {
       await expectLater(
         shrinkProductPhoto(_pngHeaderOnly(6000, 5000)), // 30 MP
         throwsA(isA<PosException>()
-            .having((e) => e.code, 'code', 'PRODUCT_IMAGE_TOO_MANY_PIXELS')),
+            .having((e) => e.code, 'code', 'PRODUCT_IMAGE_TOO_MANY_PIXELS')
+            // A device limit for the owner, not a server rule.
+            .having((e) => e.message, 'message', 'รูปใหญ่เกินไปสำหรับเครื่องนี้ กรุณาเลือกรูปอื่น')),
       );
     });
   });

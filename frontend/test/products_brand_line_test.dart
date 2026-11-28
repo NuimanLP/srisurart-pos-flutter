@@ -93,6 +93,9 @@ void main() {
         .textSpan!
         .visitChildren((s) => !(s is TextSpan && s.text == 'Bendix' && s.style?.fontWeight == FontWeight.w600));
     expect(brand, isFalse, reason: 'the brand is weight 600');
+    final line = tester.widget<Text>(find.byKey(const Key('product-subline-b1')));
+    expect(line.maxLines, 2, reason: 'a long brand + Thai name never pushes the row');
+    expect(line.overflow, TextOverflow.ellipsis);
   }
 
   testWidgets('table at 1180×820: brand under the name, no new column', (tester) async {

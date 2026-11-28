@@ -5,11 +5,14 @@
 // with a banner (ลองอีกครั้ง / ข้ามไปก่อน); บันทึก again never makes a second
 // product. Staff and the Drift build see no picture block in Add.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,6 +23,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/utils/product_photo.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
@@ -45,6 +49,12 @@ const _key = 'aaaaaaaabbbbbbbbccccccccdddddddd';
 /// .../image answers [imageStatus] (200 = the key), anything else is empty.
 class _Server {
   int imageStatus = 200;
+
+  /// When set, the image PUT waits for it.
+  Completer<void>? imageGate;
+
+  /// When set, runs before the image PUT answers (e.g. a pull landing).
+  Future<void> Function()? beforeImageReply;
   final sent = <http.Request>[];
   Iterable<http.Request> where(String method, String pathEnd) =>
       sent.where((r) => r.method == method && r.url.path.endsWith(pathEnd));
@@ -70,6 +80,8 @@ class _Server {
       return ok(product);
     }
     if (req.method == 'PUT' && path == '/api/v1/products/$_newId/image') {
+      if (imageGate != null) await imageGate!.future;
+      if (beforeImageReply != null) await beforeImageReply!();
       if (imageStatus != 200) {
         return http.Response(
             jsonEncode({'status': 'error', 'code': 'INTERNAL', 'message': 'x'}), imageStatus);
@@ -89,7 +101,10 @@ void main() {
 
   final photo = Uint8List.fromList(img.encodeJpg(img.Image(width: 64, height: 48)));
   setUp(() => productPhotoPicker = () async => photo);
-  tearDown(() => productPhotoPicker = pickProductPhotoBytes);
+  tearDown(() {
+    productPhotoPicker = pickProductPhotoBytes;
+    productPhotoShrinker = shrinkProductPhoto;
+  });
 
   final pick = find.byKey(const Key('product-image-pick'));
   final save = find.byKey(const Key('product-save'));
@@ -269,6 +284,85 @@ void main() {
       expect(find.byType(Dialog), findsNothing);
       final saved = await db.select(db.products).getSingle();
       expect(saved.imageKey, isNull);
+    });
+  });
+
+  testWidgets('บันทึก is held while the picture is still shrinking', (tester) async {
+    final shrinking = Completer<Uint8List>();
+    productPhotoShrinker = (_) => shrinking.future;
+    await run(tester, body: (db, server) async {
+      final fields = find.descendant(of: find.byType(Dialog), matching: find.byType(EditableText));
+      await tester.enterText(fields.at(0), 'IMG-001');
+      await tester.enterText(fields.at(2), 'ผ้าเบรกหน้า');
+      await tester.pump();
+      allowCategoryOverflow(tester);
+      await tester.tap(pick);
+      await settle(tester, () => find.text('กำลังย่อรูป…').evaluate().isNotEmpty);
+      expect(tester.widget<ButtonStyleButton>(save).onPressed, isNull);
+      await tester.ensureVisible(save);
+      await tester.tap(save, warnIfMissed: false);
+      await settle(tester);
+      allowCategoryOverflow(tester);
+      expect(server.where('POST', '/products'), isEmpty,
+          reason: 'never saved without the picture the owner is waiting for');
+
+      shrinking.complete(photo);
+      await settle(tester,
+          () => find.byKey(const Key('product-image-local-preview')).evaluate().isNotEmpty);
+      await tapSave(tester);
+      expect(find.byType(Dialog), findsNothing);
+      expect(server.where('POST', '/products'), hasLength(1));
+      expect(server.where('PUT', '/$_newId/image'), hasLength(1));
+    });
+  });
+
+  testWidgets('during the upload after add: the picture stays local, picking is off, one PUT',
+      (tester) async {
+    await run(tester, body: (db, server) async {
+      server.imageGate = Completer<void>();
+      await fillAndPickPhoto(tester);
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await settle(tester, () => server.where('PUT', '/image').isNotEmpty);
+      await tester.pump();
+      allowCategoryOverflow(tester);
+      expect(find.text('กำลังอัปโหลดรูป…'), findsOneWidget);
+      expect(find.byKey(const Key('product-image-local-preview')), findsOneWidget,
+          reason: 'not flipped to the edit-mode editor with its own PUT');
+      expect(tester.widget<ButtonStyleButton>(pick).onPressed, isNull);
+
+      server.imageGate!.complete();
+      await settle(tester, () => find.byType(Dialog).evaluate().isEmpty);
+      expect(find.byType(Dialog), findsNothing);
+      expect(server.where('PUT', '/$_newId/image'), hasLength(1));
+    });
+  });
+
+  testWidgets('a picture upload that failed but landed anyway (row re-read) closes the dialog',
+      (tester) async {
+    await run(tester, body: (db, server) async {
+      server.imageStatus = 503;
+      server.beforeImageReply = () => (db.update(db.products)
+            ..where((t) => t.id.equals(_newId)))
+          .write(const ProductsCompanion(imageKey: Value(_key)));
+      await fillAndPickPhoto(tester);
+      await tapSave(tester);
+      expect(banner, findsNothing);
+      expect(find.byType(Dialog), findsNothing);
+    });
+  });
+
+  testWidgets('Esc after "saved, picture failed" still reloads the list', (tester) async {
+    await run(tester, body: (db, server) async {
+      server.imageStatus = 503;
+      await fillAndPickPhoto(tester);
+      await tapSave(tester);
+      expect(banner, findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester, () => find.byType(Dialog).evaluate().isEmpty);
+      expect(find.byType(Dialog), findsNothing);
+      await settle(tester, () => find.text('IMG-001').evaluate().isNotEmpty);
+      expect(find.text('IMG-001'), findsWidgets, reason: 'the new product is listed');
     });
   });
 

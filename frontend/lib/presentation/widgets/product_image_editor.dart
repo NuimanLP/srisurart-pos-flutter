@@ -9,10 +9,11 @@
 // iPad (2026-11-28: the spinner never stopped, no request reached the
 // server): nothing is busy while the picker is open — iOS Safari can dismiss
 // it without ever answering — and a generation counter drops a pick that
-// answers late. After a pick: กำลังย่อรูป… (≤ [productPhotoProcessTimeout]) →
-// กำลังอัปโหลด… (≤ [productPhotoUploadTimeout]) → done, or a red message; a
-// failed upload's ลองอีกครั้ง re-sends the same in-memory JPEG, so the
-// idempotency fingerprint (the body bytes) does not change.
+// answers late. After a pick: กำลังย่อรูป… (≤ [productPhotoProcessTimeout];
+// one shrink at a time, the button is off meanwhile) → กำลังอัปโหลด… (ended
+// by ApiClient's own write timeout) → done, or a red message; a failed
+// upload's ลองอีกครั้ง re-sends the same in-memory JPEG, so the idempotency
+// fingerprint (the body bytes) does not change.
 //
 // เพิ่มสินค้าใหม่ ([product] null, owner only): there is no id to `PUT` to
 // yet, so a picked photo is shrunk and previewed locally and handed to
@@ -41,10 +42,6 @@ import 'sync_status_builder.dart';
 /// Longest the shrink of a picked photo may take before it is given up.
 const productPhotoProcessTimeout = Duration(seconds: 20);
 
-/// Longest a picture upload may take before the screen stops waiting (the
-/// request may still land; ลองอีกครั้ง then replays under the same key).
-const productPhotoUploadTimeout = Duration(seconds: 40);
-
 // agent ร่าง
 const productPhotoTimeoutMessage = 'ใช้เวลานานเกินไป กรุณาลองใหม่หรือเลือกรูปอื่น';
 
@@ -69,6 +66,10 @@ Future<Uint8List?> pickProductPhotoBytes() async {
 @visibleForTesting
 Future<Uint8List?> Function() productPhotoPicker = pickProductPhotoBytes;
 
+/// Likewise for the shrink.
+@visibleForTesting
+Future<Uint8List> Function(Uint8List source) productPhotoShrinker = shrinkProductPhoto;
+
 enum _Phase { idle, processing, uploading, failed }
 
 class ProductImageEditor extends StatefulWidget {
@@ -77,10 +78,11 @@ class ProductImageEditor extends StatefulWidget {
     required this.product,
     required this.onChanged,
     this.onPicked,
+    this.onBusyChanged,
+    this.enabled = true,
     this.pickPhoto,
-    this.shrink = shrinkProductPhoto,
+    this.shrink,
     this.processTimeout = productPhotoProcessTimeout,
-    this.uploadTimeout = productPhotoUploadTimeout,
   });
 
   /// Null = a product not saved yet (เพิ่มสินค้าใหม่): nothing is uploaded.
@@ -93,11 +95,17 @@ class ProductImageEditor extends StatefulWidget {
   /// upload after it saved the product.
   final ValueChanged<Uint8List>? onPicked;
 
+  /// True while a photo is being shrunk or uploaded, false when that ended —
+  /// the Add dialog holds its บันทึก meanwhile.
+  final ValueChanged<bool>? onBusyChanged;
+
+  /// False: picking is off (the dialog is saving / uploading this picture).
+  final bool enabled;
+
   /// Seams for tests; the defaults are the real picker and shrink.
   final Future<Uint8List?> Function()? pickPhoto;
-  final Future<Uint8List> Function(Uint8List source) shrink;
+  final Future<Uint8List> Function(Uint8List source)? shrink;
   final Duration processTimeout;
-  final Duration uploadTimeout;
 
   @override
   State<ProductImageEditor> createState() => _ProductImageEditorState();
@@ -120,6 +128,22 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
 
   /// A remove (its own confirm + DELETE) is running.
   bool _removing = false;
+
+  /// The shrink still running, even one the screen stopped waiting for: the
+  /// next one starts only after it (on Safari each is a full-size decode).
+  Future<void>? _shrinkRunning;
+
+  bool _busyReported = false;
+
+  /// setState, then tell the dialog when busy (shrinking / uploading) flips.
+  void _update(VoidCallback fn) {
+    setState(fn);
+    final busy = _phase == _Phase.processing || _phase == _Phase.uploading;
+    if (busy != _busyReported) {
+      _busyReported = busy;
+      widget.onBusyChanged?.call(busy);
+    }
+  }
 
   // agent ร่าง
   static const _offlineNote = 'ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะเปลี่ยนรูปสินค้าได้';
@@ -165,15 +189,28 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     await _process(gen, source);
   }
 
+  /// [source] shrunk, after any shrink still running from before.
+  Future<Uint8List> _shrinkAfterPrevious(Uint8List source) {
+    final previous = _shrinkRunning ?? Future<void>.value();
+    final shrink = widget.shrink ?? productPhotoShrinker;
+    final run = previous.then((_) => shrink(source));
+    final done = run.then<void>((_) {}, onError: (_) {});
+    _shrinkRunning = done;
+    unawaited(done.then((_) {
+      if (identical(_shrinkRunning, done)) _shrinkRunning = null;
+    }));
+    return run;
+  }
+
   Future<void> _process(int gen, Uint8List source) async {
-    setState(() {
+    _update(() {
       _phase = _Phase.processing;
       _error = null;
       _retry = null;
     });
     final Uint8List jpeg;
     try {
-      jpeg = await widget.shrink(source).timeout(widget.processTimeout);
+      jpeg = await _shrinkAfterPrevious(source).timeout(widget.processTimeout);
     } catch (e) {
       // Only a timeout is worth the same file again; a refused file is not.
       if (gen == _gen) {
@@ -183,37 +220,46 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     }
     if (gen != _gen || !mounted) return;
     if (widget.product == null) {
-      setState(() {
+      widget.onPicked?.call(jpeg); // before busy flips off: บันทึก then sends it
+      _update(() {
         _local = jpeg;
         _phase = _Phase.idle;
       });
-      widget.onPicked?.call(jpeg);
       return;
     }
     await _upload(gen, jpeg);
   }
 
-  /// The retry keeps [jpeg] as is: the same bytes are the same key.
+  /// The retry keeps [jpeg] as is: the same bytes are the same key. No UI
+  /// timeout: ApiClient's own write timeout ends it (a 401 refresh may
+  /// resend, so a shorter one here would say "failed" while it saves).
   Future<void> _upload(int gen, Uint8List jpeg) async {
-    setState(() {
+    _update(() {
       _phase = _Phase.uploading;
       _error = null;
       _retry = null;
     });
+    final repo = context.read<ProductsRepository>();
+    final id = widget.product!.id;
     try {
-      final repo = context.read<ProductsRepository>();
-      await repo.setImage(widget.product!.id, jpeg).timeout(widget.uploadTimeout);
-      if (gen != _gen) return;
-      await _afterWrite(repo);
-      if (mounted && gen == _gen) setState(() => _phase = _Phase.idle);
+      await repo.setImage(id, jpeg);
     } catch (e) {
-      if (gen == _gen) _showError(e, () => _upload(++_gen, jpeg));
+      // The picture may have landed anyway (a pull wrote its key meanwhile).
+      final row = await repo.getById(id);
+      if (gen != _gen) return;
+      if (row?.imageKey == null || row?.imageKey == _imageKey) {
+        _showError(e, () => _upload(++_gen, jpeg));
+        return;
+      }
     }
+    if (gen != _gen) return;
+    await _afterWrite(repo);
+    if (mounted && gen == _gen) _update(() => _phase = _Phase.idle);
   }
 
   void _showError(Object e, Future<void> Function()? retry) {
     if (!mounted) return;
-    setState(() {
+    _update(() {
       _phase = _Phase.failed;
       _error = e is TimeoutException
           ? productPhotoTimeoutMessage
@@ -232,7 +278,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
     );
     if (!ok || !mounted) return;
     ++_gen; // a pick still waiting must not overwrite the removal
-    setState(() {
+    _update(() {
       _removing = true;
       _phase = _Phase.idle;
       _error = null;
@@ -274,9 +320,10 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
         final working =
             _phase == _Phase.processing || _phase == _Phase.uploading;
         final canWrite = isOwner && !isDegraded && !_removing;
-        // Picking again is allowed while a shrink runs (it supersedes it),
-        // not during an upload, which cannot be called back.
-        final canPick = canWrite && _phase != _Phase.uploading;
+        // One photo at a time: no pick while one is shrunk (on Safari a
+        // second full-size decode can kill the tab) or uploaded (it cannot be
+        // called back), nor while the dialog saves this picture.
+        final canPick = canWrite && !working && widget.enabled;
         final note = !isOwner
             ? ApiProductsRepository.imageOwnerOnlyMessage
             : (isDegraded ? _offlineNote : null);
